@@ -1,0 +1,26 @@
+[Unit]
+Description=AgentSam server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=agentsam
+Group=agentsam
+WorkingDirectory=/opt/agentsam
+Environment=AGENTSAM_DATA=/opt/agentsam/data
+Environment=AGENTSAM_PORT=8080
+Environment=AGENTSAM_BIND_ALL=1
+EnvironmentFile=-/opt/agentsam/agentsam.env
+ExecStart=/opt/agentsam/AgentSamServer
+Restart=on-failure
+RestartSec=5
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/agentsam/data
+
+[Install]
+WantedBy=multi-user.target

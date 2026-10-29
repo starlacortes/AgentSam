@@ -1,0 +1,366 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classCount = 0;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+AE4757000000000000000109 /* AgentSamCore in Frameworks */ = {isa = PBXBuildFile; productRef = AE4757000000000000000022 /* AgentSamCore */; };
+AE4757000000000000000209 /* AgentSamCore in Frameworks */ = {isa = PBXBuildFile; productRef = AE4757000000000000000023 /* AgentSamCore */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+AE4757000000000000000107 /* AgentSamMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentSamMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
+AE4757000000000000000207 /* AgentSamiOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AgentSamiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+AE4757000000000000000108 /* AppMac */ = {isa = PBXFileSystemSynchronizedRootGroup; path = AppMac; sourceTree = "<group>"; };
+AE4757000000000000000208 /* AppIOS */ = {isa = PBXFileSystemSynchronizedRootGroup; path = AppIOS; sourceTree = "<group>"; };
+AE4757000000000000000308 /* AppShared */ = {isa = PBXFileSystemSynchronizedRootGroup; path = AppShared; sourceTree = "<group>"; };
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+AE4757000000000000000105 /* Frameworks */ = {
+	isa = PBXFrameworksBuildPhase;
+	buildActionMask = 2147483647;
+	files = (
+		AE4757000000000000000109 /* AgentSamCore in Frameworks */,
+	);
+	runOnlyForDeploymentPostprocessing = 0;
+};
+AE4757000000000000000205 /* Frameworks */ = {
+	isa = PBXFrameworksBuildPhase;
+	buildActionMask = 2147483647;
+	files = (
+		AE4757000000000000000209 /* AgentSamCore in Frameworks */,
+	);
+	runOnlyForDeploymentPostprocessing = 0;
+};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+AE4757000000000000000020 = {
+	isa = PBXGroup;
+	children = (
+		AE4757000000000000000108 /* AppMac */,
+		AE4757000000000000000208 /* AppIOS */,
+		AE4757000000000000000308 /* AppShared */,
+	);
+	sourceTree = "<group>";
+};
+AE4757000000000000000030 /* Products */ = {
+	isa = PBXGroup;
+	children = (
+		AE4757000000000000000107 /* AgentSamMac.app */,
+		AE4757000000000000000207 /* AgentSamiOS.app */,
+	);
+	name = Products;
+	sourceTree = "<group>";
+};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+AE4757000000000000000100 /* AgentSamMac */ = {
+	isa = PBXNativeTarget;
+	buildConfigurationList = AE4757000000000000000101;
+	buildPhases = (
+		AE4757000000000000000104 /* Sources */,
+		AE4757000000000000000105 /* Frameworks */,
+		AE4757000000000000000106 /* Resources */,
+	);
+	dependencies = (
+	);
+	fileSystemSynchronizedGroups = (
+		AE4757000000000000000108 /* AppMac */,
+		AE4757000000000000000308 /* AppShared */,
+	);
+	packageProductDependencies = (
+		AE4757000000000000000022 /* AgentSamCore */,
+	);
+	name = AgentSamMac;
+	productReference = AE4757000000000000000107 /* AgentSamMac.app */;
+	productType = "com.apple.product-type.application";
+};
+AE4757000000000000000200 /* AgentSamiOS */ = {
+	isa = PBXNativeTarget;
+	buildConfigurationList = AE4757000000000000000201;
+	buildPhases = (
+		AE4757000000000000000204 /* Sources */,
+		AE4757000000000000000205 /* Frameworks */,
+		AE4757000000000000000206 /* Resources */,
+	);
+	dependencies = (
+	);
+	fileSystemSynchronizedGroups = (
+		AE4757000000000000000208 /* AppIOS */,
+		AE4757000000000000000308 /* AppShared */,
+	);
+	packageProductDependencies = (
+		AE4757000000000000000023 /* AgentSamCore */,
+	);
+	name = AgentSamiOS;
+	productReference = AE4757000000000000000207 /* AgentSamiOS.app */;
+	productType = "com.apple.product-type.application";
+};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+AE4757000000000000000001 /* Project object */ = {
+	isa = PBXProject;
+	attributes = {
+		BuildIndependentTargetsInParallel = 1;
+		LastUpgradeCheck = 2700;
+		TargetAttributes = {
+			AE4757000000000000000100 = { CreatedOnToolsVersion = 27.1; };
+			AE4757000000000000000200 = { CreatedOnToolsVersion = 27.1; };
+		};
+	};
+	buildConfigurationList = AE4757000000000000000002;
+	compatibilityVersion = "Xcode 16.0";
+	developmentRegion = en;
+	hasScannedForEncodings = 0;
+	knownRegions = (
+		en,
+		Base,
+	);
+	mainGroup = AE4757000000000000000020;
+	minimizedProjectReferenceProxies = 1;
+	packageReferences = (
+		AE4757000000000000000021 /* AgentSamCore */,
+	);
+	preferredProjectObjectVersion = 77;
+	productRefGroup = AE4757000000000000000030 /* Products */;
+	projectDirPath = "";
+	projectRoot = "";
+	targets = (
+		AE4757000000000000000100 /* AgentSamMac */,
+		AE4757000000000000000200 /* AgentSamiOS */,
+	);
+};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+AE4757000000000000000106 /* Resources */ = {
+	isa = PBXResourcesBuildPhase;
+	buildActionMask = 2147483647;
+	files = (
+	);
+	runOnlyForDeploymentPostprocessing = 0;
+};
+AE4757000000000000000206 /* Resources */ = {
+	isa = PBXResourcesBuildPhase;
+	buildActionMask = 2147483647;
+	files = (
+	);
+	runOnlyForDeploymentPostprocessing = 0;
+};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+AE4757000000000000000104 /* Sources */ = {
+	isa = PBXSourcesBuildPhase;
+	buildActionMask = 2147483647;
+	files = (
+	);
+	runOnlyForDeploymentPostprocessing = 0;
+};
+AE4757000000000000000204 /* Sources */ = {
+	isa = PBXSourcesBuildPhase;
+	buildActionMask = 2147483647;
+	files = (
+	);
+	runOnlyForDeploymentPostprocessing = 0;
+};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+AE4757000000000000000011 /* Debug */ = {
+	isa = XCBuildConfiguration;
+	buildSettings = {
+	};
+	name = Debug;
+};
+AE4757000000000000000012 /* Release */ = {
+	isa = XCBuildConfiguration;
+	buildSettings = {
+	};
+	name = Release;
+};
+AE4757000000000000000102 /* Debug */ = {
+	isa = XCBuildConfiguration;
+	buildSettings = {
+		ALWAYS_SEARCH_USER_PATHS = NO;
+		ARCHS = arm64;
+		CODE_SIGN_IDENTITY = "-";
+		CODE_SIGN_STYLE = Automatic;
+		CURRENT_PROJECT_VERSION = 1;
+		DEVELOPMENT_ASSET_PATHS = "";
+		ENABLE_PREVIEWS = YES;
+		ENABLE_USER_SCRIPT_SANDBOXING = YES;
+		GENERATE_INFOPLIST_FILE = YES;
+		INFOPLIST_KEY_CFBundleDisplayName = AgentSam;
+		INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+		LD_RUNPATH_SEARCH_PATHS = (
+			"$(inherited)",
+			"@executable_path/../Frameworks",
+		);
+		MACOSX_DEPLOYMENT_TARGET = 14.0;
+		MARKETING_VERSION = 1.0;
+		PRODUCT_BUNDLE_IDENTIFIER = local.agentsam.mac;
+		PRODUCT_NAME = "$(TARGET_NAME)";
+		SDKROOT = macosx;
+		SUPPORTED_PLATFORMS = macosx;
+		SWIFT_VERSION = 5.0;
+	};
+	name = Debug;
+};
+AE4757000000000000000103 /* Release */ = {
+	isa = XCBuildConfiguration;
+	buildSettings = {
+		ALWAYS_SEARCH_USER_PATHS = NO;
+		ARCHS = arm64;
+		CODE_SIGN_IDENTITY = "-";
+		CODE_SIGN_STYLE = Automatic;
+		CURRENT_PROJECT_VERSION = 1;
+		DEVELOPMENT_ASSET_PATHS = "";
+		ENABLE_PREVIEWS = YES;
+		ENABLE_USER_SCRIPT_SANDBOXING = YES;
+		GENERATE_INFOPLIST_FILE = YES;
+		INFOPLIST_KEY_CFBundleDisplayName = AgentSam;
+		INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+		LD_RUNPATH_SEARCH_PATHS = (
+			"$(inherited)",
+			"@executable_path/../Frameworks",
+		);
+		MACOSX_DEPLOYMENT_TARGET = 14.0;
+		MARKETING_VERSION = 1.0;
+		PRODUCT_BUNDLE_IDENTIFIER = local.agentsam.mac;
+		PRODUCT_NAME = "$(TARGET_NAME)";
+		SDKROOT = macosx;
+		SUPPORTED_PLATFORMS = macosx;
+		SWIFT_VERSION = 5.0;
+	};
+	name = Release;
+};
+AE4757000000000000000202 /* Debug */ = {
+	isa = XCBuildConfiguration;
+	buildSettings = {
+		ALWAYS_SEARCH_USER_PATHS = NO;
+		ARCHS = arm64;
+		CODE_SIGN_STYLE = Automatic;
+		CURRENT_PROJECT_VERSION = 1;
+		ENABLE_PREVIEWS = YES;
+		GENERATE_INFOPLIST_FILE = YES;
+		INFOPLIST_KEY_CFBundleDisplayName = AgentSam;
+		INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+		INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+		INFOPLIST_KEY_UISupportedInterfaceOrientations = (
+			UIInterfaceOrientationPortrait,
+			UIInterfaceOrientationLandscapeLeft,
+			UIInterfaceOrientationLandscapeRight,
+		);
+		IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+		LD_RUNPATH_SEARCH_PATHS = (
+			"$(inherited)",
+			"@executable_path/Frameworks",
+		);
+		MARKETING_VERSION = 1.0;
+		PRODUCT_BUNDLE_IDENTIFIER = local.agentsam.ios;
+		PRODUCT_NAME = "$(TARGET_NAME)";
+		SDKROOT = iphoneos;
+		SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+		SWIFT_VERSION = 5.0;
+		TARGETED_DEVICE_FAMILY = "1,2";
+	};
+	name = Debug;
+};
+AE4757000000000000000203 /* Release */ = {
+	isa = XCBuildConfiguration;
+	buildSettings = {
+		ALWAYS_SEARCH_USER_PATHS = NO;
+		ARCHS = arm64;
+		CODE_SIGN_STYLE = Automatic;
+		CURRENT_PROJECT_VERSION = 1;
+		ENABLE_PREVIEWS = YES;
+		GENERATE_INFOPLIST_FILE = YES;
+		INFOPLIST_KEY_CFBundleDisplayName = AgentSam;
+		INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+		INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+		INFOPLIST_KEY_UISupportedInterfaceOrientations = (
+			UIInterfaceOrientationPortrait,
+			UIInterfaceOrientationLandscapeLeft,
+			UIInterfaceOrientationLandscapeRight,
+		);
+		IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+		LD_RUNPATH_SEARCH_PATHS = (
+			"$(inherited)",
+			"@executable_path/Frameworks",
+		);
+		MARKETING_VERSION = 1.0;
+		PRODUCT_BUNDLE_IDENTIFIER = local.agentsam.ios;
+		PRODUCT_NAME = "$(TARGET_NAME)";
+		SDKROOT = iphoneos;
+		SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+		SWIFT_VERSION = 5.0;
+		TARGETED_DEVICE_FAMILY = "1,2";
+	};
+	name = Release;
+};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+AE4757000000000000000002 /* Build configuration list for PBXProject "AgentSam" */ = {
+	isa = XCConfigurationList;
+	buildConfigurations = (
+		AE4757000000000000000011 /* Debug */,
+		AE4757000000000000000012 /* Release */,
+	);
+	defaultConfigurationIsVisible = 0;
+	defaultConfigurationName = Release;
+};
+AE4757000000000000000101 /* Build configuration list for PBXNativeTarget "AgentSamMac" */ = {
+	isa = XCConfigurationList;
+	buildConfigurations = (
+		AE4757000000000000000102 /* Debug */,
+		AE4757000000000000000103 /* Release */,
+	);
+	defaultConfigurationIsVisible = 0;
+	defaultConfigurationName = Release;
+};
+AE4757000000000000000201 /* Build configuration list for PBXNativeTarget "AgentSamiOS" */ = {
+	isa = XCConfigurationList;
+	buildConfigurations = (
+		AE4757000000000000000202 /* Debug */,
+		AE4757000000000000000203 /* Release */,
+	);
+	defaultConfigurationIsVisible = 0;
+	defaultConfigurationName = Release;
+};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+AE4757000000000000000021 /* AgentSamCore */ = {
+	isa = XCLocalSwiftPackageReference;
+	relativePath = AgentSamCore;
+};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+AE4757000000000000000022 /* AgentSamCore */ = {
+	isa = XCSwiftPackageProductDependency;
+	package = AE4757000000000000000021 /* AgentSamCore */;
+	productName = AgentSamCore;
+};
+AE4757000000000000000023 /* AgentSamCore */ = {
+	isa = XCSwiftPackageProductDependency;
+	package = AE4757000000000000000021 /* AgentSamCore */;
+	productName = AgentSamCore;
+};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = AE4757000000000000000001 /* Project object */;
+}

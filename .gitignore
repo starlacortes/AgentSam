@@ -1,0 +1,9 @@
+.DS_Store
+.build/
+*.xcodeproj/xcuserdata/
+*.xcuserstate
+DerivedData/
+Server/.build/
+AgentSamCore/.build/
+deploy/.env
+Server/data/
