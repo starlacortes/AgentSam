@@ -9,6 +9,8 @@ struct Principal: Sendable {
         case serverToken
         /// A browser session cookie belonging to a user account.
         case session(token: String)
+        /// A personal API token (`asam_…`) a user created for the apps or scripts.
+        case apiToken
     }
 
     var userID: UUID?
@@ -99,13 +101,11 @@ struct AuthMiddleware: AsyncMiddleware {
         if let header = request.headers.first(name: .authorization)?.trimmingCharacters(in: .whitespaces),
            header.lowercased().hasPrefix("bearer") {
             let provided = String(header.dropFirst("bearer".count)).trimmingCharacters(in: .whitespaces)
-            guard isServerToken(provided) else { throw Abort(.unauthorized, reason: "Missing or invalid token") }
-            return Principal(userID: nil, name: "Server token", email: nil, role: .admin, source: .serverToken)
+            return try await principal(forToken: provided)
         }
 
         if request.method == .GET, let provided = request.query[String.self, at: "token"] {
-            guard isServerToken(provided) else { throw Abort(.unauthorized, reason: "Missing or invalid token") }
-            return Principal(userID: nil, name: "Server token", email: nil, role: .admin, source: .serverToken)
+            return try await principal(forToken: provided)
         }
 
         if let cookie = request.cookies[AuthConfig.cookieName]?.string, !cookie.isEmpty,
@@ -120,6 +120,16 @@ struct AuthMiddleware: AsyncMiddleware {
         }
 
         throw Abort(.unauthorized, reason: "Sign in required")
+    }
+
+    private func principal(forToken provided: String) async throws -> Principal {
+        if isServerToken(provided) {
+            return Principal(userID: nil, name: "Server token", email: nil, role: .admin, source: .serverToken)
+        }
+        if provided.hasPrefix(AccountStore.apiTokenPrefix), let user = await ctx.accounts.user(apiToken: provided) {
+            return Principal(userID: user.id, name: user.name, email: user.email, role: user.role, source: .apiToken)
+        }
+        throw Abort(.unauthorized, reason: "Missing or invalid token")
     }
 
     private func isServerToken(_ provided: String) -> Bool {
@@ -190,13 +200,23 @@ struct UserPatchBody: Codable, Sendable {
     var name: String?
 }
 
+struct TokenBody: Codable, Sendable {
+    var name: String
+}
+
+struct TokenCreated: Codable, Sendable {
+    var token: PublicAPIToken
+    /// Shown once. Use it as `Authorization: Bearer <secret>` in the apps.
+    var secret: String
+}
+
 struct AuthStatus: Codable, Sendable {
     var needsSetup: Bool
 }
 
 struct MeResponse: Codable, Sendable {
     var user: PublicUser?
-    /// "session" for a browser login, "token" for the shared server token.
+    /// "session" for a browser login, "apiToken" for a personal token, "token" for the shared server token.
     var via: String
     var name: String
     var role: UserRole
@@ -366,12 +386,43 @@ func authRoutes(_ app: Application, ctx: ServerContext, authed: RoutesBuilder) {
         switch principal.source {
         case .serverToken:
             return try req.json(MeResponse(user: nil, via: "token", name: principal.name, role: principal.role))
-        case .session:
+        case .session, .apiToken:
             guard let id = principal.userID, let user = await ctx.accounts.user(id: id) else {
                 throw Abort(.unauthorized)
             }
-            return try req.json(MeResponse(user: PublicUser(user), via: "session", name: user.name, role: user.role))
+            var via = "session"
+            if case .apiToken = principal.source { via = "apiToken" }
+            return try req.json(MeResponse(user: PublicUser(user), via: via, name: user.name, role: user.role))
         }
+    }
+
+    me.get("tokens") { req async throws -> Response in
+        guard let id = try req.requirePrincipal().userID else { throw Abort(.badRequest, reason: "Sign in as a user") }
+        return try req.json(await ctx.accounts.apiTokens(userID: id).map(PublicAPIToken.init))
+    }
+
+    me.post("tokens") { req async throws -> Response in
+        let principal = try req.requirePrincipal()
+        guard let id = principal.userID, case .session = principal.source else {
+            throw Abort(.forbidden, reason: "Create app tokens from a signed-in browser session")
+        }
+        let body = try req.content.decode(TokenBody.self)
+        let name = body.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name.count <= 60 else { throw Abort(.badRequest, reason: "Name must be 1 to 60 characters") }
+        guard await ctx.accounts.apiTokens(userID: id).count < 20 else {
+            throw Abort(.conflict, reason: "You already have 20 app tokens. Revoke one first.")
+        }
+        let (record, raw) = try await ctx.accounts.createAPIToken(userID: id, name: name)
+        return try req.json(TokenCreated(token: PublicAPIToken(record), secret: raw), status: .created)
+    }
+
+    me.delete("tokens", ":id") { req async throws -> Response in
+        guard let userID = try req.requirePrincipal().userID,
+              let id = req.parameters.get("id").flatMap(UUID.init(uuidString:)) else {
+            throw Abort(.badRequest, reason: "Bad token id")
+        }
+        try await ctx.accounts.revokeAPIToken(id: id, userID: userID)
+        return try req.json(AckResult(ok: true, detail: nil))
     }
 
     me.post("password") { req async throws -> Response in

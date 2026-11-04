@@ -77,9 +77,43 @@ struct SessionRecord: Codable, Sendable {
     var expiresAt: Date
 }
 
+struct APITokenRecord: Codable, Sendable, Identifiable {
+    var id: UUID
+    var userID: UUID
+    var name: String
+    /// SHA-256 of the token. The token itself is shown once, when it's created.
+    var tokenHash: String
+    var createdAt: Date
+    var lastUsedAt: Date?
+}
+
+struct PublicAPIToken: Codable, Sendable {
+    var id: UUID
+    var name: String
+    var createdAt: Date
+    var lastUsedAt: Date?
+
+    init(_ record: APITokenRecord) {
+        id = record.id
+        name = record.name
+        createdAt = record.createdAt
+        lastUsedAt = record.lastUsedAt
+    }
+}
+
 private struct AccountsFile: Codable {
     var users: [UserRecord] = []
     var invites: [InviteRecord] = []
+    var apiTokens: [APITokenRecord] = []
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        users = try container.decodeIfPresent([UserRecord].self, forKey: .users) ?? []
+        invites = try container.decodeIfPresent([InviteRecord].self, forKey: .invites) ?? []
+        apiTokens = try container.decodeIfPresent([APITokenRecord].self, forKey: .apiTokens) ?? []
+    }
 }
 
 enum AccountError: Error, Equatable {
@@ -242,7 +276,46 @@ actor AccountStore {
         guard let record = user(id: id) else { throw AccountError.notFound }
         if record.role == .admin && !record.disabled && activeAdminCount() <= 1 { throw AccountError.lastAdmin }
         file.users.removeAll { $0.id == id }
+        file.apiTokens.removeAll { $0.userID == id }
         persist()
+    }
+
+    // MARK: Personal API tokens (for the iPhone/Mac apps and scripts)
+
+    static let apiTokenPrefix = "asam_"
+
+    func createAPIToken(userID: UUID, name: String) throws -> (APITokenRecord, String) {
+        guard user(id: userID) != nil else { throw AccountError.notFound }
+        let raw = Self.apiTokenPrefix + Secrets.randomToken()
+        let record = APITokenRecord(
+            id: UUID(), userID: userID, name: name, tokenHash: Secrets.sha256Hex(raw), createdAt: Date(), lastUsedAt: nil
+        )
+        file.apiTokens.append(record)
+        persist()
+        return (record, raw)
+    }
+
+    func apiTokens(userID: UUID) -> [APITokenRecord] {
+        file.apiTokens.filter { $0.userID == userID }.sorted { $0.createdAt > $1.createdAt }
+    }
+
+    func revokeAPIToken(id: UUID, userID: UUID) throws {
+        guard file.apiTokens.contains(where: { $0.id == id && $0.userID == userID }) else { throw AccountError.notFound }
+        file.apiTokens.removeAll { $0.id == id }
+        persist()
+    }
+
+    /// The active user a raw token belongs to. Records last use at most once an hour to limit disk writes.
+    func user(apiToken raw: String) -> UserRecord? {
+        let hash = Secrets.sha256Hex(raw)
+        guard let index = file.apiTokens.firstIndex(where: { Secrets.constantTimeEquals($0.tokenHash, hash) }) else { return nil }
+        let record = file.apiTokens[index]
+        guard let owner = user(id: record.userID), !owner.disabled else { return nil }
+        if (record.lastUsedAt.map { Date().timeIntervalSince($0) > 3600 }) ?? true {
+            file.apiTokens[index].lastUsedAt = Date()
+            persist()
+        }
+        return owner
     }
 
     private func activeAdminCount() -> Int {

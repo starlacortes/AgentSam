@@ -285,3 +285,21 @@ main.page { width: 100%; max-width: 1160px; margin: 0 auto; padding: 28px 20px 8
 @media (max-width: 720px) {
   .grid-3 { grid-template-columns: 1fr; }
 }
+
+/* ---------- guided setup ---------- */
+.welcome { display: grid; grid-template-columns: 230px 1fr; padding: 0; overflow: hidden; min-height: 560px; }
+.steprail { border-right: 1px solid var(--line); background: var(--deep); padding: 22px 16px; display: flex; flex-direction: column; gap: 4px; }
+.stepline { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-radius: 12px; }
+.stepline .n { width: 27px; height: 27px; border-radius: 8px; display: grid; place-items: center; font-family: var(--mono); font-size: 12px; color: var(--dim); border: 1px solid var(--line2); flex: none; }
+.stepline .lbl { font-weight: 650; font-size: 13.2px; color: var(--mut); }
+.stepline.on { background: rgba(74, 217, 158, 0.06); box-shadow: inset 0 0 0 1px rgba(74, 217, 158, 0.18); }
+.stepline.on .n { border-color: rgba(74, 217, 158, 0.55); color: var(--em); }
+.stepline.on .lbl { color: var(--bright); }
+.stepline.done .n { color: var(--em2); border-color: rgba(74, 217, 158, 0.3); }
+.step-body { padding: 30px 34px; }
+@media (max-width: 720px) {
+  .welcome { grid-template-columns: 1fr; }
+  .steprail { flex-direction: row; overflow-x: auto; border-right: none; border-bottom: 1px solid var(--line); padding: 10px; }
+  .steprail .pill { margin-top: 0 !important; margin-left: auto; }
+  .step-body { padding: 20px 16px; }
+}

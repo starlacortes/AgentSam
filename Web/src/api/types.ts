@@ -14,7 +14,7 @@ export interface PublicUser {
 
 export interface Me {
   user?: PublicUser
-  via: 'session' | 'token'
+  via: 'session' | 'apiToken' | 'token'
   name: string
   role: UserRole
 }
@@ -170,4 +170,21 @@ export interface TeamTemplate {
 export interface TemplateCatalog {
   templates: { template: TeamTemplate; agents: AgentProfile[] }[]
   missionIdeas: string[]
+}
+
+export interface PublicAPIToken {
+  id: string
+  name: string
+  createdAt: string
+  lastUsedAt?: string
+}
+
+export interface TokenCreated {
+  token: PublicAPIToken
+  secret: string
+}
+
+export interface ProviderTestResult {
+  ok: boolean
+  message: string
 }

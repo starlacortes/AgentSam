@@ -3,6 +3,7 @@ import { api, errorMessage } from '../api/client'
 import type { Ack } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { ErrorBanner, Field } from '../components/ui'
+import { AppTokens } from './AppTokens'
 
 export function AccountPage() {
   const { me, signOut } = useAuth()
@@ -87,6 +88,7 @@ export function AccountPage() {
           </div>
         </form>
       ) : null}
+      {me?.via === 'session' ? <AppTokens /> : null}
     </>
   )
 }

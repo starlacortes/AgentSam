@@ -254,3 +254,39 @@ final class TemplateTests: XCTestCase {
         }
     }
 }
+
+final class APITokenTests: XCTestCase {
+    func testPersonalTokenAuthenticatesAsItsUser() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("agentsam-tok-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = AccountStore(dataDir: dir)
+        let user = try await store.createUser(email: "m@example.com", name: "M", role: .member, passwordHash: "x")
+        let (record, raw) = try await store.createAPIToken(userID: user.id, name: "iPhone")
+        XCTAssertTrue(raw.hasPrefix(AccountStore.apiTokenPrefix))
+        XCTAssertNotEqual(record.tokenHash, raw)
+        let found = await store.user(apiToken: raw)
+        XCTAssertEqual(found?.id, user.id)
+        let wrong = await store.user(apiToken: raw + "x")
+        XCTAssertNil(wrong)
+
+        // Survives a reload from disk, and revocation works.
+        let reloaded = AccountStore(dataDir: dir)
+        let again = await reloaded.user(apiToken: raw)
+        XCTAssertEqual(again?.id, user.id)
+        try await reloaded.revokeAPIToken(id: record.id, userID: user.id)
+        let revoked = await reloaded.user(apiToken: raw)
+        XCTAssertNil(revoked)
+    }
+
+    func testDisabledUsersTokensStopWorking() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("agentsam-tok-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = AccountStore(dataDir: dir)
+        _ = try await store.createUser(email: "a@example.com", name: "A", role: .admin, passwordHash: "x")
+        let member = try await store.createUser(email: "m@example.com", name: "M", role: .member, passwordHash: "x")
+        let (_, raw) = try await store.createAPIToken(userID: member.id, name: "script")
+        _ = try await store.update(id: member.id, role: nil, disabled: true, name: nil)
+        let found = await store.user(apiToken: raw)
+        XCTAssertNil(found)
+    }
+}

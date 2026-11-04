@@ -111,7 +111,21 @@ func routes(_ app: Application, ctx: ServerContext) {
     }
 
     adminAPI.post("providers") { req async throws -> Response in
-        let provider = try req.decodeJSON(ProviderConfig.self)
+        var provider = try req.decodeJSON(ProviderConfig.self)
+        provider.models = provider.models.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let idAllowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789-_")
+        guard !provider.id.isEmpty, provider.id.count <= 40,
+              provider.id.unicodeScalars.allSatisfy(idAllowed.contains) else {
+            throw Abort(.badRequest, reason: "Provider id must be lowercase letters, digits, - or _")
+        }
+        guard !provider.name.trimmingCharacters(in: .whitespaces).isEmpty else {
+            throw Abort(.badRequest, reason: "Provider needs a name")
+        }
+        guard let url = URL(string: provider.baseURL), let scheme = url.scheme?.lowercased(),
+              scheme == "https" || scheme == "http", url.host != nil else {
+            throw Abort(.badRequest, reason: "Base URL must be an http(s) URL")
+        }
+        guard !provider.models.isEmpty else { throw Abort(.badRequest, reason: "List at least one model") }
         var providers = await ctx.store.loadProviders()
         if let index = providers.firstIndex(where: { $0.id == provider.id }) {
             providers[index] = provider
@@ -133,6 +147,28 @@ func routes(_ app: Application, ctx: ServerContext) {
         let body = try req.decodeJSON(KeyBody.self)
         try await ctx.keyRing.set(body.key, for: provider.keyAccount)
         return try req.json(AckResult(ok: true, detail: "Key stored for \(provider.name)"))
+    }
+
+    adminAPI.delete("providers", ":id", "key") { req async throws -> Response in
+        guard let idString = req.parameters.get("id"),
+              let provider = await ctx.store.loadProviders().first(where: { $0.id == idString }) else {
+            throw Abort(.notFound, reason: "Unknown provider")
+        }
+        ctx.keyRing.remove(provider.keyAccount)
+        return try req.json(AckResult(ok: true, detail: "Key removed for \(provider.name)"))
+    }
+
+    adminAPI.delete("providers", ":id") { req async throws -> Response in
+        guard let idString = req.parameters.get("id") else { throw Abort(.badRequest, reason: "Missing provider id") }
+        var providers = await ctx.store.loadProviders()
+        guard let provider = providers.first(where: { $0.id == idString }) else {
+            throw Abort(.notFound, reason: "Unknown provider")
+        }
+        providers.removeAll { $0.id == idString }
+        guard !providers.isEmpty else { throw Abort(.conflict, reason: "Keep at least one provider") }
+        await ctx.store.saveProviders(providers)
+        ctx.keyRing.remove(provider.keyAccount)
+        return try req.json(AckResult(ok: true, detail: nil))
     }
 
     adminAPI.post("providers", ":id", "test") { req async throws -> Response in

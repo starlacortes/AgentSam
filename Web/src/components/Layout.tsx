@@ -23,6 +23,11 @@ export function Layout() {
             Templates
           </NavLink>
           {isAdmin ? (
+            <NavLink to="/settings" className={pill}>
+              Providers
+            </NavLink>
+          ) : null}
+          {isAdmin ? (
             <NavLink to="/people" className={pill}>
               People
             </NavLink>

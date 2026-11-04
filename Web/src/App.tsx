@@ -9,7 +9,9 @@ import { NewMissionPage } from './pages/NewMissionPage'
 import { InvitePage } from './pages/InvitePage'
 import { LoginPage } from './pages/LoginPage'
 import { PeoplePage } from './pages/PeoplePage'
+import { SettingsPage } from './pages/SettingsPage'
 import { SetupPage } from './pages/SetupPage'
+import { WelcomePage } from './pages/WelcomePage'
 import { TeamEditPage } from './pages/TeamEditPage'
 import { TeamsPage } from './pages/TeamsPage'
 import { TemplatesPage } from './pages/TemplatesPage'
@@ -43,7 +45,9 @@ export function App() {
             <Route path="teams/:id" element={<TeamEditPage />} />
             <Route path="templates" element={<TemplatesPage />} />
             <Route path="account" element={<AccountPage />} />
+            <Route path="welcome" element={<WelcomePage />} />
             {isAdmin ? <Route path="people" element={<PeoplePage />} /> : null}
+            {isAdmin ? <Route path="settings" element={<SettingsPage />} /> : null}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

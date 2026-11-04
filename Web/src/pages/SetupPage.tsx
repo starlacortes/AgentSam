@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { api, errorMessage } from '../api/client'
 import type { Me } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
@@ -7,6 +8,7 @@ import { ErrorBanner, Field, Logo } from '../components/ui'
 /** Shown only while the server has no accounts. Creating the first admin needs the AGENTSAM_TOKEN. */
 export function SetupPage() {
   const { signedIn } = useAuth()
+  const navigate = useNavigate()
   const [form, setForm] = useState({ setupToken: '', name: '', email: '', password: '', confirm: '' })
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -22,7 +24,9 @@ export function SetupPage() {
     setError(null)
     try {
       const { confirm: _confirm, ...body } = form
-      signedIn(await api<Me>('auth/setup', { method: 'POST', body }))
+      const me = await api<Me>('auth/setup', { method: 'POST', body })
+      signedIn(me)
+      navigate('/welcome', { replace: true })
     } catch (err) {
       setError(errorMessage(err))
     } finally {

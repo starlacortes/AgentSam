@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom'
 import { api, errorMessage } from '../api/client'
 import { phaseLabel, type Mission, type MissionStatus } from '../api/types'
 import { ErrorBanner, formatDate, Spinner } from '../components/ui'
+import { useAuth } from '../auth/AuthContext'
+import type { ProviderStatus } from '../api/types'
 import { formatCost, StatusChip } from '../components/mission'
 
 const FILTERS: (MissionStatus | 'all')[] = ['all', 'running', 'completed', 'failed', 'stopped']
@@ -12,6 +14,15 @@ export function MissionsPage() {
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>('all')
+  const { isAdmin } = useAuth()
+  const [needsKeys, setNeedsKeys] = useState(false)
+
+  useEffect(() => {
+    if (!isAdmin) return
+    api<ProviderStatus[]>('providers')
+      .then((list) => setNeedsKeys(!list.some((p) => p.hasKey)))
+      .catch(() => setNeedsKeys(false))
+  }, [isAdmin])
 
   const load = useCallback(async () => {
     try {
@@ -52,6 +63,14 @@ export function MissionsPage() {
         </Link>
       </div>
       <ErrorBanner message={error} />
+      {needsKeys ? (
+        <div className="notice row" style={{ marginBottom: 16 }}>
+          <span style={{ flex: 1 }}>No provider has an API key yet, so missions can’t run.</span>
+          <Link className="btn small" to="/welcome">
+            Finish setup
+          </Link>
+        </div>
+      ) : null}
       <div className="row" style={{ marginBottom: 16 }}>
         <input
           className="input"
