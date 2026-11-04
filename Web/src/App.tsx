@@ -10,6 +10,9 @@ import { InvitePage } from './pages/InvitePage'
 import { LoginPage } from './pages/LoginPage'
 import { PeoplePage } from './pages/PeoplePage'
 import { SetupPage } from './pages/SetupPage'
+import { TeamEditPage } from './pages/TeamEditPage'
+import { TeamsPage } from './pages/TeamsPage'
+import { TemplatesPage } from './pages/TemplatesPage'
 
 export function App() {
   const { state, isAdmin } = useAuth()
@@ -36,6 +39,9 @@ export function App() {
             <Route index element={<MissionsPage />} />
             <Route path="missions/new" element={<NewMissionPage />} />
             <Route path="missions/:id" element={<MissionPage />} />
+            <Route path="teams" element={<TeamsPage />} />
+            <Route path="teams/:id" element={<TeamEditPage />} />
+            <Route path="templates" element={<TemplatesPage />} />
             <Route path="account" element={<AccountPage />} />
             {isAdmin ? <Route path="people" element={<PeoplePage />} /> : null}
             <Route path="*" element={<Navigate to="/" replace />} />

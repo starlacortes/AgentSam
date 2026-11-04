@@ -40,6 +40,7 @@ func routes(_ app: Application, ctx: ServerContext) {
     let adminAPI = api.grouped(RequireAdminMiddleware())
 
     authRoutes(app, ctx: ctx, authed: api)
+    templateRoutes(api, ctx: ctx)
 
     api.get("info") { req async throws -> Response in
         let teams = await ctx.store.loadTeams()

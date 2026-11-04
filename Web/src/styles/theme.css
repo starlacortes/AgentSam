@@ -272,3 +272,16 @@ main.page { width: 100%; max-width: 1160px; margin: 0 auto; padding: 28px 20px 8
   .mission-row { flex-direction: column; align-items: flex-start; }
   .mission-row-side { flex-direction: row; align-items: center; }
 }
+
+/* ---------- teams + templates ---------- */
+.grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.template-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.template-card { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; box-shadow: var(--shadow); display: flex; flex-direction: column; }
+.template-cover { position: relative; height: 140px; padding: 16px; display: flex; flex-direction: column; justify-content: flex-end; gap: 10px; }
+.template-badge { position: absolute; top: 12px; right: 12px; }
+.template-body { padding: 16px; display: flex; flex-direction: column; gap: 12px; flex: 1; }
+.template-body .row:last-child { margin-top: auto; }
+.squad-list { list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+@media (max-width: 720px) {
+  .grid-3 { grid-template-columns: 1fr; }
+}

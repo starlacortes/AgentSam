@@ -1,6 +1,7 @@
 @testable import AgentSamServer
 import XCTVapor
 import Foundation
+import AgentSamCore
 
 final class AuthTests: XCTestCase {
     private let serverToken = "test-server-token-0123456789"
@@ -231,5 +232,25 @@ final class AuthTests: XCTestCase {
         XCTAssertFalse(Secrets.constantTimeEquals("abc", "abd"))
         XCTAssertFalse(Secrets.constantTimeEquals("abc", "abcd"))
         XCTAssertEqual(Secrets.randomToken().count, 43)
+    }
+}
+
+final class TemplateTests: XCTestCase {
+    func testTemplatesResolveToConfiguredProviders() {
+        let team = ServerTemplateCatalog.all[0].makeTeam(providers: ProviderConfig.builtin)
+        XCTAssertEqual(team.agents.count, ServerTemplateCatalog.all[0].memberNames.count)
+        for agent in team.agents {
+            let provider = ProviderConfig.builtin.first { $0.id == agent.providerID }
+            XCTAssertNotNil(provider)
+            XCTAssertTrue(provider?.models.contains(agent.model) ?? false)
+        }
+    }
+
+    func testEveryTemplateMemberExistsInRoster() {
+        for template in ServerTemplateCatalog.all {
+            for name in template.memberNames {
+                XCTAssertNotNil(AgentProfile.rosterTemplates.first { $0.name == name }, "\(template.id): \(name)")
+            }
+        }
     }
 }

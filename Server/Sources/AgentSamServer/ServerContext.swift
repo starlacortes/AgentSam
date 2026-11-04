@@ -81,6 +81,9 @@ struct ServerContext: Sendable {
     }
 
     func upsertTeam(input: TeamInput, id: UUID?) async throws -> Team {
+        let name = input.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name.count <= 80 else { throw Abort(.badRequest, reason: "Team name must be 1 to 80 characters") }
+        guard (input.agents ?? []).count <= 16 else { throw Abort(.badRequest, reason: "A team can have at most 16 agents") }
         let teamID = id ?? input.id ?? UUID()
         var createdAt = Date()
         if let existing = await store.team(id: teamID) {
@@ -88,7 +91,7 @@ struct ServerContext: Sendable {
         }
         let team = Team(
             id: teamID,
-            name: input.name,
+            name: name,
             emoji: input.emoji ?? "🛡️",
             goal: input.goal ?? "",
             agents: input.agents ?? [],

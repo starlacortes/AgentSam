@@ -139,3 +139,35 @@ export const phaseLabel: Record<MissionPhase, string> = {
   reporting: 'Final report',
   done: 'Done',
 }
+
+export interface ProviderConfig {
+  id: string
+  name: string
+  kind: 'openAICompatible' | 'anthropic'
+  baseURL: string
+  models: string[]
+  defaultModel?: string
+}
+
+export interface ProviderStatus {
+  provider: ProviderConfig
+  hasKey: boolean
+}
+
+export interface TeamTemplate {
+  id: string
+  name: string
+  emoji: string
+  goal: string
+  summary: string
+  capabilities: string[]
+  example: string
+  memberNames: string[]
+  lowCost: boolean
+  coverColors: string[]
+}
+
+export interface TemplateCatalog {
+  templates: { template: TeamTemplate; agents: AgentProfile[] }[]
+  missionIdeas: string[]
+}

@@ -16,6 +16,12 @@ export function Layout() {
           <NavLink to="/" end className={pill}>
             Missions
           </NavLink>
+          <NavLink to="/teams" className={pill}>
+            Teams
+          </NavLink>
+          <NavLink to="/templates" className={pill}>
+            Templates
+          </NavLink>
           {isAdmin ? (
             <NavLink to="/people" className={pill}>
               People

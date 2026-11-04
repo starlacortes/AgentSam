@@ -24,6 +24,7 @@ let package = Package(
             dependencies: [
                 .target(name: "AgentSamServer"),
                 .product(name: "XCTVapor", package: "vapor"),
+                .product(name: "AgentSamCore", package: "AgentSamCore"),
             ],
             path: "Tests/AgentSamServerTests"
         )
