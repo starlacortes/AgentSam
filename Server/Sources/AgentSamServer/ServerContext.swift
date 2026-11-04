@@ -25,6 +25,11 @@ struct ServerContext: Sendable {
     let keyRing: CompositeKeyRing
     let token: String
     let dataDir: URL
+    let accounts: AccountStore
+    let sessions: SessionStore
+    let throttle: LoginThrottle
+    /// Compared against when an email isn't found, so failed logins take the same time either way.
+    let dummyPasswordHash: String
 
     static func make() -> ServerContext {
         let raw = Environment.get("AGENTSAM_DATA") ?? "data"
@@ -51,7 +56,11 @@ struct ServerContext: Sendable {
             engine: engine,
             keyRing: keyRing,
             token: token,
-            dataDir: store.root
+            dataDir: store.root,
+            accounts: AccountStore(dataDir: store.root),
+            sessions: SessionStore(dataDir: store.root, lifetime: AuthConfig.sessionLifetime),
+            throttle: LoginThrottle(),
+            dummyPasswordHash: (try? Bcrypt.hash(Secrets.randomToken())) ?? ""
         )
     }
 

@@ -1,0 +1,10 @@
+.git
+**/.build
+**/node_modules
+Web/dist
+Server/data
+*.xcodeproj
+AppIOS
+AppMac
+AppShared
+mockups

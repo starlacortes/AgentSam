@@ -14,7 +14,14 @@ public func configure(_ app: Application) async throws {
         app.http.server.configuration.port = port
     }
 
+    app.middleware.use(SecurityHeadersMiddleware())
+    let webDir = WebApp.directory()
+    if let webDir {
+        app.middleware.use(FileMiddleware(publicDirectory: webDir, defaultFile: "index.html"))
+    }
+
     routes(app, ctx: ctx)
+    WebApp.registerFallback(app, directory: webDir)
 
     let dataPath = await ctx.dataDir.path
     app.logger.info("AgentSam server running. Data directory: \(dataPath)")
@@ -29,7 +36,10 @@ func routes(_ app: Application, ctx: ServerContext) {
         "ok"
     }
 
-    let api = app.grouped("api").grouped(TokenMiddleware(token: ctx.token))
+    let api = app.grouped("api").grouped(AuthMiddleware(ctx: ctx))
+    let adminAPI = api.grouped(RequireAdminMiddleware())
+
+    authRoutes(app, ctx: ctx, authed: api)
 
     api.get("info") { req async throws -> Response in
         let teams = await ctx.store.loadTeams()
@@ -99,7 +109,7 @@ func routes(_ app: Application, ctx: ServerContext) {
         return try req.json(statuses)
     }
 
-    api.post("providers") { req async throws -> Response in
+    adminAPI.post("providers") { req async throws -> Response in
         let provider = try req.decodeJSON(ProviderConfig.self)
         var providers = await ctx.store.loadProviders()
         if let index = providers.firstIndex(where: { $0.id == provider.id }) {
@@ -111,7 +121,7 @@ func routes(_ app: Application, ctx: ServerContext) {
         return try req.json(provider, status: .created)
     }
 
-    api.post("providers", ":id", "key") { req async throws -> Response in
+    adminAPI.post("providers", ":id", "key") { req async throws -> Response in
         guard let idString = req.parameters.get("id") else {
             throw Abort(.badRequest, reason: "Missing provider id")
         }
@@ -124,7 +134,7 @@ func routes(_ app: Application, ctx: ServerContext) {
         return try req.json(AckResult(ok: true, detail: "Key stored for \(provider.name)"))
     }
 
-    api.post("providers", ":id", "test") { req async throws -> Response in
+    adminAPI.post("providers", ":id", "test") { req async throws -> Response in
         guard let idString = req.parameters.get("id") else {
             throw Abort(.badRequest, reason: "Missing provider id")
         }
@@ -198,7 +208,7 @@ func routes(_ app: Application, ctx: ServerContext) {
         return try req.json(AckResult(ok: true, detail: "Stop requested."))
     }
 
-    api.delete("missions", ":id") { req async throws -> Response in
+    adminAPI.delete("missions", ":id") { req async throws -> Response in
         guard let idString = req.parameters.get("id"), let id = UUID(uuidString: idString) else {
             throw Abort(.badRequest, reason: "Bad mission id")
         }
