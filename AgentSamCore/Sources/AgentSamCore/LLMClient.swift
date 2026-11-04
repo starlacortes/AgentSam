@@ -36,18 +36,21 @@ public struct LLMClient: Sendable {
         system: String,
         messages: [APIMessage],
         tools: [APIToolDef]? = nil,
-        temperature: Double? = nil
+        temperature: Double? = nil,
+        maxTokens: Int? = nil
     ) async throws -> LLMReply {
         switch provider.kind {
         case .anthropic:
             return try await AnthropicClient(session: session).complete(
                 provider: provider, key: key, model: model, system: system,
-                messages: messages, tools: tools, temperature: temperature
+                messages: messages, tools: tools, temperature: temperature,
+                maxTokens: maxTokens
             )
         case .openAICompatible:
             return try await OpenAICompatClient(session: session).complete(
                 provider: provider, key: key, model: model, system: system,
-                messages: messages, tools: tools, temperature: temperature
+                messages: messages, tools: tools, temperature: temperature,
+                maxTokens: maxTokens
             )
         }
     }
@@ -97,6 +100,7 @@ public struct OpenAICompatClient: Sendable {
         var tools: [APIToolDef]?
         var tool_choice: String?
         var temperature: Double?
+        var max_tokens: Int?
     }
 
     struct WireMessage: Encodable {
@@ -130,7 +134,8 @@ public struct OpenAICompatClient: Sendable {
         system: String,
         messages: [APIMessage],
         tools: [APIToolDef]? = nil,
-        temperature: Double? = nil
+        temperature: Double? = nil,
+        maxTokens: Int? = nil
     ) async throws -> LLMReply {
         let wire = [WireMessage(role: "system", content: system)]
             + messages.map { WireMessage(role: $0.role, content: $0.content, tool_calls: $0.tool_calls, tool_call_id: $0.tool_call_id) }
@@ -139,7 +144,8 @@ public struct OpenAICompatClient: Sendable {
             messages: wire,
             tools: tools?.isEmpty == true ? nil : tools,
             tool_choice: tools == nil ? nil : "auto",
-            temperature: temperature ?? 0.3
+            temperature: temperature ?? 0.3,
+            max_tokens: maxTokens
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]

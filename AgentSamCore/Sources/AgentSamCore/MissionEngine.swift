@@ -26,12 +26,17 @@ public actor MissionEngine {
         /// still reports context overflow, the budget is halved and the call
         /// retried before the phase fails.
         public var contextBudgetTokens: Int
+        /// Output token cap passed to the provider. Anthropic always sends it
+        /// (the API requires one) with a 16384 default; OpenAI-compatible
+        /// providers only send it when set, since their limits vary.
+        public var maxOutputTokens: Int?
 
-        public init(maxParallel: Int = 4, maxSteps: Int = 14, verifyWithAgent: Bool = true, contextBudgetTokens: Int = 20_000) {
+        public init(maxParallel: Int = 4, maxSteps: Int = 14, verifyWithAgent: Bool = true, contextBudgetTokens: Int = 20_000, maxOutputTokens: Int? = nil) {
             self.maxParallel = maxParallel
             self.maxSteps = maxSteps
             self.verifyWithAgent = verifyWithAgent
             self.contextBudgetTokens = contextBudgetTokens
+            self.maxOutputTokens = maxOutputTokens
         }
     }
 
@@ -200,7 +205,7 @@ public actor MissionEngine {
                 agent: coordinator,
                 registry: registry,
                 missionID: mission.id,
-                system: PromptBuilder.coordinatorSystem(team: team),
+                system: PromptBuilder.coordinatorSystem(agent: coordinator, team: team),
                 messages: messages,
                 tools: AgentTools.planTools,
                 stats: &stats
@@ -520,7 +525,7 @@ public actor MissionEngine {
             agent: coordinator,
             registry: registry,
             missionID: mission.id,
-            system: PromptBuilder.coordinatorSystem(team: team),
+            system: PromptBuilder.coordinatorSystem(agent: coordinator, team: team),
             messages: messages,
             tools: nil,
             stats: &stats
@@ -576,7 +581,8 @@ public actor MissionEngine {
                     system: system,
                     messages: compacted.messages,
                     tools: tools,
-                    temperature: agent.temperature
+                    temperature: agent.temperature,
+                    maxTokens: config.maxOutputTokens
                 )
             } catch let error as LLMError where error.isContextOverflow {
                 overflowRetries += 1

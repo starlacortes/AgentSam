@@ -91,7 +91,8 @@ public struct AnthropicClient: Sendable {
         system: String,
         messages: [APIMessage],
         tools: [APIToolDef]? = nil,
-        temperature: Double? = nil
+        temperature: Double? = nil,
+        maxTokens: Int? = nil
     ) async throws -> LLMReply {
         let wireMessages = Self.translate(messages: messages)
         let body = WireRequest(
@@ -99,7 +100,7 @@ public struct AnthropicClient: Sendable {
             system: system,
             messages: wireMessages,
             tools: tools?.map { WireTool(name: $0.function.name, description: $0.function.description, input_schema: $0.function.parameters) },
-            max_tokens: 16384,
+            max_tokens: maxTokens ?? 16384,
             temperature: temperature ?? 0.3
         )
         let encoder = JSONEncoder()
