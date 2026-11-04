@@ -90,6 +90,77 @@ public enum AgentTools {
         ]
     }
 
+    /// The coordinator's only tool during planning: submit the task plan as
+    /// structured JSON instead of free-form text (see `StructuredOutput.plan`).
+    public static var submitPlanTool: APIToolDef {
+        APIToolDef(
+            name: "submit_plan",
+            description: "Submit the final task plan. Call this once when your plan is ready.",
+            parameters: .object([
+                ("type", .string("object")),
+                ("properties", .object([
+                    ("tasks", .object([
+                        ("type", .string("array")),
+                        ("description", .string("The tasks, one per worker")),
+                        ("items", .object([
+                            ("type", .string("object")),
+                            ("properties", .object([
+                                ("agent", .object([("type", .string("string")), ("description", .string("Worker name, exactly as listed"))])),
+                                ("goal", .object([("type", .string("string")), ("description", .string("One-sentence task goal"))])),
+                                ("deliverable", .object([("type", .string("string")), ("description", .string("Output markdown filename, lowercase and hyphenated, ending in .md"))])),
+                            ])),
+                            ("required", .array([.string("agent"), .string("goal"), .string("deliverable")])),
+                        ])),
+                    ])),
+                ])),
+                ("required", .array([.string("tasks")])),
+            ])
+        )
+    }
+
+    /// The verifier's submission tool: findings plus a verdict as structured
+    /// JSON (see `StructuredOutput.review`).
+    public static var submitReviewTool: APIToolDef {
+        APIToolDef(
+            name: "submit_review",
+            description: "Submit your review findings and verdict. Call this once when your review is complete.",
+            parameters: .object([
+                ("type", .string("object")),
+                ("properties", .object([
+                    ("verdict", .object([
+                        ("type", .string("string")),
+                        ("enum", .array([.string("clean"), .string("concerns"), .string("failed")])),
+                        ("description", .string("Overall verdict on the deliverables")),
+                    ])),
+                    ("findings", .object([
+                        ("type", .string("array")),
+                        ("maxItems", .number(8)),
+                        ("items", .object([
+                            ("type", .string("object")),
+                            ("properties", .object([
+                                ("level", .object([
+                                    ("type", .string("string")),
+                                    ("enum", .array([.string("pass"), .string("concern"), .string("fail")])),
+                                ])),
+                                ("area", .object([("type", .string("string")), ("description", .string("Short label for what was checked"))])),
+                                ("detail", .object([("type", .string("string")), ("description", .string("One sentence about the finding"))])),
+                            ])),
+                            ("required", .array([.string("level"), .string("detail")])),
+                        ])),
+                    ])),
+                ])),
+                ("required", .array([.string("verdict"), .string("findings")])),
+            ])
+        )
+    }
+
+    /// Tools offered to the coordinator during the planning phase.
+    public static var planTools: [APIToolDef] { [submitPlanTool] }
+
+    /// Tools offered to the verifier: read-only workspace access plus the
+    /// structured review submission.
+    public static var verifierTools: [APIToolDef] { readTools + [submitReviewTool] }
+
     public static func run(call: APIToolCall, workspace: URL, readOnly: Bool = false) -> ToolOutcome {
         let args: [String: JSONValue]
         if let data = call.function.arguments.data(using: .utf8),

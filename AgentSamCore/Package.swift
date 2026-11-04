@@ -9,6 +9,11 @@ let package = Package(
         .target(
             name: "AgentSamCore",
             path: "Sources/AgentSamCore"
+        ),
+        .testTarget(
+            name: "AgentSamCoreTests",
+            dependencies: ["AgentSamCore"],
+            path: "Tests/AgentSamCoreTests"
         )
     ]
 )

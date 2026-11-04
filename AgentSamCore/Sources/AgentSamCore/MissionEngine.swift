@@ -175,33 +175,59 @@ public actor MissionEngine {
         registry: ProviderRegistry,
         stats: inout MissionStats
     ) async throws -> [TaskPlanItem] {
-        var messages: [APIMessage] = [.user(PromptBuilder.planPrompt(mission: mission, team: team))]
-        let reply = try await call(
-            agent: coordinator,
-            registry: registry,
-            missionID: mission.id,
-            system: PromptBuilder.coordinatorSystem(team: team),
-            messages: messages,
-            tools: nil,
-            stats: &stats
-        )
-        messages.append(reply.message)
-        var plan = PlanParser.parse(reply.message.content ?? "")
+        // A team without workers has nothing to plan: go straight to the
+        // default plan instead of asking the coordinator for "1 to 0 tasks".
+        if team.workers.isEmpty {
+            await store.appendEvent(mission.id, kind: .notice, text: "No worker agents on this team; using the default plan.")
+            return PlanParser.fallbackPlan(mission: mission, team: team)
+        }
 
-        if plan.isEmpty {
-            await store.appendEvent(mission.id, kind: .notice, text: "Plan wasn't in the required format; asking the coordinator to correct it.")
-            messages.append(.user(PromptBuilder.replanPrompt(mission: mission, previous: reply.message.content ?? "")))
-            let retry = try await call(
+        let taskLimit = min(8, team.workers.count)
+        var messages: [APIMessage] = [.user(PromptBuilder.planPrompt(mission: mission, team: team, maxTasks: taskLimit))]
+        var plan: [TaskPlanItem] = []
+
+        // The coordinator submits the plan through the submit_plan tool.
+        // Rejections are fed back as tool results so the model can correct
+        // itself; plain-text replies fall back to the legacy parser.
+        attemptLoop: for _ in 0..<3 {
+            let reply = try await call(
                 agent: coordinator,
                 registry: registry,
                 missionID: mission.id,
                 system: PromptBuilder.coordinatorSystem(team: team),
                 messages: messages,
-                tools: nil,
+                tools: AgentTools.planTools,
                 stats: &stats
             )
-            messages.append(retry.message)
-            plan = PlanParser.parse(retry.message.content ?? "")
+            messages.append(reply.message)
+
+            if let planCall = (reply.message.tool_calls ?? []).first(where: { $0.function.name == "submit_plan" }) {
+                let outcome: Result<[TaskPlanItem], StructuredOutput.PlanValidationError>
+                if let submission: StructuredOutput.PlanSubmission = StructuredOutput.decode(from: planCall) {
+                    outcome = StructuredOutput.plan(from: submission, team: team, maxTasks: taskLimit)
+                } else {
+                    outcome = .failure(StructuredOutput.PlanValidationError(reason: "the arguments were not valid JSON"))
+                }
+                switch outcome {
+                case .success(let tasks):
+                    plan = tasks
+                    break attemptLoop
+                case .failure(let error):
+                    await store.appendEvent(mission.id, kind: .notice, text: "Plan rejected: \(error.reason). Asking for a corrected plan.")
+                    messages.append(.tool(id: planCall.id, content: PromptBuilder.invalidPlanFeedback(reason: error.reason)))
+                    continue attemptLoop
+                }
+            }
+
+            let textPlan = PlanParser.parse(reply.message.content ?? "")
+            if !textPlan.isEmpty {
+                await store.appendEvent(mission.id, kind: .notice, text: "Coordinator replied in plain text instead of submit_plan; using the parsed plan.")
+                plan = textPlan
+                break
+            }
+
+            await store.appendEvent(mission.id, kind: .notice, text: "Coordinator didn't submit a plan; asking it to correct the reply.")
+            messages.append(.user(PromptBuilder.replanPrompt(mission: mission, previous: reply.message.content ?? "")))
         }
 
         if plan.isEmpty {
@@ -377,12 +403,15 @@ public actor MissionEngine {
             }
         }
 
-        var verdict: VerificationReport.Verdict
+        var verdict: VerificationReport.Verdict = .unverified
         if let verifier = team.verifier, config.verifyWithAgent, !deliverableNames.isEmpty {
             var messages: [APIMessage] = [.user(PromptBuilder.verifyPrompt(deliverables: deliverableNames))]
             var verifierFindings: [VerificationReport.Finding] = []
             do {
-                for _ in 0..<6 {
+                // The verifier reads the workspace, then submits its review
+                // through the submit_review tool. Plain-text replies fall back
+                // to the legacy VERDICT parser.
+                turnLoop: for _ in 0..<6 {
                     try Task.checkCancellation()
                     let reply = try await call(
                         agent: verifier,
@@ -390,23 +419,40 @@ public actor MissionEngine {
                         missionID: mission.id,
                         system: PromptBuilder.verifierSystem(agent: verifier, mission: mission),
                         messages: messages,
-                        tools: AgentTools.readTools,
+                        tools: AgentTools.verifierTools,
                         stats: &stats
                     )
                     messages.append(reply.message)
                     let calls = reply.message.tool_calls ?? []
-                    if calls.isEmpty { break }
+
                     for call in calls {
-                        let outcome = AgentTools.run(call: call, workspace: store.deliverablesDirectory(mission.id), readOnly: true)
-                        await store.appendEvent(mission.id, kind: .toolCall, agent: verifier, text: "\(call.function.name): \(outcome.resultText.prefix(400))")
-                        messages.append(.tool(id: call.id, content: outcome.resultText))
+                        if call.function.name == "submit_review" {
+                            if let submission: StructuredOutput.ReviewSubmission = StructuredOutput.decode(from: call) {
+                                let review = StructuredOutput.review(from: submission)
+                                verifierFindings = review.findings
+                                verdict = review.verdict
+                                break turnLoop
+                            }
+                            await store.appendEvent(mission.id, kind: .toolCall, agent: verifier, text: "submit_review (unreadable — asking again)")
+                            messages.append(.tool(id: call.id, content: "Your submit_review call could not be parsed. Call submit_review again with a valid verdict and findings."))
+                        } else {
+                            let outcome = AgentTools.run(call: call, workspace: store.deliverablesDirectory(mission.id), readOnly: true)
+                            await store.appendEvent(mission.id, kind: .toolCall, agent: verifier, text: "\(call.function.name): \(outcome.resultText.prefix(400))")
+                            messages.append(.tool(id: call.id, content: outcome.resultText))
+                        }
+                    }
+
+                    if calls.isEmpty {
+                        // The model ignored the tools; fall back to the legacy text format.
+                        let parsed = VerifierParser.parse(reply.message.content ?? "")
+                        if !parsed.findings.isEmpty {
+                            verifierFindings = parsed.findings
+                            verdict = parsed.verdict
+                        }
+                        break
                     }
                 }
-                let lastText = messages.last(where: { $0.role == "assistant" && $0.content != nil })?.content ?? ""
-                let parsed = VerifierParser.parse(lastText)
-                verifierFindings = parsed.findings
-                verdict = parsed.verdict
-                if parsed.findings.isEmpty {
+                if verifierFindings.isEmpty && verdict == .unverified {
                     verifierFindings.append(VerificationReport.Finding(
                         level: .concern,
                         check: "verifier",
