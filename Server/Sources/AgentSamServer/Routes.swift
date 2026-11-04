@@ -10,7 +10,7 @@ public func configure(_ app: Application) async throws {
     if Environment.get("AGENTSAM_BIND_ALL") != nil || Environment.get("AGENTSAM_HOST") != nil {
         app.http.server.configuration.hostname = Environment.get("AGENTSAM_HOST") ?? "0.0.0.0"
     }
-    if let portText = Environment.get("AGENTSAM_PORT"), let port = Int(portText) {
+    if let portText = Environment.get("AGENTSAM_PORT") ?? Environment.get("PORT"), let port = Int(portText) {
         app.http.server.configuration.port = port
     }
 

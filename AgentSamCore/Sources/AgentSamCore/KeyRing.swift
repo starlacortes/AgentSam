@@ -11,19 +11,24 @@ public protocol KeyRing: Sendable {
 }
 
 public enum KeyRingError: Error, LocalizedError {
+    #if canImport(Security)
     case keychainFailure(OSStatus)
+    #endif
     case keyNotFound(String)
 
     public var errorDescription: String? {
         switch self {
+        #if canImport(Security)
         case .keychainFailure(let status):
             "Keychain error (\(status))."
+        #endif
         case .keyNotFound(let account):
             "No API key saved for \(account)."
         }
     }
 }
 
+#if canImport(Security)
 public struct KeychainKeyRing: KeyRing {
     public let service: String
 
@@ -64,6 +69,7 @@ public struct KeychainKeyRing: KeyRing {
         ]
     }
 }
+#endif
 
 public struct FileKeyRing: KeyRing {
     public let url: URL
@@ -83,6 +89,7 @@ public struct FileKeyRing: KeyRing {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         if let data = try? encoder.encode(keys) {
             try? data.write(to: url, options: [.atomic, .completeFileProtection])
+            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         }
     }
 

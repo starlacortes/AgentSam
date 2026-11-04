@@ -16,7 +16,7 @@ RUN swift build -c release --static-swift-stdlib --product AgentSamServer
 
 FROM ubuntu:noble
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates tzdata \
+    && apt-get install -y --no-install-recommends ca-certificates libcurl4t64 tzdata \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /build/Server/.build/release/AgentSamServer .
@@ -24,8 +24,6 @@ COPY --from=web /web/dist ./Public
 RUN mkdir -p /data
 ENV AGENTSAM_DATA=/data \
     AGENTSAM_BIND_ALL=1 \
-    AGENTSAM_PORT=8080 \
     AGENTSAM_WEB_DIR=/app/Public
 EXPOSE 8080
-VOLUME ["/data"]
 ENTRYPOINT ["./AgentSamServer"]
