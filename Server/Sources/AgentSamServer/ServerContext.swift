@@ -23,6 +23,7 @@ struct ServerContext: Sendable {
     let store: MissionStore
     let engine: MissionEngine
     let keyRing: CompositeKeyRing
+    let prompts: PromptStore
     let token: String
     let dataDir: URL
     let accounts: AccountStore
@@ -36,10 +37,15 @@ struct ServerContext: Sendable {
         let store = MissionStore(root: URL(fileURLWithPath: raw))
         let fileRing = FileKeyRing(url: store.root.appendingPathComponent("keys.json"))
         let keyRing = CompositeKeyRing(fileRing: fileRing)
+        let prompts = PromptStore(
+            builtins: PromptStore.builtins,
+            fileURL: store.root.appendingPathComponent("prompts.json")
+        )
         let engine = MissionEngine(
             store: store,
             keyRing: keyRing,
-            config: MissionEngine.Config(maxParallel: 4, maxSteps: 14, verifyWithAgent: true)
+            config: MissionEngine.Config(maxParallel: 4, maxSteps: 14, verifyWithAgent: true),
+            promptStore: prompts
         )
 
         var token = Environment.get("AGENTSAM_TOKEN") ?? ""
@@ -55,6 +61,7 @@ struct ServerContext: Sendable {
             store: store,
             engine: engine,
             keyRing: keyRing,
+            prompts: prompts,
             token: token,
             dataDir: store.root,
             accounts: AccountStore(dataDir: store.root),
@@ -72,6 +79,7 @@ struct ServerContext: Sendable {
         if await store.loadTeams().isEmpty {
             await store.saveTeam(Team.starterTeam())
         }
+        prompts.ensureSeedFile()
     }
 
     func saveTeam(_ team: Team) async {

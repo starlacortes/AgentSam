@@ -53,13 +53,24 @@ public actor MissionEngine {
     private let keyRing: KeyRing
     private let client: LLMClient
     private let config: Config
+    private let promptBuilder: PromptBuilder
     private var runningTasks: [UUID: Task<Void, Never>] = [:]
 
-    public init(store: MissionStore, keyRing: KeyRing, client: LLMClient = LLMClient(), config: Config = Config()) {
+    public init(
+        store: MissionStore,
+        keyRing: KeyRing,
+        client: LLMClient = LLMClient(),
+        config: Config = Config(),
+        promptStore: PromptStore? = nil
+    ) {
         self.store = store
         self.keyRing = keyRing
         self.client = client
         self.config = config
+        self.promptBuilder = PromptBuilder(store: promptStore ?? PromptStore(
+            builtins: PromptStore.builtins,
+            fileURL: store.root.appendingPathComponent("prompts.json")
+        ))
     }
 
     public func launch(missionID: UUID, team: Team) {
@@ -88,6 +99,9 @@ public actor MissionEngine {
         mission.status = .running
         mission.startedAt = Date()
         mission.phase = .planning
+        // Record which prompt template versions this run uses, so the run can
+        // be audited against the prompts it actually saw.
+        mission.promptVersions = promptBuilder.store.currentVersions()
         await store.saveMission(mission)
         await store.appendEvent(missionID, kind: .missionStart, text: mission.objective)
         await store.appendEvent(missionID, kind: .phase, text: MissionPhase.planning.rawValue)
@@ -194,7 +208,7 @@ public actor MissionEngine {
         }
 
         let taskLimit = min(8, team.workers.count)
-        var messages: [APIMessage] = [.user(PromptBuilder.planPrompt(mission: mission, team: team, maxTasks: taskLimit))]
+        var messages: [APIMessage] = [.user(promptBuilder.planPrompt(mission: mission, team: team, maxTasks: taskLimit))]
         var plan: [TaskPlanItem] = []
 
         // The coordinator submits the plan through the submit_plan tool.
@@ -205,7 +219,7 @@ public actor MissionEngine {
                 agent: coordinator,
                 registry: registry,
                 missionID: mission.id,
-                system: PromptBuilder.coordinatorSystem(agent: coordinator, team: team),
+                system: promptBuilder.coordinatorSystem(agent: coordinator, team: team),
                 messages: messages,
                 tools: AgentTools.planTools,
                 stats: &stats
@@ -225,7 +239,7 @@ public actor MissionEngine {
                     break attemptLoop
                 case .failure(let error):
                     await store.appendEvent(mission.id, kind: .notice, text: "Plan rejected: \(error.reason). Asking for a corrected plan.")
-                    messages.append(.tool(id: planCall.id, content: PromptBuilder.invalidPlanFeedback(reason: error.reason)))
+                    messages.append(.tool(id: planCall.id, content: promptBuilder.invalidPlanFeedback(reason: error.reason)))
                     continue attemptLoop
                 }
             }
@@ -238,7 +252,7 @@ public actor MissionEngine {
             }
 
             await store.appendEvent(mission.id, kind: .notice, text: "Coordinator didn't submit a plan; asking it to correct the reply.")
-            messages.append(.user(PromptBuilder.replanPrompt(mission: mission, previous: reply.message.content ?? "")))
+            messages.append(.user(promptBuilder.replanPrompt(mission: mission, previous: reply.message.content ?? "")))
         }
 
         if plan.isEmpty {
@@ -330,7 +344,7 @@ public actor MissionEngine {
         registry: ProviderRegistry,
         workspace: URL
     ) async -> WorkerResult {
-        var messages: [APIMessage] = [.user(PromptBuilder.workPrompt(task: task, mission: mission))]
+        var messages: [APIMessage] = [.user(promptBuilder.workPrompt(task: task, mission: mission))]
         var workerStats = MissionStats(turns: 0)
         var handoff = "Task finished."
         var deliverables: [String] = []
@@ -343,7 +357,7 @@ public actor MissionEngine {
                     agent: agent,
                     registry: registry,
                     missionID: mission.id,
-                    system: PromptBuilder.workerSystem(agent: agent, team: team, mission: mission),
+                    system: promptBuilder.workerSystem(agent: agent, team: team, mission: mission),
                     messages: messages,
                     tools: AgentTools.workerTools,
                     stats: &workerStats
@@ -416,7 +430,7 @@ public actor MissionEngine {
 
         var verdict: VerificationReport.Verdict = .unverified
         if let verifier = team.verifier, config.verifyWithAgent, !deliverableNames.isEmpty {
-            var messages: [APIMessage] = [.user(PromptBuilder.verifyPrompt(deliverables: deliverableNames))]
+            var messages: [APIMessage] = [.user(promptBuilder.verifyPrompt(deliverables: deliverableNames))]
             var verifierFindings: [VerificationReport.Finding] = []
             do {
                 // The verifier reads the workspace, then submits its review
@@ -428,7 +442,7 @@ public actor MissionEngine {
                         agent: verifier,
                         registry: registry,
                         missionID: mission.id,
-                        system: PromptBuilder.verifierSystem(agent: verifier, mission: mission),
+                        system: promptBuilder.verifierSystem(agent: verifier, mission: mission),
                         messages: messages,
                         tools: AgentTools.verifierTools,
                         stats: &stats
@@ -520,12 +534,12 @@ public actor MissionEngine {
         let handoffs = results.map { result in
             "\(result.agent.name) — \(result.task.deliverable): \(result.handoff)"
         }
-        var messages: [APIMessage] = [.user(PromptBuilder.reportPrompt(mission: mission, handoffs: handoffs))]
+        var messages: [APIMessage] = [.user(promptBuilder.reportPrompt(mission: mission, handoffs: handoffs))]
         let reply = try await call(
             agent: coordinator,
             registry: registry,
             missionID: mission.id,
-            system: PromptBuilder.coordinatorSystem(agent: coordinator, team: team),
+            system: promptBuilder.coordinatorSystem(agent: coordinator, team: team),
             messages: messages,
             tools: nil,
             stats: &stats
