@@ -2,26 +2,6 @@ import Vapor
 import Foundation
 import AgentSamCore
 
-struct TokenMiddleware: AsyncMiddleware {
-    let token: String
-
-    func respond(to request: Request, chainingTo next: AsyncResponder) async throws -> Response {
-        let header = request.headers.first(name: .authorization)?
-            .trimmingCharacters(in: .whitespaces)
-        var provided: String?
-        if let header, header.lowercased().hasPrefix("bearer") {
-            provided = String(header.dropFirst("bearer".count)).trimmingCharacters(in: .whitespaces)
-        }
-        if provided == nil {
-            provided = request.query[String.self, at: "token"]
-        }
-        guard let provided, provided == token, !token.isEmpty else {
-            throw Abort(.unauthorized, reason: "Missing or invalid token")
-        }
-        return try await next.respond(to: request)
-    }
-}
-
 extension Request {
     static let jsonEncoder: JSONEncoder = {
         let encoder = JSONEncoder()

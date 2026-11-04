@@ -99,6 +99,25 @@ Put your own TLS reverse proxy (Caddy/nginx) in front, or keep it on a tailnet (
 | `AGENTSAM_PORT` | Listen port | Vapor default (8080) |
 | `AGENTSAM_BIND_ALL` / `AGENTSAM_HOST` | Bind 0.0.0.0 / custom host | loopback |
 | `AGENTSAM_KEY_<PROVIDER>` | e.g. `AGENTSAM_KEY_PROVIDER_ANTHROPIC` — env keys beat keys.json | — |
+| `AGENTSAM_WEB_DIR` | Folder holding the built web app (`Web/dist`) | `./Public` (`/app/Public` in Docker) |
+| `AGENTSAM_INSECURE_COOKIES` | Set only for local plain-HTTP development; drops the `Secure` cookie flag | unset |
+
+## Web app
+
+The server also serves a browser UI at `/` (built from `Web/`, a Vite + React + TypeScript app, into the Docker image).
+
+- **First run:** open the server URL and create the admin account. This step asks for `AGENTSAM_TOKEN` to prove you own the server, and only works while no accounts exist.
+- **People:** admins invite others from the People page. An invite is a one-time link that expires in 7 days. Roles: **admin** (manage people, provider configs and keys, delete missions) and **member** (teams and missions). Everyone shares the same teams and missions.
+- **Sessions:** sign-in sets an `HttpOnly`, `Secure`, `SameSite=Strict` cookie (14 days). Passwords are bcrypt-hashed in `accounts.json`; sessions are stored hashed in `sessions.json` (both 0600). Repeated failed sign-ins from one address are locked out for 15 minutes.
+- **App tokens:** each user can create personal tokens (`asam_…`) on their Account page and paste one into the iPhone or Mac app in place of `AGENTSAM_TOKEN`, so the app acts as that user with their role. Tokens are stored hashed and can be revoked.
+- `AGENTSAM_TOKEN` keeps working for the apps and scripts and acts as an admin. Keep it private; share invite links and app tokens instead.
+
+Local development:
+
+```bash
+cd Server && AGENTSAM_TOKEN=dev AGENTSAM_INSECURE_COOKIES=1 swift run   # API on :8080
+cd Web && npm install && npm run dev                                     # UI on :5173, proxies /api
+```
 
 ### API sketch
 
@@ -117,7 +136,22 @@ GET    /api/missions/:id/deliverables/:name
 WS     /api/missions/:id/live       (live RunEvent stream; closes on missionEnd)
 ```
 
-All `/api/*` routes require `Authorization: Bearer <token>` (the WebSocket also accepts `?token=`).
+Accounts (web app):
+
+```
+GET    /api/auth/status              (public: { needsSetup })
+POST   /api/auth/setup               (public, once: first admin; needs AGENTSAM_TOKEN)
+POST   /api/auth/login | logout      (public)
+GET    /api/auth/invite/:secret      POST /api/auth/accept-invite   (public)
+GET    /api/auth/me                  POST /api/auth/password
+GET    /api/auth/tokens  POST /api/auth/tokens  DELETE /api/auth/tokens/:id   (personal app tokens)
+GET    /api/templates    POST /api/templates/:id/hire
+DELETE /api/providers/:id  DELETE /api/providers/:id/key                     (admin)
+GET    /api/users    PATCH/DELETE /api/users/:id                    (admin)
+GET    /api/invites  POST /api/invites  DELETE /api/invites/:id     (admin)
+```
+
+All other `/api/*` routes require either `Authorization: Bearer <AGENTSAM_TOKEN>` (the WebSocket also accepts `?token=`) or a signed-in session cookie. Cookie-authenticated writes must send `X-AgentSam-Request: 1`. Provider changes, key storage, connection tests and mission deletion are admin-only.
 
 ## iPhone app
 

@@ -10,11 +10,18 @@ public func configure(_ app: Application) async throws {
     if Environment.get("AGENTSAM_BIND_ALL") != nil || Environment.get("AGENTSAM_HOST") != nil {
         app.http.server.configuration.hostname = Environment.get("AGENTSAM_HOST") ?? "0.0.0.0"
     }
-    if let portText = Environment.get("AGENTSAM_PORT"), let port = Int(portText) {
+    if let portText = Environment.get("AGENTSAM_PORT") ?? Environment.get("PORT"), let port = Int(portText) {
         app.http.server.configuration.port = port
     }
 
+    app.middleware.use(SecurityHeadersMiddleware())
+    let webDir = WebApp.directory()
+    if let webDir {
+        app.middleware.use(FileMiddleware(publicDirectory: webDir, defaultFile: "index.html"))
+    }
+
     routes(app, ctx: ctx)
+    WebApp.registerFallback(app, directory: webDir)
 
     let dataPath = await ctx.dataDir.path
     app.logger.info("AgentSam server running. Data directory: \(dataPath)")
@@ -29,7 +36,11 @@ func routes(_ app: Application, ctx: ServerContext) {
         "ok"
     }
 
-    let api = app.grouped("api").grouped(TokenMiddleware(token: ctx.token))
+    let api = app.grouped("api").grouped(AuthMiddleware(ctx: ctx))
+    let adminAPI = api.grouped(RequireAdminMiddleware())
+
+    authRoutes(app, ctx: ctx, authed: api)
+    templateRoutes(api, ctx: ctx)
 
     api.get("info") { req async throws -> Response in
         let teams = await ctx.store.loadTeams()
@@ -99,8 +110,22 @@ func routes(_ app: Application, ctx: ServerContext) {
         return try req.json(statuses)
     }
 
-    api.post("providers") { req async throws -> Response in
-        let provider = try req.decodeJSON(ProviderConfig.self)
+    adminAPI.post("providers") { req async throws -> Response in
+        var provider = try req.decodeJSON(ProviderConfig.self)
+        provider.models = provider.models.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let idAllowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789-_")
+        guard !provider.id.isEmpty, provider.id.count <= 40,
+              provider.id.unicodeScalars.allSatisfy(idAllowed.contains) else {
+            throw Abort(.badRequest, reason: "Provider id must be lowercase letters, digits, - or _")
+        }
+        guard !provider.name.trimmingCharacters(in: .whitespaces).isEmpty else {
+            throw Abort(.badRequest, reason: "Provider needs a name")
+        }
+        guard let url = URL(string: provider.baseURL), let scheme = url.scheme?.lowercased(),
+              scheme == "https" || scheme == "http", url.host != nil else {
+            throw Abort(.badRequest, reason: "Base URL must be an http(s) URL")
+        }
+        guard !provider.models.isEmpty else { throw Abort(.badRequest, reason: "List at least one model") }
         var providers = await ctx.store.loadProviders()
         if let index = providers.firstIndex(where: { $0.id == provider.id }) {
             providers[index] = provider
@@ -111,7 +136,7 @@ func routes(_ app: Application, ctx: ServerContext) {
         return try req.json(provider, status: .created)
     }
 
-    api.post("providers", ":id", "key") { req async throws -> Response in
+    adminAPI.post("providers", ":id", "key") { req async throws -> Response in
         guard let idString = req.parameters.get("id") else {
             throw Abort(.badRequest, reason: "Missing provider id")
         }
@@ -124,7 +149,29 @@ func routes(_ app: Application, ctx: ServerContext) {
         return try req.json(AckResult(ok: true, detail: "Key stored for \(provider.name)"))
     }
 
-    api.post("providers", ":id", "test") { req async throws -> Response in
+    adminAPI.delete("providers", ":id", "key") { req async throws -> Response in
+        guard let idString = req.parameters.get("id"),
+              let provider = await ctx.store.loadProviders().first(where: { $0.id == idString }) else {
+            throw Abort(.notFound, reason: "Unknown provider")
+        }
+        ctx.keyRing.remove(provider.keyAccount)
+        return try req.json(AckResult(ok: true, detail: "Key removed for \(provider.name)"))
+    }
+
+    adminAPI.delete("providers", ":id") { req async throws -> Response in
+        guard let idString = req.parameters.get("id") else { throw Abort(.badRequest, reason: "Missing provider id") }
+        var providers = await ctx.store.loadProviders()
+        guard let provider = providers.first(where: { $0.id == idString }) else {
+            throw Abort(.notFound, reason: "Unknown provider")
+        }
+        providers.removeAll { $0.id == idString }
+        guard !providers.isEmpty else { throw Abort(.conflict, reason: "Keep at least one provider") }
+        await ctx.store.saveProviders(providers)
+        ctx.keyRing.remove(provider.keyAccount)
+        return try req.json(AckResult(ok: true, detail: nil))
+    }
+
+    adminAPI.post("providers", ":id", "test") { req async throws -> Response in
         guard let idString = req.parameters.get("id") else {
             throw Abort(.badRequest, reason: "Missing provider id")
         }
@@ -143,7 +190,9 @@ func routes(_ app: Application, ctx: ServerContext) {
 
     api.post("missions") { req async throws -> Response in
         let body = try req.decodeJSON(MissionStartBody.self)
-        let mission = try await ctx.startMission(teamID: body.teamID, objective: body.objective)
+        let mission = try await ctx.startMission(
+            teamID: body.teamID, objective: body.objective, launchedBy: req.principal?.name
+        )
         return try req.json(mission, status: .created)
     }
 
@@ -198,7 +247,7 @@ func routes(_ app: Application, ctx: ServerContext) {
         return try req.json(AckResult(ok: true, detail: "Stop requested."))
     }
 
-    api.delete("missions", ":id") { req async throws -> Response in
+    adminAPI.delete("missions", ":id") { req async throws -> Response in
         guard let idString = req.parameters.get("id"), let id = UUID(uuidString: idString) else {
             throw Abort(.badRequest, reason: "Bad mission id")
         }

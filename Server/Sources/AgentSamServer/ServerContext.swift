@@ -25,6 +25,11 @@ struct ServerContext: Sendable {
     let keyRing: CompositeKeyRing
     let token: String
     let dataDir: URL
+    let accounts: AccountStore
+    let sessions: SessionStore
+    let throttle: LoginThrottle
+    /// Compared against when an email isn't found, so failed logins take the same time either way.
+    let dummyPasswordHash: String
 
     static func make() -> ServerContext {
         let raw = Environment.get("AGENTSAM_DATA") ?? "data"
@@ -51,7 +56,11 @@ struct ServerContext: Sendable {
             engine: engine,
             keyRing: keyRing,
             token: token,
-            dataDir: store.root
+            dataDir: store.root,
+            accounts: AccountStore(dataDir: store.root),
+            sessions: SessionStore(dataDir: store.root, lifetime: AuthConfig.sessionLifetime),
+            throttle: LoginThrottle(),
+            dummyPasswordHash: (try? Bcrypt.hash(Secrets.randomToken())) ?? ""
         )
     }
 
@@ -72,6 +81,9 @@ struct ServerContext: Sendable {
     }
 
     func upsertTeam(input: TeamInput, id: UUID?) async throws -> Team {
+        let name = input.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name.count <= 80 else { throw Abort(.badRequest, reason: "Team name must be 1 to 80 characters") }
+        guard (input.agents ?? []).count <= 16 else { throw Abort(.badRequest, reason: "A team can have at most 16 agents") }
         let teamID = id ?? input.id ?? UUID()
         var createdAt = Date()
         if let existing = await store.team(id: teamID) {
@@ -79,7 +91,7 @@ struct ServerContext: Sendable {
         }
         let team = Team(
             id: teamID,
-            name: input.name,
+            name: name,
             emoji: input.emoji ?? "🛡️",
             goal: input.goal ?? "",
             agents: input.agents ?? [],
@@ -90,11 +102,18 @@ struct ServerContext: Sendable {
         return team
     }
 
-    func startMission(teamID: UUID, objective: String) async throws -> Mission {
+    func startMission(teamID: UUID, objective: String, launchedBy: String? = nil) async throws -> Mission {
+        let objective = objective.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !objective.isEmpty else { throw Abort(.badRequest, reason: "Describe the mission objective") }
+        guard objective.count <= 8_000 else { throw Abort(.badRequest, reason: "Objective is too long (8,000 characters max)") }
         guard let team = await store.team(id: teamID) else {
             throw Abort(.notFound, reason: "Team not found")
         }
-        let mission = await store.createMission(team: team, objective: objective)
+        var mission = await store.createMission(team: team, objective: objective)
+        if let launchedBy {
+            mission.launchedBy = launchedBy
+            await store.saveMission(mission)
+        }
         await engine.launch(missionID: mission.id, team: team)
         return mission
     }
