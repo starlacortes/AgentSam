@@ -153,7 +153,9 @@ func routes(_ app: Application, ctx: ServerContext) {
 
     api.post("missions") { req async throws -> Response in
         let body = try req.decodeJSON(MissionStartBody.self)
-        let mission = try await ctx.startMission(teamID: body.teamID, objective: body.objective)
+        let mission = try await ctx.startMission(
+            teamID: body.teamID, objective: body.objective, launchedBy: req.principal?.name
+        )
         return try req.json(mission, status: .created)
     }
 

@@ -99,11 +99,18 @@ struct ServerContext: Sendable {
         return team
     }
 
-    func startMission(teamID: UUID, objective: String) async throws -> Mission {
+    func startMission(teamID: UUID, objective: String, launchedBy: String? = nil) async throws -> Mission {
+        let objective = objective.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !objective.isEmpty else { throw Abort(.badRequest, reason: "Describe the mission objective") }
+        guard objective.count <= 8_000 else { throw Abort(.badRequest, reason: "Objective is too long (8,000 characters max)") }
         guard let team = await store.team(id: teamID) else {
             throw Abort(.notFound, reason: "Team not found")
         }
-        let mission = await store.createMission(team: team, objective: objective)
+        var mission = await store.createMission(team: team, objective: objective)
+        if let launchedBy {
+            mission.launchedBy = launchedBy
+            await store.saveMission(mission)
+        }
         await engine.launch(missionID: mission.id, team: team)
         return mission
     }

@@ -3,7 +3,9 @@ import { useAuth } from './auth/AuthContext'
 import { Layout } from './components/Layout'
 import { Spinner } from './components/ui'
 import { AccountPage } from './pages/AccountPage'
-import { HomePage } from './pages/HomePage'
+import { MissionPage } from './pages/MissionPage'
+import { MissionsPage } from './pages/MissionsPage'
+import { NewMissionPage } from './pages/NewMissionPage'
 import { InvitePage } from './pages/InvitePage'
 import { LoginPage } from './pages/LoginPage'
 import { PeoplePage } from './pages/PeoplePage'
@@ -31,7 +33,9 @@ export function App() {
       return (
         <Routes>
           <Route element={<Layout />}>
-            <Route index element={<HomePage />} />
+            <Route index element={<MissionsPage />} />
+            <Route path="missions/new" element={<NewMissionPage />} />
+            <Route path="missions/:id" element={<MissionPage />} />
             <Route path="account" element={<AccountPage />} />
             {isAdmin ? <Route path="people" element={<PeoplePage />} /> : null}
             <Route path="*" element={<Navigate to="/" replace />} />
