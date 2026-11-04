@@ -21,11 +21,17 @@ public actor MissionEngine {
         public var maxParallel: Int
         public var maxSteps: Int
         public var verifyWithAgent: Bool
+        /// Token budget per conversation (≈ characters ÷ 4). Conversations
+        /// that grow past it are compacted before each call; when a provider
+        /// still reports context overflow, the budget is halved and the call
+        /// retried before the phase fails.
+        public var contextBudgetTokens: Int
 
-        public init(maxParallel: Int = 4, maxSteps: Int = 14, verifyWithAgent: Bool = true) {
+        public init(maxParallel: Int = 4, maxSteps: Int = 14, verifyWithAgent: Bool = true, contextBudgetTokens: Int = 20_000) {
             self.maxParallel = maxParallel
             self.maxSteps = maxSteps
             self.verifyWithAgent = verifyWithAgent
+            self.contextBudgetTokens = contextBudgetTokens
         }
     }
 
@@ -548,23 +554,52 @@ public actor MissionEngine {
             throw MissionEngineError.unknownProvider(agent.providerID)
         }
         let key = keyRing.get(provider.keyAccount) ?? ""
-        let reply = try await client.complete(
-            provider: provider,
-            key: key,
-            model: agent.model,
-            system: system,
-            messages: messages,
-            tools: tools,
-            temperature: agent.temperature
-        )
-        stats.turns += 1
-        stats.inputTokens += reply.inputTokens
-        stats.outputTokens += reply.outputTokens
-        stats.costUSD += Pricing.estimate(model: reply.model, inputTokens: reply.inputTokens, outputTokens: reply.outputTokens)
-        if let text = reply.message.content, !text.isEmpty {
-            await store.appendEvent(missionID, kind: .agentMessage, agent: agent, text: String(text.prefix(4_000)))
+
+        // Conversations grow as tools return content, but the request must
+        // not: compact when the running estimate exceeds the budget, and when
+        // a provider rejects for context overflow, halve the budget and retry
+        // before giving up on the phase.
+        var budgetTokens = config.contextBudgetTokens
+        var overflowRetries = 0
+        while true {
+            let compacted = ConversationCompactor.compact(messages: messages, budgetTokens: budgetTokens)
+            if compacted.trimmed, let note = compacted.notice {
+                await store.appendEvent(missionID, kind: .notice, agent: agent, text: note)
+            }
+
+            let reply: LLMReply
+            do {
+                reply = try await client.complete(
+                    provider: provider,
+                    key: key,
+                    model: agent.model,
+                    system: system,
+                    messages: compacted.messages,
+                    tools: tools,
+                    temperature: agent.temperature
+                )
+            } catch let error as LLMError where error.isContextOverflow {
+                overflowRetries += 1
+                guard overflowRetries <= 2 else { throw error }
+                budgetTokens = max(ConversationCompactor.minimumBudgetTokens, budgetTokens / 2)
+                await store.appendEvent(
+                    missionID,
+                    kind: .notice,
+                    agent: agent,
+                    text: "Provider reported the conversation exceeded its context window. Trimming and retrying (\(overflowRetries)/2)."
+                )
+                continue
+            }
+
+            stats.turns += 1
+            stats.inputTokens += reply.inputTokens
+            stats.outputTokens += reply.outputTokens
+            stats.costUSD += Pricing.estimate(model: reply.model, inputTokens: reply.inputTokens, outputTokens: reply.outputTokens)
+            if let text = reply.message.content, !text.isEmpty {
+                await store.appendEvent(missionID, kind: .agentMessage, agent: agent, text: String(text.prefix(4_000)))
+            }
+            return reply
         }
-        return reply
     }
 
     private func stripFences(_ text: String) -> String {
