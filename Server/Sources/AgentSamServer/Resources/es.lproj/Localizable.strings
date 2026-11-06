@@ -77,3 +77,8 @@
 "maloon.workflow.customer-marketing.behavior" = "Solo borradores · no se publica nada";
 "maloon.workflow.customer-marketing.objective" = "Usando únicamente el contexto empresarial, de servicios, presupuestos y trabajos aportado, propón un conjunto pequeño de comunicaciones útiles con clientes y borradores de marketing. Basa las descripciones de servicios y los precios en la instantánea, mantén afirmaciones respaldables e identifica el público y el canal previstos para cada borrador. No publiques, no envíes, no inventes testimonios ni hagas garantías que no estén presentes en los datos de origen.";
 
+
+/* Coordinator chat */
+"srv.chatNotFound" = "Chat no encontrado";
+"srv.chatBusy" = "El coordinador todavía está respondiendo tu último mensaje.";
+"srv.chatMessageLength" = "Los mensajes deben tener entre 1 y 8.000 caracteres.";
