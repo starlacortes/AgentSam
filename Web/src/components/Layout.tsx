@@ -6,6 +6,8 @@ import { Logo } from './ui'
 interface NavItem {
   to: string
   label: string
+  /** Shorter label for the phone tab bar, where five tabs share the width. */
+  tabLabel?: string
   end?: boolean
 }
 
@@ -17,6 +19,7 @@ export function Layout() {
 
   const primary: NavItem[] = [
     { to: '/', label: 'Missions', end: true },
+    { to: '/coordinator', label: 'Coordinator', tabLabel: 'Chat' },
     { to: '/teams', label: 'Teams' },
     { to: '/templates', label: 'Templates' },
   ]
@@ -59,7 +62,7 @@ export function Layout() {
       <nav className="tabbar" aria-label="Main">
         {primary.map((item) => (
           <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => (isActive ? 'tab active' : 'tab')}>
-            {item.label}
+            {item.tabLabel ?? item.label}
           </NavLink>
         ))}
         <button className={moreActive || moreOpen ? 'tab active' : 'tab'} aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}>

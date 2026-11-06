@@ -3,6 +3,7 @@ import { useAuth } from './auth/AuthContext'
 import { Layout } from './components/Layout'
 import { Spinner } from './components/ui'
 import { AccountPage } from './pages/AccountPage'
+import { CoordinatorPage } from './pages/CoordinatorPage'
 import { MissionPage } from './pages/MissionPage'
 import { MissionsPage } from './pages/MissionsPage'
 import { NewMissionPage } from './pages/NewMissionPage'
@@ -39,6 +40,7 @@ export function App() {
         <Routes>
           <Route element={<Layout />}>
             <Route index element={<MissionsPage />} />
+            <Route path="coordinator" element={<CoordinatorPage />} />
             <Route path="missions/new" element={<NewMissionPage />} />
             <Route path="missions/:id" element={<MissionPage />} />
             <Route path="teams" element={<TeamsPage />} />

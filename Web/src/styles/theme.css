@@ -326,7 +326,7 @@ main.page { width: 100%; max-width: 1160px; margin: 0 auto; padding: 28px 20px 8
   main.page { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
   .tabbar {
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
-    display: grid; grid-template-columns: repeat(4, 1fr);
+    display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;
     padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
     background: rgba(10, 16, 13, 0.92); backdrop-filter: blur(14px) saturate(1.2);
     border-top: 1px solid var(--line);
