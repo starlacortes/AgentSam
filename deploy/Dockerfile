@@ -20,6 +20,10 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /build/Server/.build/release/AgentSamServer .
+# SwiftPM resource bundles. Bundle.module resolves them next to the executable on Linux;
+# without them the first localized lookup (e.g. GET /api/templates) fatalErrors the process.
+COPY --from=build /build/Server/.build/release/AgentSamCore_AgentSamCore.bundle ./AgentSamCore_AgentSamCore.bundle
+COPY --from=build /build/Server/.build/release/AgentSamServer_AgentSamServer.bundle ./AgentSamServer_AgentSamServer.bundle
 COPY --from=web /web/dist ./Public
 RUN mkdir -p /data
 ENV AGENTSAM_DATA=/data \
