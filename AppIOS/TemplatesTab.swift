@@ -15,9 +15,9 @@ struct TemplatesTab: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     VStack(alignment: .leading, spacing: 5) {
-                        Text("CURATED TEAMS").agentSamKicker()
-                        Text("Hire a team in one click.").font(AgentSamTheme.displayFont(27)).foregroundStyle(AgentSamTheme.ink)
-                        Text("Preview the roster, then make every role and model your own.").font(.callout).foregroundStyle(AgentSamTheme.muted)
+                        Text(String(localized: "CURATED TEAMS")).agentSamKicker()
+                        Text(String(localized: "Hire a team in one click.")).font(AgentSamTheme.displayFont(27)).foregroundStyle(AgentSamTheme.ink)
+                        Text(String(localized: "Preview the roster, then make every role and model your own.")).font(.callout).foregroundStyle(AgentSamTheme.muted)
                     }
                     .padding(.horizontal, 16)
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 16)], spacing: 16) {
@@ -35,7 +35,7 @@ struct TemplatesTab: View {
                 .padding(.vertical, 18)
             }
             .background(AgentSamBackground())
-            .navigationTitle("Templates")
+            .navigationTitle(String(localized: "Templates"))
             .sheet(item: $preview) { template in
                 NavigationStack {
                     TeamTemplatePreview(template: template, agents: template.agents(providers: providers)) {
@@ -49,7 +49,7 @@ struct TemplatesTab: View {
             // Sheet content doesn't inherit the environment on iOS 27, so re-inject the session.
             .sheet(item: $editingTeam) { team in IOTeamEditView(team: team).environment(session) }
             .sheet(isPresented: $showNewTeam) { IOTeamEditView(team: nil).environment(session) }
-            .overlay { if saving { ProgressView("Hiring team…").padding().agentSamPanel() } }
+            .overlay { if saving { ProgressView(String(localized: "Hiring team…")).padding().agentSamPanel() } }
         }
     }
 

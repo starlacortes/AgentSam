@@ -3,20 +3,23 @@ import AgentSamCore
 import Foundation
 
 public func configure(_ app: Application) async throws {
-    let ctx = ServerContext.make()
+    let ctx = try ServerContext.make()
     await ctx.seedIfEmpty()
-    try? await app.storage.setWithAsyncShutdown(ServerContextKey.self, to: ctx)
+    await ctx.reconcileInterruptedMissions()
+    await app.storage.setWithAsyncShutdown(ServerContextKey.self, to: ctx) { context in
+        await context.shutdown()
+    }
 
     if Environment.get("AGENTSAM_BIND_ALL") != nil || Environment.get("AGENTSAM_HOST") != nil {
         app.http.server.configuration.hostname = Environment.get("AGENTSAM_HOST") ?? "0.0.0.0"
     }
-    if let portText = Environment.get("AGENTSAM_PORT"), let port = Int(portText) {
+    if let portText = Environment.get("AGENTSAM_PORT") ?? Environment.get("PORT"), let port = Int(portText) {
         app.http.server.configuration.port = port
     }
 
     routes(app, ctx: ctx)
 
-    let dataPath = await ctx.dataDir.path
+    let dataPath = ctx.dataDir.path
     app.logger.info("AgentSam server running. Data directory: \(dataPath)")
 }
 
@@ -27,6 +30,43 @@ struct ServerContextKey: StorageKey {
 func routes(_ app: Application, ctx: ServerContext) {
     app.get("healthz") { _ async -> String in
         "ok"
+    }
+
+    // Google OAuth callback — deliberately NOT token-protected: Google redirects the browser here.
+    app.get("api", "connectors", ":id", "callback") { req async throws -> Response in
+        let lang = SrvL10n.lang(for: req)
+        guard let idString = req.parameters.get("id"), let connectorID = ConnectorID(rawValue: idString) else {
+            throw Abort(.notFound, reason: SrvL10n.t("srv.unknownConnector", lang: lang))
+        }
+        guard let state = req.query[String.self, at: "state"], let entry = await ctx.oauthStates.consume(state) else {
+            return oauthResultPage(title: SrvL10n.t("srv.connectionFailed", lang: lang), message: SrvL10n.t("srv.oauthSessionExpired", lang: lang))
+        }
+        guard entry.connectorID == connectorID else {
+            return oauthResultPage(title: SrvL10n.t("srv.connectionFailed", lang: lang), message: SrvL10n.t("srv.oauthMismatch", lang: lang))
+        }
+        guard let code = req.query[String.self, at: "code"], !code.isEmpty else {
+            return oauthResultPage(title: SrvL10n.t("srv.connectionFailed", lang: lang), message: SrvL10n.t("srv.oauthNoCode", lang: lang))
+        }
+        do {
+            let result = try await ctx.connectors.google.exchangeCode(code: code, redirectURI: entry.redirectURI)
+            guard let refreshToken = result.refreshToken, !refreshToken.isEmpty else {
+                return oauthResultPage(title: SrvL10n.t("srv.connectionFailed", lang: lang), message: SrvL10n.t("srv.oauthNoRefreshToken", lang: lang))
+            }
+            try ctx.keyRing.set(refreshToken, for: GoogleTokenProvider.refreshAccount(for: connectorID))
+            ctx.keyRing.remove(GoogleTokenProvider.cacheAccount(for: connectorID))
+            if entry.clientKind == "app" {
+                let url = "agentsam-ios://connectors/\(connectorID.rawValue)?ok=1"
+                var headers = HTTPHeaders()
+                headers.replaceOrAdd(name: .location, value: url)
+                return Response(status: .seeOther, headers: headers, body: .init())
+            }
+            return oauthResultPage(
+                title: SrvL10n.tf("srv.connectorConnectedTitle", connectorID.displayName, lang: lang),
+                message: SrvL10n.tf("srv.connectorConnectedMessage", connectorID.displayName, lang: lang)
+            )
+        } catch {
+            return oauthResultPage(title: SrvL10n.t("srv.connectionFailed", lang: lang), message: error.localizedDescription)
+        }
     }
 
     let api = app.grouped("api").grouped(TokenMiddleware(token: ctx.token))
@@ -52,11 +92,12 @@ func routes(_ app: Application, ctx: ServerContext) {
     }
 
     api.get("teams", ":id") { req async throws -> Response in
+        let lang = SrvL10n.lang(for: req)
         guard let idString = req.parameters.get("id"), let id = UUID(uuidString: idString) else {
-            throw Abort(.badRequest, reason: "Bad team id")
+            throw Abort(.badRequest, reason: SrvL10n.t("srv.badTeamID", lang: lang))
         }
         guard let team = await ctx.store.team(id: id) else {
-            throw Abort(.notFound, reason: "Team not found")
+            throw Abort(.notFound, reason: SrvL10n.t("srv.teamNotFound", lang: lang))
         }
         return try req.json(team)
     }
@@ -68,8 +109,9 @@ func routes(_ app: Application, ctx: ServerContext) {
     }
 
     api.put("teams", ":id") { req async throws -> Response in
+        let lang = SrvL10n.lang(for: req)
         guard let idString = req.parameters.get("id"), let id = UUID(uuidString: idString) else {
-            throw Abort(.badRequest, reason: "Bad team id")
+            throw Abort(.badRequest, reason: SrvL10n.t("srv.badTeamID", lang: lang))
         }
         let input = try req.decodeJSON(TeamInput.self)
         let team = try await ctx.upsertTeam(input: input, id: id)
@@ -77,11 +119,12 @@ func routes(_ app: Application, ctx: ServerContext) {
     }
 
     api.delete("teams", ":id") { req async throws -> Response in
+        let lang = SrvL10n.lang(for: req)
         guard let idString = req.parameters.get("id"), let id = UUID(uuidString: idString) else {
-            throw Abort(.badRequest, reason: "Bad team id")
+            throw Abort(.badRequest, reason: SrvL10n.t("srv.badTeamID", lang: lang))
         }
         guard await ctx.store.team(id: id) != nil else {
-            throw Abort(.notFound, reason: "Team not found")
+            throw Abort(.notFound, reason: SrvL10n.t("srv.teamNotFound", lang: lang))
         }
         await ctx.store.deleteTeam(id: id)
         return try req.json(AckResult(ok: true, detail: nil))
@@ -93,7 +136,7 @@ func routes(_ app: Application, ctx: ServerContext) {
         let providers = await ctx.store.loadProviders()
         var statuses: [ProviderStatus] = []
         for provider in providers {
-            let key = await ctx.keyRing.get(provider.keyAccount)
+            let key = ctx.keyRing.get(provider.keyAccount)
             statuses.append(ProviderStatus(provider: provider, hasKey: key != nil))
         }
         return try req.json(statuses)
@@ -112,63 +155,177 @@ func routes(_ app: Application, ctx: ServerContext) {
     }
 
     api.post("providers", ":id", "key") { req async throws -> Response in
+        let lang = SrvL10n.lang(for: req)
         guard let idString = req.parameters.get("id") else {
-            throw Abort(.badRequest, reason: "Missing provider id")
+            throw Abort(.badRequest, reason: SrvL10n.t("srv.missingProviderID", lang: lang))
         }
         let providers = await ctx.store.loadProviders()
         guard let provider = providers.first(where: { $0.id == idString }) else {
-            throw Abort(.notFound, reason: "Unknown provider: \(idString)")
+            throw Abort(.notFound, reason: SrvL10n.tf("srv.unknownProvider", idString, lang: lang))
         }
         let body = try req.decodeJSON(KeyBody.self)
-        try await ctx.keyRing.set(body.key, for: provider.keyAccount)
-        return try req.json(AckResult(ok: true, detail: "Key stored for \(provider.name)"))
+        try ctx.keyRing.set(body.key, for: provider.keyAccount)
+        return try req.json(AckResult(ok: true, detail: SrvL10n.tf("srv.keyStored", provider.name, lang: lang)))
     }
 
     api.post("providers", ":id", "test") { req async throws -> Response in
+        let lang = SrvL10n.lang(for: req)
         guard let idString = req.parameters.get("id") else {
-            throw Abort(.badRequest, reason: "Missing provider id")
+            throw Abort(.badRequest, reason: SrvL10n.t("srv.missingProviderID", lang: lang))
         }
         let providers = await ctx.store.loadProviders()
         guard let provider = providers.first(where: { $0.id == idString }) else {
-            throw Abort(.notFound, reason: "Unknown provider: \(idString)")
+            throw Abort(.notFound, reason: SrvL10n.tf("srv.unknownProvider", idString, lang: lang))
         }
-        guard let key = await ctx.keyRing.get(provider.keyAccount) else {
-            return try req.json(ProviderTestResult(ok: false, message: "No API key saved for \(provider.name)."))
+        guard let key = ctx.keyRing.get(provider.keyAccount) else {
+            return try req.json(ProviderTestResult(ok: false, message: SrvL10n.tf("srv.noAPIKey", provider.name, lang: lang)))
         }
         let result = await LLMClient().testConnection(provider: provider, key: key)
         return try req.json(ProviderTestResult(ok: result.ok, message: result.message))
+    }
+
+    // MARK: Integrations
+
+    api.get("integrations") { req async throws -> Response in
+        try req.json([ctx.maloon.status(lang: SrvL10n.lang(for: req))])
+    }
+
+    api.post("integrations", "maloon", "test") { req async throws -> Response in
+        let lang = SrvL10n.lang(for: req)
+        guard ctx.maloon.isConfigured else {
+            throw Abort(.badRequest, reason: SrvL10n.t("srv.maloonNotConfigured", lang: lang))
+        }
+        return try req.json(await ctx.maloon.test(lang: lang))
+    }
+
+    // MARK: Connectors
+
+    api.get("connectors") { req async throws -> Response in
+        var statuses: [ConnectorStatus] = []
+        for connectorID in ConnectorID.allCases {
+            statuses.append(await ctx.connectors.status(for: connectorID))
+        }
+        return try req.json(statuses)
+    }
+
+    api.patch("connectors", ":id") { req async throws -> Response in
+        let lang = SrvL10n.lang(for: req)
+        guard let idString = req.parameters.get("id"), let connectorID = ConnectorID(rawValue: idString) else {
+            throw Abort(.notFound, reason: SrvL10n.t("srv.unknownConnector", lang: lang))
+        }
+        let body = try req.decodeJSON(ConnectorPatchBody.self)
+        var config = await ctx.connectors.config(for: connectorID)
+        if let enabled = body.enabled { config.enabled = enabled }
+        if let permissions = body.permissions { config.permissions = permissions }
+        await ctx.connectors.setConfig(config)
+        return try req.json(await ctx.connectors.status(for: connectorID))
+    }
+
+    api.post("connectors", ":id", "disconnect") { req async throws -> Response in
+        let lang = SrvL10n.lang(for: req)
+        guard let idString = req.parameters.get("id"), let connectorID = ConnectorID(rawValue: idString) else {
+            throw Abort(.notFound, reason: SrvL10n.t("srv.unknownConnector", lang: lang))
+        }
+        ctx.connectors.disconnect(connectorID)
+        return try req.json(AckResult(ok: true, detail: SrvL10n.tf("srv.disconnected", connectorID.displayName, lang: lang)))
+    }
+
+    api.post("connectors", ":id", "test") { req async throws -> Response in
+        let lang = SrvL10n.lang(for: req)
+        guard let idString = req.parameters.get("id"), let connectorID = ConnectorID(rawValue: idString) else {
+            throw Abort(.notFound, reason: SrvL10n.t("srv.unknownConnector", lang: lang))
+        }
+        let result = await ctx.connectors.test(connectorID)
+        return try req.json(ConnectorTestResult(ok: result.ok, message: result.message))
+    }
+
+    api.post("connectors", "cloudflare", "token") { req async throws -> Response in
+        let lang = SrvL10n.lang(for: req)
+        let body = try req.decodeJSON(KeyBody.self)
+        let token = body.key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !token.isEmpty else {
+            throw Abort(.badRequest, reason: SrvL10n.t("srv.cloudflareTokenRequired", lang: lang))
+        }
+        let verified = await CloudflareConnector.verifyToken(token, session: ctx.connectors.session)
+        guard verified.ok else {
+            throw Abort(.badRequest, reason: verified.message)
+        }
+        try ctx.keyRing.set(token, for: CloudflareConnector.tokenAccount)
+        return try req.json(AckResult(ok: true, detail: SrvL10n.t("srv.cloudflareStored", lang: lang)))
+    }
+
+    api.post("connectors", "googleads", "credentials") { req async throws -> Response in
+        let lang = SrvL10n.lang(for: req)
+        let body = try req.decodeJSON(GoogleAdsCredentialsBody.self)
+        if let developerToken = body.developerToken?.trimmingCharacters(in: .whitespacesAndNewlines), !developerToken.isEmpty {
+            try ctx.keyRing.set(developerToken, for: GoogleAdsConnector.developerTokenAccount)
+        }
+        if let customerId = body.customerId?.trimmingCharacters(in: .whitespacesAndNewlines), !customerId.isEmpty {
+            let normalized = customerId.replacingOccurrences(of: "customers/", with: "")
+            try ctx.keyRing.set(normalized, for: GoogleAdsConnector.customerIdAccount)
+        }
+        return try req.json(AckResult(ok: true, detail: SrvL10n.t("srv.adsStored", lang: lang)))
+    }
+
+    api.post("connectors", ":id", "authorize") { req async throws -> Response in
+        let lang = SrvL10n.lang(for: req)
+        guard let idString = req.parameters.get("id"), let connectorID = ConnectorID(rawValue: idString) else {
+            throw Abort(.notFound, reason: SrvL10n.t("srv.unknownConnector", lang: lang))
+        }
+        guard connectorID == .gmail || connectorID == .googleads else {
+            throw Abort(.badRequest, reason: SrvL10n.t("srv.notGoogleOAuth", lang: lang))
+        }
+        guard ctx.connectors.google.isConfigured else {
+            throw Abort(.badRequest, reason: SrvL10n.t("srv.googleOAuthNotConfigured", lang: lang))
+        }
+        let body = try req.decodeJSON(OAuthAuthorizeBody.self)
+        let clientKind = (body.clientKind ?? "browser").lowercased() == "app" ? "app" : "browser"
+        let redirectURI = try connectorRedirectURI(for: req, connector: connectorID)
+        let config = await ctx.connectors.config(for: connectorID)
+        let scopes = connectorID == .gmail
+            ? GmailConnector.scopes(permissions: config.permissions)
+            : [GoogleAdsConnector.oauthScope]
+        let state = await ctx.oauthStates.issue(connectorID: connectorID, redirectURI: redirectURI, clientKind: clientKind)
+        guard let url = ctx.connectors.google.authorizeURL(redirectURI: redirectURI, state: state, scopes: scopes, prompt: "consent") else {
+            throw Abort(.badRequest, reason: SrvL10n.t("srv.googleAuthURLFailed", lang: lang))
+        }
+        return try req.json(OAuthStartResult(url: url.absoluteString))
     }
 
     // MARK: Missions
 
     api.post("missions") { req async throws -> Response in
         let body = try req.decodeJSON(MissionStartBody.self)
-        let mission = try await ctx.startMission(teamID: body.teamID, objective: body.objective)
-        return try req.json(mission, status: .created)
+        let language = body.language ?? SrvL10n.lang(for: req)
+        let mission = try await ctx.startMission(teamID: body.teamID, objective: body.objective, workflowID: body.workflowID, language: language)
+        return try req.json(mission.publicRepresentation, status: .created)
     }
 
     api.get("missions") { req async throws -> Response in
-        let limit = req.query[Int.self, at: "limit"] ?? 100
+        let requested = req.query[Int.self, at: "limit"] ?? 100
+        let limit = min(500, max(1, requested))
         let missions = await ctx.store.listMissions(limit: limit)
-        return try req.json(missions)
+        return try req.json(missions.map(\.publicRepresentation))
     }
 
     api.get("missions", ":id") { req async throws -> Response in
+        let lang = SrvL10n.lang(for: req)
         guard let idString = req.parameters.get("id"), let id = UUID(uuidString: idString) else {
-            throw Abort(.badRequest, reason: "Bad mission id")
+            throw Abort(.badRequest, reason: SrvL10n.t("srv.badMissionID", lang: lang))
         }
         guard let mission = await ctx.store.mission(id: id) else {
-            throw Abort(.notFound, reason: "Mission not found")
+            throw Abort(.notFound, reason: SrvL10n.t("srv.missionNotFound", lang: lang))
         }
         let events = await ctx.store.events(missionID: id, afterSeq: 0)
         let deliverables = await ctx.store.deliverables(missionID: id)
         let running = await ctx.engine.isRunning(missionID: id)
-        return try req.json(MissionDetail(mission: mission, events: events, deliverables: deliverables, running: running))
+        return try req.json(MissionDetail(mission: mission.publicRepresentation, events: events, deliverables: deliverables, running: running))
     }
 
     api.get("missions", ":id", "events") { req async throws -> Response in
+        let lang = SrvL10n.lang(for: req)
         guard let idString = req.parameters.get("id"), let id = UUID(uuidString: idString) else {
-            throw Abort(.badRequest, reason: "Bad mission id")
+            throw Abort(.badRequest, reason: SrvL10n.t("srv.badMissionID", lang: lang))
         }
         let afterSeq = req.query[Int.self, at: "afterSeq"] ?? 0
         let events = await ctx.store.events(missionID: id, afterSeq: afterSeq)
@@ -176,14 +333,15 @@ func routes(_ app: Application, ctx: ServerContext) {
     }
 
     api.get("missions", ":id", "deliverables", ":name") { req async throws -> Response in
+        let lang = SrvL10n.lang(for: req)
         guard let idString = req.parameters.get("id"), let id = UUID(uuidString: idString) else {
-            throw Abort(.badRequest, reason: "Bad mission id")
+            throw Abort(.badRequest, reason: SrvL10n.t("srv.badMissionID", lang: lang))
         }
         guard let name = req.parameters.get("name") else {
-            throw Abort(.badRequest, reason: "Missing deliverable name")
+            throw Abort(.badRequest, reason: SrvL10n.t("srv.missingDeliverable", lang: lang))
         }
         guard let content = await ctx.store.deliverable(missionID: id, name: name) else {
-            throw Abort(.notFound, reason: "Deliverable not found")
+            throw Abort(.notFound, reason: SrvL10n.t("srv.deliverableNotFound", lang: lang))
         }
         var headers = HTTPHeaders()
         headers.replaceOrAdd(name: .contentType, value: "text/markdown; charset=utf-8")
@@ -191,16 +349,18 @@ func routes(_ app: Application, ctx: ServerContext) {
     }
 
     api.post("missions", ":id", "stop") { req async throws -> Response in
+        let lang = SrvL10n.lang(for: req)
         guard let idString = req.parameters.get("id"), let id = UUID(uuidString: idString) else {
-            throw Abort(.badRequest, reason: "Bad mission id")
+            throw Abort(.badRequest, reason: SrvL10n.t("srv.badMissionID", lang: lang))
         }
         await ctx.engine.stop(missionID: id)
-        return try req.json(AckResult(ok: true, detail: "Stop requested."))
+        return try req.json(AckResult(ok: true, detail: SrvL10n.t("srv.stopRequested", lang: lang)))
     }
 
     api.delete("missions", ":id") { req async throws -> Response in
+        let lang = SrvL10n.lang(for: req)
         guard let idString = req.parameters.get("id"), let id = UUID(uuidString: idString) else {
-            throw Abort(.badRequest, reason: "Bad mission id")
+            throw Abort(.badRequest, reason: SrvL10n.t("srv.badMissionID", lang: lang))
         }
         await ctx.engine.stop(missionID: id)
         try? await Task.sleep(nanoseconds: 500_000_000)
@@ -237,3 +397,28 @@ func routes(_ app: Application, ctx: ServerContext) {
         }
     }
 }
+
+/// The registered Google OAuth redirect URI for a connector: AGENTSAM_PUBLIC_URL when set, otherwise derived from the request.
+func connectorRedirectURI(for req: Request, connector: ConnectorID) throws -> String {
+    let path = "/api/connectors/\(connector.rawValue)/callback"
+    if let publicURL = Environment.get("AGENTSAM_PUBLIC_URL"), !publicURL.isEmpty {
+        return publicURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + path
+    }
+    let scheme = req.headers.first(name: "x-forwarded-proto") ?? (req.url.scheme ?? "https")
+    guard let host = req.headers.first(name: "x-forwarded-host") ?? req.headers.first(name: .host) else {
+        throw Abort(.badRequest, reason: SrvL10n.t("srv.publicURLUnknown", lang: SrvL10n.lang(for: req)))
+    }
+    return "\(scheme)://\(host)\(path)"
+}
+
+func oauthResultPage(title: String, message: String) -> Response {
+    let html = """
+    <!doctype html><html><head><meta charset="utf-8"><title>AgentSam</title>
+    <style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#0A100D;color:#F2F7F2;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}main{text-align:center;padding:32px;max-width:420px}h1{color:#4AD99E;font-size:24px;margin:0 0 12px}p{color:#93A89A;font-size:14px;line-height:1.5;margin:0}</style>
+    </head><body><main><h1>\(title)</h1><p>\(message)</p></main></body></html>
+    """
+    var headers = HTTPHeaders()
+    headers.replaceOrAdd(name: .contentType, value: "text/html; charset=utf-8")
+    return Response(status: .ok, headers: headers, body: .init(string: html))
+}
+

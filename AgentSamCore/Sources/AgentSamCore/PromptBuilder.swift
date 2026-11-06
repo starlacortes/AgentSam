@@ -1,144 +1,141 @@
 import Foundation
 
 public enum PromptBuilder {
-    public static let houseRules = """
-    House rules for every AgentSam agent:
-    - Keep chat replies short; put substantial work in files.
-    - Write deliverables in clean markdown. Stay inside the mission workspace; never invent files that were not provided.
-    - When you finish your task, call the finish tool with a one-paragraph summary.
-    - Be concrete: no filler, no restating the brief at length.
-    """
+    /// Looks up a prompt fragment in the mission's working language.
+    private static func t(_ key: String, mission: Mission) -> String {
+        CoreL10n.t(key, lang: CoreL10n.language(for: mission))
+    }
 
-    public static func coordinatorSystem(team: Team) -> String {
+    private static func contextBlock(for mission: Mission) -> String {
+        guard let context = mission.inputContext?.trimmingCharacters(in: .whitespacesAndNewlines), !context.isEmpty else {
+            return ""
+        }
+        let source = mission.sourceName ?? t("prompt.externalSource", mission: mission)
+        return String(format: t("prompt.context", mission: mission), source, context)
+    }
+
+    /// Instructs agents to work in Spanish for Spanish-language missions.
+    private static func languageBlock(for mission: Mission) -> String {
+        guard CoreL10n.language(for: mission) == "es" else { return "" }
+        return t("prompt.language", mission: mission)
+    }
+
+    private static func houseRules(for mission: Mission) -> String {
+        t("prompt.houseRules", mission: mission)
+    }
+
+    public static func coordinatorSystem(team: Team, mission: Mission) -> String {
+        let lang = CoreL10n.language(for: mission)
+        let name = team.coordinator?.name ?? CoreL10n.t("prompt.coordinatorFallback", lang: lang)
+        let systemPrompt = team.coordinator?.systemPrompt ?? CoreL10n.t("prompt.coordinatorFallbackRole", lang: lang)
         let roster = team.agents.map { agent in
-            "- \(agent.name) (\(agent.title)): \(agent.systemPrompt.prefix(220))"
+            String(format: CoreL10n.t("prompt.rosterLine", lang: lang), agent.name, agent.title, String(agent.systemPrompt.prefix(220)))
         }.joined(separator: "\n")
-        return """
-        You are \(team.coordinator?.name ?? "the Coordinator") of a small agent team named \(team.name).
-        \(team.coordinator?.systemPrompt ?? "You coordinate the team toward the mission objective.")
-
-        Your team:
-        \(roster)
-
-        \(houseRules)
-        """
+        return String(
+            format: CoreL10n.t("prompt.coordinatorSystem", lang: lang),
+            name, team.name, systemPrompt, roster,
+            houseRules(for: mission), languageBlock(for: mission)
+        )
     }
 
     public static func planPrompt(mission: Mission, team: Team) -> String {
-        let roster = team.workers.map { "- \($0.name) (\($0.title))" }.joined(separator: "\n")
+        let roster = team.workers.map { String(format: t("prompt.rosterLineShort", mission: mission), $0.name, $0.title) }.joined(separator: "\n")
         return """
-        MISSION OBJECTIVE
-        \(mission.objective)
-
-        Available workers:
+        \(t("prompt.plan.objective", mission: mission))
+        \(mission.objective)\(contextBlock(for: mission))
+        
+        \(t("prompt.plan.workers", mission: mission))
         \(roster)
-
-        Produce a task plan for the workers. Requirements:
-        - Between 1 and \(team.workers.count) tasks. One task per worker at most. Only assign tasks to listed workers.
-        - Each task must be independently completable and produce exactly one deliverable markdown file.
-        - Deliverable filenames must be short, lowercase, hyphenated, and end in .md.
-
-        Output your plan in EXACTLY this format and nothing else:
-
-        TASK 1
-        Agent: <worker name>
-        Goal: <one sentence>
-        Deliverable: <filename.md>
-
-        TASK 2
-        Agent: <worker name>
-        Goal: <one sentence>
-        Deliverable: <filename.md>
-
-        Print the plan and stop. No extra commentary.
+        
+        \(String(format: t("prompt.plan.requirements", mission: mission), Int64(team.workers.count)))
+        
+        \(t("prompt.plan.format", mission: mission))
         """
     }
 
     public static func replanPrompt(mission: Mission, previous: String) -> String {
         """
-        Your previous reply was not a parseable task plan. It must contain only TASK blocks in the required format.
-        MISSION OBJECTIVE
-        \(mission.objective)
-
-        Your previous reply was:
+        \(t("prompt.replan.intro", mission: mission))
+        \(t("prompt.plan.objective", mission: mission))
+        \(mission.objective)\(contextBlock(for: mission))
+        
+        \(t("prompt.replan.previous", mission: mission))
         \(previous.prefix(2_000))
 
-        Output the corrected plan now in the exact TASK/Agent/Goal/Deliverable format. Print the plan and stop.
+        \(t("prompt.replan.correct", mission: mission))
         """
     }
 
-    public static func workerSystem(agent: AgentProfile, team: Team, mission: Mission) -> String {
-        """
-        You are \(agent.name), \(agent.title) on team \(team.name).
+    public static func workerSystem(agent: AgentProfile, team: Team, mission: Mission, externalTools: [String] = []) -> String {
+        let connectorNote: String
+        if externalTools.isEmpty {
+            connectorNote = ""
+        } else {
+            connectorNote = String(format: t("prompt.worker.connectors", mission: mission), externalTools.joined(separator: ", "))
+        }
+        return """
+        \(String(format: t("prompt.worker.identity", mission: mission), agent.name, agent.title, team.name))
         \(agent.systemPrompt)
-
-        MISSION OBJECTIVE (for context, your task follows separately):
-        \(mission.objective)
-
-        \(houseRules)
+        
+        \(t("prompt.worker.missionHeader", mission: mission))
+        \(mission.objective)\(contextBlock(for: mission))
+        
+        \(houseRules(for: mission))\(languageBlock(for: mission))\(connectorNote)
         """
     }
 
     public static func workPrompt(task: TaskPlanItem, mission: Mission) -> String {
         """
-        YOUR TASK (Task #\(task.id))
-        Goal: \(task.goal)
-        Deliverable: write your main output to \(task.deliverable)
-
-        Produce the deliverable now. Write the file with the write_file tool, then call finish with a short summary of what you produced and any important caveats.
+        \(String(format: t("prompt.work.header", mission: mission), Int64(task.id)))
+        \(String(format: t("prompt.work.goal", mission: mission), task.goal))
+        \(String(format: t("prompt.work.deliverable", mission: mission), task.deliverable))
+        
+        \(t("prompt.work.produce", mission: mission))
         """
     }
 
     public static func verifierSystem(agent: AgentProfile, mission: Mission) -> String {
         """
-        You are \(agent.name), \(agent.title) for mission review.
+        \(String(format: t("prompt.verifier.identity", mission: mission), agent.name, agent.title))
         \(agent.systemPrompt)
-
-        MISSION OBJECTIVE
-        \(mission.objective)
-
-        You have read_file and list_dir tools only. You never edit files.
-        Inspect the deliverables in the workspace and judge whether they accomplish the objective.
-
-        Respond ONLY with findings, one per line, in EXACTLY this format:
-        - PASS — <area>: <one sentence>
-        - CONCERN — <area>: <one sentence>
-        - FAIL — <area>: <one sentence>
-        Use at most 8 lines. Then a final line:
-        VERDICT: CLEAN
-        or
-        VERDICT: CONCERNS
-        or
-        VERDICT: FAILED
+        
+        \(t("prompt.plan.objective", mission: mission))
+        \(mission.objective)\(contextBlock(for: mission))
+        
+        \(t("prompt.verifier.readonly", mission: mission))
+        
+        \(t("prompt.verifier.format", mission: mission))
+        \(languageBlock(for: mission))
         """
     }
 
-    public static func verifyPrompt(deliverables: [String]) -> String {
+    public static func verifyPrompt(deliverables: [String], mission: Mission) -> String {
         """
-        Deliverables in the workspace:
+        \(t("prompt.verify.deliverables", mission: mission))
         \(deliverables.map { "- \($0)" }.joined(separator: "\n"))
-
-        Read each deliverable, compare it against the mission objective, and report your findings now in the required format.
+        
+        \(t("prompt.verify.instruction", mission: mission))
         """
     }
 
-    public static func reportPrompt(mission: Mission, handoffs: [String]) -> String {
+    public static func reportPrompt(mission: Mission, handoffs: [String], verification: VerificationReport) -> String {
         """
-        The workers finished. Merge their handoffs into the final mission report.
-
-        MISSION OBJECTIVE
-        \(mission.objective)
-
-        WORKER HANDOFFS
+        \(t("prompt.report.intro", mission: mission))
+        
+        \(t("prompt.plan.objective", mission: mission))
+        \(mission.objective)\(contextBlock(for: mission))
+        
+        \(t("prompt.report.handoffs", mission: mission))
         \(handoffs.map { "— \($0)" }.joined(separator: "\n"))
-
-        Write the final mission report as clean markdown (200–800 words):
-        - A title and one-paragraph executive summary
-        - What was produced, referencing each deliverable file by name
-        - Key findings / content highlights
-        - Caveats or open items
-
-        The report replaces everything else in your reply. Print the report markdown and stop.
+        
+        \(t("prompt.report.findings", mission: mission))
+        \(verification.markdown(language: CoreL10n.language(for: mission)))
+        
+        \(t("prompt.report.correct", mission: mission))
+        
+        \(t("prompt.report.format", mission: mission))
+        
+        \(t("prompt.report.stop", mission: mission))
         """
     }
 }

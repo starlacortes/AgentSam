@@ -13,10 +13,10 @@ struct AgentSamiOSApp: App {
                     ConnectView()
                 } else {
                     TabView {
-                        MissionsTab().tabItem { Label("Missions", systemImage: "flag.checkered.2.crossed") }
-                        TeamsTab().tabItem { Label("Teams", systemImage: "person.3") }
-                        TemplatesTab().tabItem { Label("Templates", systemImage: "square.grid.2x2") }
-                        SettingsTab().tabItem { Label("Server", systemImage: "gearshape") }
+                        MissionsTab().tabItem { Label(String(localized: "Missions"), systemImage: "flag.checkered.2.crossed") }
+                        TeamsTab().tabItem { Label(String(localized: "Teams"), systemImage: "person.3") }
+                        TemplatesTab().tabItem { Label(String(localized: "Templates"), systemImage: "square.grid.2x2") }
+                        SettingsTab().tabItem { Label(String(localized: "Server"), systemImage: "gearshape") }
                     }
                 }
             }
@@ -58,18 +58,18 @@ struct ConnectView: View {
                         .frame(maxWidth: .infinity, alignment: .center)
                         .padding(.top, 38)
                     VStack(spacing: 8) {
-                        Text("Your teams, wherever you work.")
+                        Text(String(localized: "Your teams, wherever you work."))
                             .font(AgentSamTheme.displayFont(25))
                             .foregroundStyle(AgentSamTheme.ink)
                             .multilineTextAlignment(.center)
-                        Text("Connect to your secured AgentSam server to launch missions and watch agents work in real time.")
+                        Text(String(localized: "Connect to your secured AgentSam server to launch missions and watch agents work in real time."))
                             .font(.callout)
                             .foregroundStyle(AgentSamTheme.muted)
                             .multilineTextAlignment(.center)
                     }
                     VStack(alignment: .leading, spacing: 15) {
-                        Text("SERVER CONNECTION").agentSamKicker()
-                        TextField("Server URL (https://…)", text: $url)
+                        Text(String(localized: "SERVER CONNECTION")).agentSamKicker()
+                        TextField(String(localized: "Server URL (https://…)"), text: $url)
                             .keyboardType(.URL)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
@@ -77,13 +77,13 @@ struct ConnectView: View {
                             .background(AgentSamTheme.deep)
                             .clipShape(RoundedRectangle(cornerRadius: 10))
                             .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(AgentSamTheme.strongLine))
-                        SecureField("Access token", text: $token)
+                        SecureField(String(localized: "Access token"), text: $token)
                             .textInputAutocapitalization(.never)
                             .padding(12)
                             .background(AgentSamTheme.deep)
                             .clipShape(RoundedRectangle(cornerRadius: 10))
                             .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(AgentSamTheme.strongLine))
-                        Text("Use the HTTPS address and long-lived token from your server deployment.")
+                        Text(String(localized: "Use the HTTPS address and long-lived token from your server deployment."))
                             .font(.caption)
                             .foregroundStyle(AgentSamTheme.dim)
                     }
@@ -99,12 +99,12 @@ struct ConnectView: View {
                         Task {
                             let ok = await session.connect(url: url, token: token)
                             connecting = false
-                            if !ok { message = session.lastError ?? "Could not reach server." }
+                            if !ok { message = session.lastError ?? String(localized: "Could not reach server.") }
                         }
                     } label: {
                         HStack {
                             if connecting { ProgressView() }
-                            Text("Connect to AgentSam")
+                            Text(String(localized: "Connect to AgentSam"))
                         }
                         .frame(maxWidth: .infinity)
                     }

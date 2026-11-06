@@ -2,11 +2,12 @@ import SwiftUI
 import AgentSamCore
 
 private enum MissionFilter: String, CaseIterable, Identifiable {
-    case all = "All"
-    case running = "Running"
-    case completed = "Completed"
-    case attention = "Attention"
+    case all
+    case running
+    case completed
+    case attention
     var id: String { rawValue }
+    var label: String { NSLocalizedString(rawValue.capitalized, comment: "") }
 }
 
 struct MissionsView: View {
@@ -24,12 +25,12 @@ struct MissionsView: View {
             }
         }
         .background(AgentSamBackground())
-        .navigationTitle("Missions")
-        .searchable(text: $search, prompt: "Search objectives or teams")
+        .navigationTitle(String(localized: "Missions"))
+        .searchable(text: $search, prompt: String(localized: "Search objectives or teams"))
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Picker("Filter", selection: $filter) {
-                    ForEach(MissionFilter.allCases) { Text($0.rawValue).tag($0) }
+                Picker(String(localized: "Filter"), selection: $filter) {
+                    ForEach(MissionFilter.allCases) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.menu)
                 .labelsHidden()
@@ -43,14 +44,14 @@ struct MissionsView: View {
             Image(systemName: "flag.checkered.2.crossed")
                 .font(.system(size: 44))
                 .foregroundStyle(AgentSamTheme.emerald)
-            Text("No missions yet").font(AgentSamTheme.displayFont(24)).foregroundStyle(AgentSamTheme.ink)
-            Text("Hire a team, give it an objective, and watch every handoff live.")
+            Text(String(localized: "No missions yet")).font(AgentSamTheme.displayFont(24)).foregroundStyle(AgentSamTheme.ink)
+            Text(String(localized: "Hire a team, give it an objective, and watch every handoff live."))
                 .font(.callout).foregroundStyle(AgentSamTheme.muted)
-            Button("Launch first mission") { showNewMission = true }
+            Button(String(localized: "Launch first mission")) { showNewMission = true }
                 .buttonStyle(AgentSamPrimaryButtonStyle())
                 .disabled(model.teams.filter { !$0.agents.isEmpty }.isEmpty)
             if model.teams.filter({ !$0.agents.isEmpty }).isEmpty {
-                Text("Create a team from Templates first.").font(.caption).foregroundStyle(AgentSamTheme.dim)
+                Text(String(localized: "Create a team from Templates first.")).font(.caption).foregroundStyle(AgentSamTheme.dim)
             }
         }
         .padding()
@@ -58,7 +59,7 @@ struct MissionsView: View {
     }
 
     private var launchButton: some View {
-        Button { showNewMission = true } label: { Label("New Mission", systemImage: "plus") }
+        Button { showNewMission = true } label: { Label(String(localized: "New Mission"), systemImage: "plus") }
             .buttonStyle(AgentSamPrimaryButtonStyle())
             .padding()
             .disabled(model.teams.filter { !$0.agents.isEmpty }.isEmpty)
@@ -67,7 +68,7 @@ struct MissionsView: View {
     private var missionList: some View {
         List {
             if filteredMissions.isEmpty {
-                ContentUnavailableView("No matching missions", systemImage: "magnifyingglass", description: Text("Try another search or status filter."))
+                ContentUnavailableView(String(localized: "No matching missions"), systemImage: "magnifyingglass", description: Text(String(localized: "Try another search or status filter.")))
                     .listRowBackground(Color.clear)
             } else {
                 ForEach(filteredMissions) { mission in
@@ -141,7 +142,7 @@ struct MissionRow: View {
             Spacer()
             VStack(alignment: .trailing, spacing: 3) {
                 AgentSamMoneyText(amount: mission.totalCostUSD).font(.callout).foregroundStyle(AgentSamTheme.secondaryInk)
-                Text("\(mission.totalInputTokens + mission.totalOutputTokens) tokens").font(.caption2).foregroundStyle(AgentSamTheme.dim)
+                Text(String(localized: "\(mission.totalInputTokens + mission.totalOutputTokens) tokens")).font(.caption2).foregroundStyle(AgentSamTheme.dim)
             }
             Image(systemName: "chevron.right").font(.caption).foregroundStyle(AgentSamTheme.dim)
         }
@@ -150,7 +151,7 @@ struct MissionRow: View {
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(mission.status == .running ? AgentSamTheme.emerald.opacity(0.24) : AgentSamTheme.line))
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .contentShape(Rectangle())
-        .accessibilityHint("Open live mission")
+        .accessibilityHint(String(localized: "Open live mission"))
     }
 
     private var iconName: String {

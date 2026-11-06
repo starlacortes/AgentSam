@@ -12,7 +12,7 @@ struct GuidedSetupView: View {
     @State private var testing = false
     @State private var testResult: String?
     @State private var selectedTemplate = TeamTemplateCatalog.all[0]
-    @State private var draftTeam = Team(name: "Research Crew", emoji: "🔎")
+    @State private var draftTeam = Team(name: TeamTemplateCatalog.all[0].name, emoji: "🔎")
     @State private var objective = ""
     @State private var editingAgent: AgentProfile?
     @State private var editingProvider: ProviderConfig?
@@ -25,7 +25,7 @@ struct GuidedSetupView: View {
             HStack {
                 AgentSamBrand()
                 Spacer()
-                Button("Skip setup") {
+                Button(String(localized: "Skip setup")) {
                     onboardingCompleted = true
                     dismiss()
                 }
@@ -101,13 +101,13 @@ struct GuidedSetupView: View {
     @ViewBuilder private var heading: some View {
         switch step {
         case 1:
-            GuidedSetupHeading(step: 1, kicker: "Bring your own keys", title: "Connect your models.", description: "AgentSam runs on your API keys—no subscriptions or markup. Keys stay in this Mac’s Keychain.")
+            GuidedSetupHeading(step: 1, kicker: String(localized: "Bring your own keys"), title: String(localized: "Connect your models."), description: String(localized: "AgentSam runs on your API keys—no subscriptions or markup. Keys stay in this Mac's Keychain."))
         case 2:
-            GuidedSetupHeading(step: 2, kicker: "Start with a squad", title: "Who do you need?", description: "Choose a curated team with working chemistry. You can tune every agent before the first mission.")
+            GuidedSetupHeading(step: 2, kicker: String(localized: "Start with a squad"), title: String(localized: "Who do you need?"), description: String(localized: "Choose a curated team with working chemistry. You can tune every agent before the first mission."))
         case 3:
-            GuidedSetupHeading(step: 3, kicker: "Meet & greet", title: "Meet the crew.", description: "Rename agents, adjust their prompts, or swap the provider and model behind each role.")
+            GuidedSetupHeading(step: 3, kicker: String(localized: "Meet & greet"), title: String(localized: "Meet the crew."), description: String(localized: "Rename agents, adjust their prompts, or swap the provider and model behind each role."))
         default:
-            GuidedSetupHeading(step: 4, kicker: "Put them to work", title: "Your first mission.", description: "Describe the outcome. The coordinator will create a plan and every handoff will be visible live.")
+            GuidedSetupHeading(step: 4, kicker: String(localized: "Put them to work"), title: String(localized: "Your first mission."), description: String(localized: "Describe the outcome. The coordinator will create a plan and every handoff will be visible live."))
         }
     }
 
@@ -138,14 +138,14 @@ struct GuidedSetupView: View {
             if let provider = selectedProvider {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
-                        SecureField(model.apiKey(for: provider).isEmpty ? "Paste API key for \(provider.name)" : "Key saved — paste to replace", text: $keyText)
+                        SecureField(model.apiKey(for: provider).isEmpty ? String(format: String(localized: "Paste API key for %@"), provider.name) : String(localized: "Key saved — paste to replace"), text: $keyText)
                             .textFieldStyle(.plain)
                             .font(.callout.monospaced())
                             .padding(11)
                             .background(AgentSamTheme.background)
                             .clipShape(RoundedRectangle(cornerRadius: 9))
                             .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(AgentSamTheme.strongLine))
-                        Button(model.apiKey(for: provider).isEmpty ? "Save key" : "Replace") { saveKey() }
+                        Button(model.apiKey(for: provider).isEmpty ? String(localized: "Save key") : String(localized: "Replace")) { saveKey() }
                             .buttonStyle(AgentSamGhostButtonStyle())
                             .disabled(keyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
@@ -161,7 +161,7 @@ struct GuidedSetupView: View {
                         } label: {
                             HStack {
                                 if testing { ProgressView().controlSize(.small) } else { Image(systemName: "bolt") }
-                                Text("Test connection")
+                                Text(String(localized: "Test connection"))
                             }
                         }
                         .buttonStyle(AgentSamGhostButtonStyle())
@@ -174,9 +174,9 @@ struct GuidedSetupView: View {
                 .agentSamPanel()
             }
             Button {
-                editingProvider = ProviderConfig(id: "custom-\(UUID().uuidString.prefix(6).lowercased())", name: "OpenAI-compatible endpoint", kind: .openAICompatible, baseURL: "https://", models: [], defaultModel: nil)
+                editingProvider = ProviderConfig(id: "custom-\(UUID().uuidString.prefix(6).lowercased())", name: String(localized: "OpenAI-compatible endpoint"), kind: .openAICompatible, baseURL: "https://", models: [], defaultModel: nil)
             } label: {
-                Label("Add a custom provider", systemImage: "plus.circle")
+                Label(String(localized: "Add a custom provider"), systemImage: "plus.circle")
             }
             .buttonStyle(AgentSamGhostButtonStyle())
         }
@@ -192,8 +192,8 @@ struct GuidedSetupView: View {
                     }
                 }
             }
-            Button("Build from scratch") {
-                draftTeam = Team(name: "New Team", emoji: "🛡️", agents: [])
+            Button(String(localized: "Build from scratch")) {
+                draftTeam = Team(name: String(localized: "New Team"), emoji: "🛡️", agents: [])
                 step = 3
             }
             .buttonStyle(AgentSamGhostButtonStyle())
@@ -203,13 +203,13 @@ struct GuidedSetupView: View {
     private var crewStep: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                TextField("Team name", text: $draftTeam.name)
+                TextField(String(localized: "Team name"), text: $draftTeam.name)
                     .textFieldStyle(.plain)
                     .font(.title3.weight(.semibold))
                     .padding(9)
                     .background(AgentSamTheme.deep)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
-                Button("Hire agent") { showAgentPicker = true }.buttonStyle(AgentSamGhostButtonStyle())
+                Button(String(localized: "Hire agent")) { showAgentPicker = true }.buttonStyle(AgentSamGhostButtonStyle())
             }
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 155), spacing: 13)], spacing: 13) {
                 ForEach(draftTeam.agents) { agent in
@@ -230,12 +230,12 @@ struct GuidedSetupView: View {
                 AgentSamAvatarStack(agents: draftTeam.agents, size: 36)
                 VStack(alignment: .leading) {
                     Text(draftTeam.name).font(.headline).foregroundStyle(AgentSamTheme.ink)
-                    Text("\(draftTeam.agents.count) agents · \(draftTeam.coordinator?.name ?? "No coordinator")")
+                    Text(String(format: String(localized: "%lld agents · %@"), draftTeam.agents.count, draftTeam.coordinator?.name ?? String(localized: "No coordinator")))
                         .font(.caption).foregroundStyle(AgentSamTheme.muted)
                 }
             }
             MissionObjectiveEditor(objective: $objective)
-            Text("Every step runs in the open. Stop anytime; you only pay your own API meter.")
+            Text(String(localized: "Every step runs in the open. Stop anytime; you only pay your own API meter."))
                 .font(.caption)
                 .foregroundStyle(AgentSamTheme.dim)
         }
@@ -244,16 +244,16 @@ struct GuidedSetupView: View {
     private var footer: some View {
         HStack {
             if step > 1 {
-                Button("Back") { withAnimation { step -= 1 } }.buttonStyle(AgentSamGhostButtonStyle())
+                Button(String(localized: "Back")) { withAnimation { step -= 1 } }.buttonStyle(AgentSamGhostButtonStyle())
             }
             Spacer()
             if step < 4 {
                 VStack(alignment: .trailing, spacing: 4) {
-                    Button("Continue") { advance() }
+                    Button(String(localized: "Continue")) { advance() }
                         .buttonStyle(AgentSamPrimaryButtonStyle())
                         .disabled(step == 1 && !hasConfiguredProvider)
                     if step == 1 && !hasConfiguredProvider {
-                        Text("Save at least one provider key to continue.").font(.caption2).foregroundStyle(AgentSamTheme.dim)
+                        Text(String(localized: "Save at least one provider key to continue.")).font(.caption2).foregroundStyle(AgentSamTheme.dim)
                     }
                 }
             } else {
@@ -269,7 +269,7 @@ struct GuidedSetupView: View {
                 } label: {
                     HStack {
                         if launching { ProgressView().controlSize(.small) }
-                        Text("Launch mission")
+                        Text(String(localized: "Launch mission"))
                     }
                 }
                 .buttonStyle(AgentSamPrimaryButtonStyle())
@@ -300,7 +300,7 @@ struct GuidedSetupView: View {
         validationMessage = nil
         if step == 2 { draftTeam = selectedTemplate.makeTeam(providers: model.providers) }
         if step == 3 && !teamIsValid {
-            validationMessage = "Add a coordinator and worker, use unique agent names, and choose a provider/model for every agent."
+            validationMessage = String(localized: "Add a coordinator and worker, use unique agent names, and choose a provider/model for every agent.")
             return
         }
         withAnimation { step += 1 }
@@ -321,6 +321,6 @@ struct GuidedSetupView: View {
     }
 
     private func providerName(_ agent: AgentProfile) -> String {
-        model.providers.first(where: { $0.id == agent.providerID })?.name ?? "Choose a provider"
+        model.providers.first(where: { $0.id == agent.providerID })?.name ?? String(localized: "Choose a provider")
     }
 }

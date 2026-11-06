@@ -11,12 +11,13 @@ struct SettingsView: View {
             VStack(alignment: .leading, spacing: 24) {
                 workspaceCard
                 providersCard
+                connectorsCard
                 aboutCard
             }
             .padding(24)
         }
         .background(AgentSamBackground())
-        .navigationTitle("Settings")
+        .navigationTitle(String(localized: "Settings"))
         // Sheet content doesn't inherit the environment on macOS 27, so re-inject the model.
         .sheet(item: $editingProvider) { provider in
             ProviderEditSheet(provider: provider) { saved in
@@ -45,24 +46,24 @@ struct SettingsView: View {
     }
 
     private var workspaceCard: some View {
-        settingsSection("Data location", systemImage: "externaldrive") {
+        settingsSection(String(localized: "Data location"), systemImage: "externaldrive") {
             VStack(alignment: .leading, spacing: 10) {
-                Text("Workspace").agentSamKicker()
+                Text(String(localized: "Workspace")).agentSamKicker()
                 Text(model.dataDirPath)
                     .font(.callout.monospaced())
                     .foregroundStyle(AgentSamTheme.secondaryInk)
                     .textSelection(.enabled)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Text("Teams, missions, transcripts, deliverables, and the event ledger live here. Point AGENTSAM_DATA at a synced folder to share work between devices.")
+                Text(String(localized: "Teams, missions, transcripts, deliverables, and the event ledger live here. Point AGENTSAM_DATA at a synced folder to share work between devices."))
                     .font(.caption)
                     .foregroundStyle(AgentSamTheme.muted)
                 HStack {
-                    Button("Reveal in Finder") {
+                    Button(String(localized: "Reveal in Finder")) {
                         NSWorkspace.shared.open(URL(fileURLWithPath: model.dataDirPath))
                     }
-                    Button("Run guided setup", action: onRunSetup)
-                    Button("Import starter team") {
+                    Button(String(localized: "Run guided setup"), action: onRunSetup)
+                    Button(String(localized: "Import starter team")) {
                         Task { await model.saveTeam(Team.starterTeam()) }
                     }
                 }
@@ -72,7 +73,7 @@ struct SettingsView: View {
     }
 
     private var providersCard: some View {
-        settingsSection("Providers — bring your own keys", systemImage: "key.horizontal") {
+        settingsSection(String(localized: "Providers — bring your own keys"), systemImage: "key.horizontal") {
             VStack(spacing: 0) {
                 ForEach(model.providers) { provider in
                     ProviderRow(provider: provider, onEdit: { editingProvider = provider })
@@ -81,7 +82,7 @@ struct SettingsView: View {
                     }
                 }
                 if model.providers.isEmpty {
-                    Text("No providers configured.")
+                    Text(String(localized: "No providers configured."))
                         .font(.caption)
                         .foregroundStyle(AgentSamTheme.muted)
                         .padding(.vertical, 12)
@@ -90,14 +91,14 @@ struct SettingsView: View {
                     Button {
                         editingProvider = ProviderConfig(
                             id: "custom-\(UUID().uuidString.prefix(6).lowercased())",
-                            name: "OpenAI-compatible endpoint",
+                            name: String(localized: "OpenAI-compatible endpoint"),
                             kind: .openAICompatible,
                             baseURL: "https://",
                             models: [],
                             defaultModel: nil
                         )
                     } label: {
-                        Label("Add provider", systemImage: "plus")
+                        Label(String(localized: "Add provider"), systemImage: "plus")
                     }
                     .buttonStyle(AgentSamGhostButtonStyle())
                     Spacer()
@@ -107,11 +108,30 @@ struct SettingsView: View {
         }
     }
 
+    private var connectorsCard: some View {
+        settingsSection(String(localized: "Connectors — optional external services"), systemImage: "link") {
+            VStack(spacing: 0) {
+                ForEach(model.connectorStatuses) { status in
+                    ConnectorRow(status: status)
+                    if status.id != model.connectorStatuses.last?.id {
+                        Rectangle().fill(AgentSamTheme.line).frame(height: 1)
+                    }
+                }
+                if model.connectorStatuses.isEmpty {
+                    Text(String(localized: "No connectors available."))
+                        .font(.caption)
+                        .foregroundStyle(AgentSamTheme.muted)
+                        .padding(.vertical, 12)
+                }
+            }
+        }
+    }
+
     private var aboutCard: some View {
-        settingsSection("How it works", systemImage: "info.circle") {
+        settingsSection(String(localized: "How it works"), systemImage: "info.circle") {
             VStack(alignment: .leading, spacing: 12) {
-                aboutRow("Engine", "Coordinator plans → workers run in parallel → mechanical + independent verification → final report")
-                aboutRow("Server", "Run AgentSamServer on a secured host (see README) and control missions from the iPhone app.")
+                aboutRow(String(localized: "Engine"), String(localized: "Coordinator plans → workers run in parallel → mechanical + independent verification → final report"))
+                aboutRow(String(localized: "Server"), String(localized: "Run AgentSamServer on a secured host (see README) and control missions from the iPhone app."))
             }
         }
     }
@@ -123,6 +143,222 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(AgentSamTheme.muted)
                 .frame(maxWidth: 480, alignment: .leading)
+        }
+    }
+}
+
+struct ConnectorRow: View {
+    @Environment(AppModel.self) private var model
+    let status: ConnectorStatus
+
+    @State private var cloudflareToken = ""
+    @State private var adsDeveloperToken = ""
+    @State private var adsCustomerId = ""
+    @State private var testResult: String?
+    @State private var notice: String?
+    @State private var testing = false
+    @State private var working = false
+
+    private var isGoogle: Bool { status.id == .gmail || status.id == .googleads }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: status.id == .gmail ? "envelope" : (status.id == .cloudflare ? "cloud" : "megaphone"))
+                    .foregroundStyle(AgentSamTheme.emerald)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text(status.name)
+                            .font(.body.weight(.medium))
+                            .foregroundStyle(AgentSamTheme.ink)
+                        AgentSamChip(status.configured ? String(localized: "CONNECTED") : String(localized: "NOT CONNECTED"), tint: status.configured ? AgentSamTheme.emerald : AgentSamTheme.goldLight)
+                    }
+                    Text(status.detail)
+                        .font(.caption)
+                        .foregroundStyle(AgentSamTheme.muted)
+                }
+                Spacer()
+            }
+
+            Toggle(String(localized: "Enabled in missions"), isOn: enabledBinding)
+                .disabled(!status.configured)
+                .font(.callout)
+                .foregroundStyle(status.configured ? AgentSamTheme.ink : AgentSamTheme.dim)
+
+            permissionToggles
+
+            credentialControls
+
+            HStack(spacing: 8) {
+                if isGoogle {
+                    if !status.oauthAvailable {
+                        Text(String(localized: "Google OAuth client not configured — set AGENTSAM_GOOGLE_CLIENT_ID and restart AgentSam."))
+                            .font(.caption)
+                            .foregroundStyle(AgentSamTheme.goldLight)
+                    } else {
+                        Button(status.configured ? String(localized: "Reconnect with Google") : String(localized: "Connect with Google"), action: connectGoogle)
+                            .buttonStyle(AgentSamPrimaryButtonStyle())
+                            .disabled(working)
+                    }
+                }
+                if status.configured {
+                    Button(String(localized: "Test")) { runTest() }
+                        .buttonStyle(AgentSamGhostButtonStyle())
+                        .disabled(testing || working)
+                    Button(String(localized: "Disconnect")) { disconnect() }
+                        .buttonStyle(AgentSamGhostButtonStyle())
+                        .disabled(working)
+                }
+            }
+            if let testResult {
+                Text(testResult)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(AgentSamTheme.muted)
+                    .textSelection(.enabled)
+            }
+            if let notice {
+                Text(notice)
+                    .font(.caption)
+                    .foregroundStyle(AgentSamTheme.goldLight)
+                    .textSelection(.enabled)
+            }
+        }
+        .padding(.vertical, 10)
+    }
+
+    @ViewBuilder
+    private var permissionToggles: some View {
+        switch status.id {
+        case .gmail:
+            Toggle(String(localized: "Allow agents to create drafts"), isOn: permissionBinding(\.createDraft))
+                .font(.callout)
+            Toggle(String(localized: "Allow agents to send email"), isOn: permissionBinding(\.sendEmail))
+                .font(.callout)
+        case .cloudflare:
+            Toggle(String(localized: "Allow DNS writes and cache purge"), isOn: permissionBinding(\.dnsWrite))
+                .font(.callout)
+        case .googleads:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    private var credentialControls: some View {
+        switch status.id {
+        case .cloudflare:
+            if !status.configured {
+                HStack(spacing: 8) {
+                    SecureField(String(localized: "Cloudflare API token"), text: $cloudflareToken)
+                        .textFieldStyle(.plain)
+                        .font(.callout.monospaced())
+                        .padding(.horizontal, 11)
+                        .frame(minHeight: 36)
+                        .background(AgentSamTheme.deep.opacity(0.7))
+                        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(AgentSamTheme.strongLine))
+                        .onSubmit(saveCloudflareToken)
+                    Button(String(localized: "Save & verify"), action: saveCloudflareToken)
+                        .buttonStyle(AgentSamPrimaryButtonStyle())
+                        .disabled(cloudflareToken.isEmpty || working)
+                }
+            }
+        case .googleads:
+            VStack(alignment: .leading, spacing: 8) {
+                TextField(String(localized: "Google Ads developer token"), text: $adsDeveloperToken)
+                    .textFieldStyle(.plain)
+                    .font(.callout.monospaced())
+                    .padding(.horizontal, 11)
+                    .frame(minHeight: 36)
+                    .background(AgentSamTheme.deep.opacity(0.7))
+                    .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(AgentSamTheme.strongLine))
+                TextField(String(localized: "Login customer ID (optional)"), text: $adsCustomerId)
+                    .textFieldStyle(.plain)
+                    .font(.callout.monospaced())
+                    .padding(.horizontal, 11)
+                    .frame(minHeight: 36)
+                    .background(AgentSamTheme.deep.opacity(0.7))
+                    .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(AgentSamTheme.strongLine))
+                Button(String(localized: "Save credentials"), action: saveAdsCredentials)
+                    .buttonStyle(AgentSamGhostButtonStyle())
+                    .disabled(adsDeveloperToken.isEmpty && adsCustomerId.isEmpty)
+            }
+        case .gmail:
+            EmptyView()
+        }
+    }
+
+    private var enabledBinding: Binding<Bool> {
+        Binding(
+            get: { status.enabled },
+            set: { newValue in
+                Task { await model.setConnectorEnabled(status.id, enabled: newValue) }
+            }
+        )
+    }
+
+    private func permissionBinding(_ keyPath: WritableKeyPath<ConnectorPermissions, Bool>) -> Binding<Bool> {
+        Binding(
+            get: { status.permissions[keyPath: keyPath] },
+            set: { newValue in
+                var permissions = status.permissions
+                permissions[keyPath: keyPath] = newValue
+                Task { await model.setConnectorPermissions(status.id, permissions: permissions) }
+            }
+        )
+    }
+
+    private func connectGoogle() {
+        working = true
+        notice = nil
+        Task {
+            if let error = await model.startGoogleOAuth(status.id) {
+                notice = error
+            } else {
+                notice = String(localized: "Connected with Google.")
+            }
+            working = false
+        }
+    }
+
+    private func runTest() {
+        testing = true
+        testResult = nil
+        Task {
+            testResult = await model.testConnector(status.id)
+            testing = false
+        }
+    }
+
+    private func disconnect() {
+        Task {
+            await model.disconnectConnector(status.id)
+            testResult = nil
+            notice = nil
+        }
+    }
+
+    private func saveCloudflareToken() {
+        working = true
+        notice = nil
+        Task {
+            let result = await model.setCloudflareToken(cloudflareToken)
+            if result.ok {
+                cloudflareToken = ""
+            } else {
+                notice = result.message
+            }
+            working = false
+        }
+    }
+
+    private func saveAdsCredentials() {
+        Task {
+            await model.setGoogleAdsCredentials(developerToken: adsDeveloperToken, customerId: adsCustomerId)
+            adsDeveloperToken = ""
+            adsCustomerId = ""
+            notice = String(localized: "Google Ads credentials saved.")
         }
     }
 }
@@ -146,26 +382,26 @@ struct ProviderRow: View {
                         Text(provider.name)
                             .font(.body.weight(.medium))
                             .foregroundStyle(AgentSamTheme.ink)
-                        AgentSamChip(provider.kind == .anthropic ? "Anthropic API" : "OpenAI-compatible", tint: AgentSamTheme.teal)
+                        AgentSamChip(provider.kind == .anthropic ? String(localized: "Anthropic API") : String(localized: "OpenAI-compatible"), tint: AgentSamTheme.teal)
                     }
-                    Text("\(provider.defaultModel ?? "—") · \(provider.models.count) models")
+                    Text(String(format: String(localized: "%@ · %lld models"), provider.defaultModel ?? "—", provider.models.count))
                         .font(.caption.monospaced())
                         .foregroundStyle(AgentSamTheme.dim)
                 }
                 Spacer()
-                Button("Configure", action: onEdit)
+                Button(String(localized: "Configure"), action: onEdit)
                     .buttonStyle(AgentSamGhostButtonStyle())
             }
             HStack(spacing: 8) {
                 if hasKey {
                     Image(systemName: "checkmark.seal.fill")
                         .foregroundStyle(AgentSamTheme.emerald)
-                        .help("Key saved in Keychain")
+                        .help(String(localized: "Key saved in Keychain"))
                 } else {
                     Image(systemName: "exclamationmark.triangle")
                         .foregroundStyle(AgentSamTheme.goldLight)
                 }
-                SecureField(hasKey ? "API key saved — paste to replace" : "Paste API key", text: $keyText)
+                SecureField(hasKey ? String(localized: "API key saved — paste to replace") : String(localized: "Paste API key"), text: $keyText)
                     .textFieldStyle(.plain)
                     .font(.callout.monospaced())
                     .foregroundStyle(AgentSamTheme.ink)
@@ -175,17 +411,17 @@ struct ProviderRow: View {
                     .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(AgentSamTheme.strongLine))
                     .onSubmit(saveKey)
-                Button(hasKey ? "Replace" : "Save key", action: saveKey)
+                Button(hasKey ? String(localized: "Replace") : String(localized: "Save key"), action: saveKey)
                     .buttonStyle(AgentSamPrimaryButtonStyle())
                     .disabled(keyText.isEmpty)
                 if hasKey {
-                    Button("Remove") {
+                    Button(String(localized: "Remove")) {
                         model.removeAPIKey(for: provider)
                         keyText = ""
                     }
                     .buttonStyle(AgentSamGhostButtonStyle())
                 }
-                Button("Test") {
+                Button(String(localized: "Test")) {
                     testing = true
                     Task {
                         testResult = await model.testConnection(to: provider)
@@ -230,11 +466,11 @@ struct ProviderEditSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Configure \(name.isEmpty ? "provider" : name)")
+                Text(String(format: String(localized: "Configure %@"), name.isEmpty ? String(localized: "provider") : name))
                     .font(AgentSamTheme.displayFont(23))
                     .foregroundStyle(AgentSamTheme.ink)
                 Spacer()
-                Button("Save") { save() }
+                Button(String(localized: "Save")) { save() }
                     .keyboardShortcut(.return)
                     .buttonStyle(AgentSamPrimaryButtonStyle())
                     .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || URL(string: baseURL)?.host == nil)
@@ -242,21 +478,21 @@ struct ProviderEditSheet: View {
             .padding()
             Divider()
             Form {
-                TextField("Display name", text: $name)
-                Picker("Kind", selection: $kind) {
-                    Text("OpenAI-compatible").tag(ProviderConfig.Kind.openAICompatible)
-                    Text("Anthropic").tag(ProviderConfig.Kind.anthropic)
+                TextField(String(localized: "Display name"), text: $name)
+                Picker(String(localized: "Kind"), selection: $kind) {
+                    Text(String(localized: "OpenAI-compatible")).tag(ProviderConfig.Kind.openAICompatible)
+                    Text(String(localized: "Anthropic")).tag(ProviderConfig.Kind.anthropic)
                 }
                 .pickerStyle(.radioGroup)
-                TextField("Base URL", text: $baseURL)
+                TextField(String(localized: "Base URL"), text: $baseURL)
                     .font(.callout.monospaced())
-                    .help(kind == .anthropic ? "e.g. https://api.anthropic.com" : "e.g. https://api.openai.com/v1")
-                LabeledContent("Models") {
-                    TextField("Comma-separated model ids", text: $modelsText)
+                    .help(kind == .anthropic ? String(localized: "e.g. https://api.anthropic.com") : String(localized: "e.g. https://api.openai.com/v1"))
+                LabeledContent(String(localized: "Models")) {
+                    TextField(String(localized: "Comma-separated model ids"), text: $modelsText)
                         .font(.callout.monospaced())
                 }
-                LabeledContent("Default model") {
-                    TextField("Default model id", text: $defaultModel)
+                LabeledContent(String(localized: "Default model")) {
+                    TextField(String(localized: "Default model id"), text: $defaultModel)
                         .font(.callout.monospaced())
                 }
             }

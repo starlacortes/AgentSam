@@ -193,7 +193,7 @@ struct AgentSamStatusChip: View {
     var body: some View {
         HStack(spacing: 5) {
             Circle().fill(AgentSamTheme.color(for: status)).frame(width: 6, height: 6)
-            Text(status.rawValue.capitalized)
+            Text(NSLocalizedString(status.rawValue.capitalized, comment: ""))
         }
         .font(.caption.weight(.medium))
         .foregroundStyle(AgentSamTheme.color(for: status))
@@ -249,7 +249,7 @@ struct AgentSamAvatar: View {
             }
         }
         .frame(width: size, height: size)
-        .accessibilityLabel("\(name), \(role.label)\(active ? ", working" : complete ? ", done" : "")")
+        .accessibilityLabel("\(name), \(role.label)" + (active ? NSLocalizedString(", working", comment: "") : complete ? NSLocalizedString(", done", comment: "") : ""))
     }
 }
 
@@ -273,7 +273,9 @@ struct AgentSamAvatarStack: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(agents.count) agents: \(agents.map(\.name).joined(separator: ", "))")
+        .accessibilityLabel(agents.count == 1
+            ? String(format: NSLocalizedString("1 agent: %@", comment: ""), agents.map(\.name).joined(separator: ", "))
+            : String(format: NSLocalizedString("%lld agents: %@", comment: ""), agents.count, agents.map(\.name).joined(separator: ", ")))
     }
 }
 
@@ -346,10 +348,11 @@ struct AgentSamBrand: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text("AgentSam").font(AgentSamTheme.displayFont(19)).foregroundStyle(AgentSamTheme.ink)
                 if !compact {
-                    Text("AUTONOMOUS WORKGROUP")
+                    Text(String(localized: "AUTONOMOUS WORKGROUP"))
                         .font(.system(size: 8, weight: .medium, design: .monospaced))
                         .tracking(1.5)
                         .foregroundStyle(AgentSamTheme.dim)
+                        .minimumScaleFactor(0.6)
                 }
             }
         }

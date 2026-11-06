@@ -1,0 +1,9 @@
+{
+  "id" : "962f8556-52fd-41d7-9001-1815262e90d0",
+  "targets" : [
+    {
+      "id" : "a28d777e-f199-432e-b83c-9fe4ac1d56da",
+      "name" : "AgentSamCore"
+    }
+  ]
+}

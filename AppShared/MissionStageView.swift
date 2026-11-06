@@ -64,7 +64,7 @@ struct MissionStageView: View {
                 .position(positions[item.id] ?? CGPoint(x: size.width / 2, y: size.height / 2))
             }
             if presentation.agents.isEmpty {
-                ContentUnavailableView("No roster available", systemImage: "person.3", description: Text("The original team is no longer available. Mission activity remains accessible below."))
+                ContentUnavailableView(String(localized: "No roster available"), systemImage: "person.3", description: Text(String(localized: "The original team is no longer available. Mission activity remains accessible below.")))
             }
         }
     }
@@ -102,10 +102,10 @@ private struct AgentStageNode: View {
 
     private var stateLabel: String {
         switch item.state {
-        case .idle: "idle"
-        case .working: "working"
-        case .done: "done"
-        case .failed: "attention"
+        case .idle: String(localized: "idle")
+        case .working: String(localized: "working")
+        case .done: String(localized: "done")
+        case .failed: String(localized: "attention")
         }
     }
 

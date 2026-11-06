@@ -1,0 +1,70 @@
+/* AgentSamServer — English source strings. */
+
+"srv.unknownConnector" = "Unknown connector.";
+"srv.connectionFailed" = "Connection failed";
+"srv.oauthSessionExpired" = "The authorization session is missing or expired. Start again from Settings.";
+"srv.oauthMismatch" = "The authorization response did not match the connector.";
+"srv.oauthNoCode" = "Google did not return an authorization code.";
+"srv.oauthNoRefreshToken" = "Google did not return a refresh token. Reconnect and approve the consent screen.";
+"srv.connectorConnectedTitle" = "%@ connected";
+"srv.connectorConnectedMessage" = "AgentSam can now use %@ in missions. You can close this window.";
+"srv.badTeamID" = "Bad team id";
+"srv.teamNotFound" = "Team not found";
+"srv.missingProviderID" = "Missing provider id";
+"srv.unknownProvider" = "Unknown provider: %@";
+"srv.noAPIKey" = "No API key saved for %@.";
+"srv.keyStored" = "Key stored for %@";
+"srv.maloonNotConfigured" = "Maloon integration is not configured on this server.";
+"srv.cloudflareTokenRequired" = "Cloudflare API token is required.";
+"srv.cloudflareStored" = "Cloudflare token verified and stored.";
+"srv.adsStored" = "Google Ads credentials stored.";
+"srv.notGoogleOAuth" = "This connector does not use Google OAuth.";
+"srv.googleOAuthNotConfigured" = "Google OAuth is not configured on this server. Set AGENTSAM_GOOGLE_CLIENT_ID and AGENTSAM_GOOGLE_CLIENT_SECRET.";
+"srv.googleAuthURLFailed" = "Could not build the Google authorization URL.";
+"srv.disconnected" = "%@ disconnected.";
+"srv.badMissionID" = "Bad mission id";
+"srv.missionNotFound" = "Mission not found";
+"srv.missingDeliverable" = "Missing deliverable name";
+"srv.deliverableNotFound" = "Deliverable not found";
+"srv.stopRequested" = "Stop requested.";
+"srv.missingToken" = "Missing or invalid token";
+"srv.publicURLUnknown" = "Could not determine the public server URL. Set AGENTSAM_PUBLIC_URL.";
+"srv.ownerNotesLimit" = "Owner notes must be 4,000 characters or fewer.";
+"srv.objectiveRequired" = "Mission objective is required.";
+"srv.objectiveLimit" = "Mission objective must be 20,000 characters or fewer.";
+"srv.interrupted" = "Mission interrupted by a server restart. Review saved work and start a new mission when ready.";
+"srv.maloonRosterIncomplete" = "The Maloon owner team needs a complete roster and a configured API key for its provider.";
+"srv.maloonProviderMissing" = "Configure one provider API key and default model on the AgentSam server before launching a Maloon workflow.";
+"srv.maloonTeamName" = "Maloon Owner Crew";
+"srv.maloonTeamGoal" = "Turn fresh Indigo business snapshots into read-only operational insights and owner-reviewed drafts.";
+"srv.maloonTestOK" = "Connected to Indigo and received a valid Maloon snapshot.";
+"srv.maloonUnknownWorkflow" = "Unknown Maloon workflow.";
+"srv.maloonBadURL" = "AGENTSAM_MALOON_URL is not a valid HTTP(S) URL.";
+"srv.indigoUnreachable" = "Could not reach Indigo: %@";
+"srv.indigoInvalidResponse" = "Indigo returned an invalid response.";
+"srv.indigoStatusFailed" = "Indigo snapshot request failed with status %lld. Check the integration URL and token.";
+"srv.indigoTooLarge" = "Indigo snapshot exceeded the 500 KB safety limit.";
+"srv.indigoIncomplete" = "Indigo returned an unsupported or incomplete snapshot.";
+"srv.indigoNotUTF8" = "Indigo snapshot was not valid UTF-8.";
+"srv.indigoMalformed" = "Indigo returned malformed snapshot JSON.";
+
+
+"maloon.workflow.daily-operations.title" = "Daily operations brief";
+"maloon.workflow.daily-operations.summary" = "Today's jobs, progress, staffing gaps, upcoming work, and issues needing attention.";
+"maloon.workflow.daily-operations.behavior" = "Read-only operational summary";
+"maloon.workflow.daily-operations.objective" = "Prepare a concise owner operations brief for the snapshot's local date. Cover today's jobs and completion progress, unassigned or at-risk work, staffing concerns, and important jobs coming up in the next 14 days. Separate facts from recommendations, prioritize concrete owner actions, and cite the relevant job or assignment details. Do not treat incomplete data as proof that work was not done.";
+
+"maloon.workflow.quote-follow-ups.title" = "Quote follow-ups";
+"maloon.workflow.quote-follow-ups.summary" = "Find open quotes needing attention and draft follow-ups for owner review.";
+"maloon.workflow.quote-follow-ups.behavior" = "Drafts only · nothing is sent";
+"maloon.workflow.quote-follow-ups.objective" = "Review the draft and sent quotes in the snapshot. Prioritize quotes that need owner attention using their status, age, value, and supplied notes. Explain each recommendation and draft concise, courteous follow-up messages where useful. Clearly label every message as a draft for owner review. Do not send messages, change quote statuses, or invent customer history.";
+
+"maloon.workflow.staffing-dispatch.title" = "Staffing and dispatch review";
+"maloon.workflow.staffing-dispatch.summary" = "Flag unassigned or at-risk jobs and review options against worker availability.";
+"maloon.workflow.staffing-dispatch.behavior" = "Recommendations only · no schedule changes";
+"maloon.workflow.staffing-dispatch.objective" = "Review current and upcoming jobs, assignments, and active worker availability in the snapshot. Flag unassigned work, scheduling risks, and potential overloads or gaps. Suggest practical staffing or dispatch options only when supported by the supplied availability and assignment data. State uncertainty and never claim to have assigned workers or changed a schedule.";
+
+"maloon.workflow.customer-marketing.title" = "Customer and marketing drafts";
+"maloon.workflow.customer-marketing.summary" = "Draft useful customer communications and service marketing from current business context.";
+"maloon.workflow.customer-marketing.behavior" = "Drafts only · nothing is published";
+"maloon.workflow.customer-marketing.objective" = "Using only the supplied business, service, quote, and job context, propose a small set of useful customer communications and marketing drafts. Ground service descriptions and prices in the snapshot, keep claims supportable, and identify the intended audience and channel for each draft. Do not publish, send, invent testimonials, or make guarantees that are not present in the source data.";

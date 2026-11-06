@@ -3,6 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "AgentSamServer",
+    defaultLocalization: "en",
     platforms: [.macOS(.v13)],
     dependencies: [
         .package(url: "https://github.com/vapor/vapor.git", from: "4.99.0"),
@@ -15,7 +16,8 @@ let package = Package(
                 .product(name: "Vapor", package: "vapor"),
                 .product(name: "AgentSamCore", package: "AgentSamCore"),
             ],
-            path: "Sources/AgentSamServer"
+            path: "Sources/AgentSamServer",
+            resources: [.process("Resources")]
         )
     ]
 )

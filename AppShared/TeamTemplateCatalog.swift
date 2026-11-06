@@ -42,65 +42,65 @@ struct TeamTemplate: Identifiable, Hashable {
 enum TeamTemplateCatalog {
     static let all: [TeamTemplate] = [
         TeamTemplate(
-            id: "research", name: "Research Crew", emoji: "🔎",
-            goal: "Find facts, cite sources, and deliver defensible research briefs.",
-            summary: "Finds facts, cites sources, and hands you a clean, defensible brief.",
-            capabilities: ["fact-checked", "sources cited"],
-            example: "What’s actually new in solid-state batteries this quarter?",
+            id: "research", name: String(localized: "Research Crew"), emoji: "🔎",
+            goal: String(localized: "Find facts, cite sources, and deliver defensible research briefs."),
+            summary: String(localized: "Finds facts, cites sources, and hands you a clean, defensible brief."),
+            capabilities: [String(localized: "fact-checked"), String(localized: "sources cited")],
+            example: String(localized: "What's actually new in solid-state batteries this quarter?"),
             memberNames: ["Ada", "Scout", "Quill", "Judge"], lowCost: true,
             coverColors: [Color(agentSamHex: 0x0F2E20), Color(agentSamHex: 0x0A1B14)]
         ),
         TeamTemplate(
-            id: "studio", name: "Content Studio", emoji: "✒️",
-            goal: "Brainstorm, draft, design, and polish on-brand content.",
-            summary: "A small creative agency—brainstorms, drafts, designs, and ships copy daily.",
-            capabilities: ["brand voice", "headline variants"],
-            example: "Launch email sequence for our new oat-milk line.",
+            id: "studio", name: String(localized: "Content Studio"), emoji: "✒️",
+            goal: String(localized: "Brainstorm, draft, design, and polish on-brand content."),
+            summary: String(localized: "A small creative agency—brainstorms, drafts, designs, and ships copy daily."),
+            capabilities: [String(localized: "brand voice"), String(localized: "headline variants")],
+            example: String(localized: "Launch email sequence for our new oat-milk line."),
             memberNames: ["Ada", "Quill", "Iris", "Anchor"], lowCost: false,
             coverColors: [Color(agentSamHex: 0x2B2210), Color(agentSamHex: 0x171105)]
         ),
         TeamTemplate(
-            id: "datalab", name: "Data Lab", emoji: "📈",
-            goal: "Turn tables and data into clear, carefully checked analysis.",
-            summary: "Drop in data; walk out with comparisons, flagged outliers, and a plain-English verdict.",
-            capabilities: ["table-native", "stat-skeptic"],
-            example: "Why did trial conversions dip in March?",
+            id: "datalab", name: String(localized: "Data Lab"), emoji: "📈",
+            goal: String(localized: "Turn tables and data into clear, carefully checked analysis."),
+            summary: String(localized: "Drop in data; walk out with comparisons, flagged outliers, and a plain-English verdict."),
+            capabilities: [String(localized: "table-native"), String(localized: "stat-skeptic")],
+            example: String(localized: "Why did trial conversions dip in March?"),
             memberNames: ["Ada", "Plot", "Bolt", "Judge"], lowCost: true,
             coverColors: [Color(agentSamHex: 0x0D2824), Color(agentSamHex: 0x081815)]
         ),
         TeamTemplate(
-            id: "newsdesk", name: "News Desk", emoji: "🗞️",
-            goal: "Scan topics, rank what matters, and write concise briefings.",
-            summary: "A morning briefing desk—scans your topics, ranks what matters, writes it tight.",
-            capabilities: ["daily digest", "no fluff"],
-            example: "Everything worth knowing about the chip market, 8am daily.",
+            id: "newsdesk", name: String(localized: "News Desk"), emoji: "🗞️",
+            goal: String(localized: "Scan topics, rank what matters, and write concise briefings."),
+            summary: String(localized: "A morning briefing desk—scans your topics, ranks what matters, writes it tight."),
+            capabilities: [String(localized: "daily digest"), String(localized: "no fluff")],
+            example: String(localized: "Everything worth knowing about the chip market, 8am daily."),
             memberNames: ["Ada", "Scout", "Anchor", "Judge"], lowCost: true,
             coverColors: [Color(agentSamHex: 0x14290F), Color(agentSamHex: 0x0C180A)]
         ),
         TeamTemplate(
-            id: "foundry", name: "Startup Foundry", emoji: "🚀",
-            goal: "Pressure-test ideas with market research and candid analysis.",
-            summary: "Pressure-tests ideas—market research, holes poked, one-pager drafted.",
-            capabilities: ["candid", "deck-ready"],
-            example: "Pressure-test my idea: task-running for elderly care.",
+            id: "foundry", name: String(localized: "Startup Foundry"), emoji: "🚀",
+            goal: String(localized: "Pressure-test ideas with market research and candid analysis."),
+            summary: String(localized: "Pressure-tests ideas—market research, holes poked, one-pager drafted."),
+            capabilities: [String(localized: "candid"), String(localized: "deck-ready")],
+            example: String(localized: "Pressure-test my idea: task-running for elderly care."),
             memberNames: ["Ada", "Scout", "Plot", "Quill"], lowCost: false,
             coverColors: [Color(agentSamHex: 0x26300F), Color(agentSamHex: 0x141808)]
         ),
         TeamTemplate(
-            id: "reading", name: "Reading Room", emoji: "📚",
-            goal: "Read long material thoroughly and summarize it honestly.",
-            summary: "Slow and thorough—reads the whole document, disagrees politely, summarizes honestly.",
-            capabilities: ["long-form", "polite dissent"],
-            example: "Summarize this thesis and flag weak claims.",
+            id: "reading", name: String(localized: "Reading Room"), emoji: "📚",
+            goal: String(localized: "Read long material thoroughly and summarize it honestly."),
+            summary: String(localized: "Slow and thorough—reads the whole document, disagrees politely, summarizes honestly."),
+            capabilities: [String(localized: "long-form"), String(localized: "polite dissent")],
+            example: String(localized: "Summarize this thesis and flag weak claims."),
             memberNames: ["Ada", "Quill", "Judge"], lowCost: true,
             coverColors: [Color(agentSamHex: 0x2A2118), Color(agentSamHex: 0x15100B)]
         )
     ]
 
     static let missionIdeas = [
-        "What’s new in AI this week",
-        "Plan a 3-day Kyoto trip",
-        "Explain the chip shortage simply",
-        "7-day meal plan on a budget"
+        String(localized: "What's new in AI this week"),
+        String(localized: "Plan a 3-day Kyoto trip"),
+        String(localized: "Explain the chip shortage simply"),
+        String(localized: "7-day meal plan on a budget")
     ]
 }

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
    LastUpgradeVersion = "2700"
-   version = "1.7">
+   version = "1.8">
    <BuildAction
       parallelizeBuildables = "YES"
       buildImplicitDependencies = "YES">
@@ -41,7 +41,8 @@
       debugServiceExtension = "internal"
       allowLocationSimulation = "YES">
       <BuildableProductRunnable
-         runnableIdentifier = "target:AE4757000000000000000200:1">
+         runnableIdentifier = "target:AE4757000000000000000200:1"
+         runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "AE4757000000000000000200"
@@ -58,7 +59,8 @@
       useCustomWorkingDirectory = "NO"
       debugDocumentVersioning = "YES">
       <BuildableProductRunnable
-         runnableIdentifier = "target:AE4757000000000000000200:1">
+         runnableIdentifier = "target:AE4757000000000000000200:1"
+         runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "AE4757000000000000000200"

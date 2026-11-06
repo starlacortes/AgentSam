@@ -8,10 +8,10 @@ public enum MissionEngineError: Error, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .noAgents: "This team has no agents to run."
-        case .noCoordinator: "This team has no coordinator."
-        case .missingKey(let name): "No API key saved for \(name). Add one in Settings."
-        case .unknownProvider(let id): "Unknown provider id: \(id)."
+        case .noAgents: CoreL10n.t("engine.error.noAgents")
+        case .noCoordinator: CoreL10n.t("engine.error.noCoordinator")
+        case .missingKey(let name): CoreL10n.tf("engine.error.missingKey", name)
+        case .unknownProvider(let id): CoreL10n.tf("engine.error.unknownProvider", id)
         }
     }
 }
@@ -41,13 +41,15 @@ public actor MissionEngine {
     private let store: MissionStore
     private let keyRing: KeyRing
     private let client: LLMClient
+    private let connectors: ConnectorHub?
     private let config: Config
     private var runningTasks: [UUID: Task<Void, Never>] = [:]
 
-    public init(store: MissionStore, keyRing: KeyRing, client: LLMClient = LLMClient(), config: Config = Config()) {
+    public init(store: MissionStore, keyRing: KeyRing, client: LLMClient = LLMClient(), connectors: ConnectorHub? = nil, config: Config = Config()) {
         self.store = store
         self.keyRing = keyRing
         self.client = client
+        self.connectors = connectors
         self.config = config
     }
 
@@ -68,6 +70,29 @@ public actor MissionEngine {
 
     public var activeMissionIDs: [UUID] {
         Array(runningTasks.keys)
+    }
+
+    nonisolated private func l10n(_ key: String, mission: Mission) -> String {
+        CoreL10n.t(key, lang: CoreL10n.language(for: mission))
+    }
+
+    nonisolated private func l10nf(_ key: String, _ args: CVarArg..., mission: Mission) -> String {
+        let format = l10n(key, mission: mission)
+        guard !args.isEmpty else { return format }
+        return String(format: format, locale: Locale.current, arguments: args)
+    }
+
+    nonisolated private func errorText(_ error: Error, mission: Mission) -> String {
+        let lang = CoreL10n.language(for: mission)
+        if let missionError = error as? MissionEngineError {
+            switch missionError {
+            case .noAgents: return CoreL10n.t("engine.error.noAgents", lang: lang)
+            case .noCoordinator: return CoreL10n.t("engine.error.noCoordinator", lang: lang)
+            case .missingKey(let name): return CoreL10n.tf("engine.error.missingKey", name, lang: lang)
+            case .unknownProvider(let id): return CoreL10n.tf("engine.error.unknownProvider", id, lang: lang)
+            }
+        }
+        return error.localizedDescription
     }
 
     private func drive(missionID: UUID, team: Team) async {
@@ -149,22 +174,22 @@ public actor MissionEngine {
             await store.appendEvent(
                 missionID,
                 kind: .missionEnd,
-                text: "Mission complete. \(results.filter { $0.error == nil }.count) tasks delivered. Cost $\(String(format: "%.4f", stats.costUSD))."
+                text: l10nf("engine.missionComplete", Int64(results.filter { $0.error == nil }.count), String(format: "%.4f", stats.costUSD), mission: mission)
             )
         } catch is CancellationError {
             mission.status = .stopped
             mission.phase = .done
             mission.finishedAt = Date()
             await store.saveMission(mission)
-            await store.appendEvent(missionID, kind: .error, text: "Mission stopped by operator.")
-            await store.appendEvent(missionID, kind: .missionEnd, text: "Mission stopped by operator.")
+            await store.appendEvent(missionID, kind: .error, text: l10n("engine.missionStopped", mission: mission))
+            await store.appendEvent(missionID, kind: .missionEnd, text: l10n("engine.missionStopped", mission: mission))
         } catch {
             mission.status = .failed
             mission.phase = .done
             mission.finishedAt = Date()
             await store.saveMission(mission)
-            await store.appendEvent(missionID, kind: .error, text: error.localizedDescription)
-            await store.appendEvent(missionID, kind: .missionEnd, text: "Mission failed.")
+            await store.appendEvent(missionID, kind: .error, text: errorText(error, mission: mission))
+            await store.appendEvent(missionID, kind: .missionEnd, text: l10n("engine.missionFailed", mission: mission))
         }
     }
 
@@ -180,7 +205,7 @@ public actor MissionEngine {
             agent: coordinator,
             registry: registry,
             missionID: mission.id,
-            system: PromptBuilder.coordinatorSystem(team: team),
+            system: PromptBuilder.coordinatorSystem(team: team, mission: mission),
             messages: messages,
             tools: nil,
             stats: &stats
@@ -189,13 +214,13 @@ public actor MissionEngine {
         var plan = PlanParser.parse(reply.message.content ?? "")
 
         if plan.isEmpty {
-            await store.appendEvent(mission.id, kind: .notice, text: "Plan wasn't in the required format; asking the coordinator to correct it.")
+            await store.appendEvent(mission.id, kind: .notice, text: l10n("engine.planNotParseable", mission: mission))
             messages.append(.user(PromptBuilder.replanPrompt(mission: mission, previous: reply.message.content ?? "")))
             let retry = try await call(
                 agent: coordinator,
                 registry: registry,
                 missionID: mission.id,
-                system: PromptBuilder.coordinatorSystem(team: team),
+                system: PromptBuilder.coordinatorSystem(team: team, mission: mission),
                 messages: messages,
                 tools: nil,
                 stats: &stats
@@ -205,13 +230,18 @@ public actor MissionEngine {
         }
 
         if plan.isEmpty {
-            await store.appendEvent(mission.id, kind: .notice, text: "Falling back to a default plan: one task per worker.")
+            await store.appendEvent(mission.id, kind: .notice, text: l10n("engine.planFallback", mission: mission))
             plan = PlanParser.fallbackPlan(mission: mission, team: team)
         }
 
-        let resolved = plan.prefix(8).map { item -> TaskPlanItem in
+        var availableWorkers = team.workers
+        let resolved = plan.prefix(max(1, availableWorkers.count)).map { item -> TaskPlanItem in
             var item = item
-            let agent = team.agent(named: item.agentName) ?? team.workers.first ?? coordinator
+            let requested = team.worker(named: item.agentName)
+            let agent = requested.flatMap({ candidate in
+                availableWorkers.first(where: { $0.id == candidate.id })
+            }) ?? availableWorkers.first ?? coordinator
+            availableWorkers.removeAll(where: { $0.id == agent.id })
             item.agentName = agent.name
             return item
         }
@@ -242,7 +272,7 @@ public actor MissionEngine {
 
             let chunkResults: [WorkerResult] = await withTaskGroup(of: WorkerResult.self) { group in
                 for task in chunk {
-                    let agent = team.agent(named: task.agentName) ?? team.workers.first ?? team.agents[0]
+                    let agent = team.worker(named: task.agentName) ?? team.workers.first ?? team.agents[0]
                     group.addTask {
                         await self.runWorker(
                             task: task,
@@ -295,9 +325,12 @@ public actor MissionEngine {
     ) async -> WorkerResult {
         var messages: [APIMessage] = [.user(PromptBuilder.workPrompt(task: task, mission: mission))]
         var workerStats = MissionStats(turns: 0)
-        var handoff = "Task finished."
+        var handoff = l10n("engine.taskFinished", mission: mission)
         var deliverables: [String] = []
         await store.appendEvent(mission.id, kind: .taskStarted, agent: agent, text: task.goal)
+        let connectorDefs = await connectors?.toolDefs() ?? []
+        let externalToolNames = connectorDefs.map(\.function.name)
+        let tools = AgentTools.workerTools + connectorDefs
 
         do {
             for _ in 0..<max(2, config.maxSteps) {
@@ -306,9 +339,9 @@ public actor MissionEngine {
                     agent: agent,
                     registry: registry,
                     missionID: mission.id,
-                    system: PromptBuilder.workerSystem(agent: agent, team: team, mission: mission),
+                    system: PromptBuilder.workerSystem(agent: agent, team: team, mission: mission, externalTools: externalToolNames),
                     messages: messages,
-                    tools: AgentTools.workerTools,
+                    tools: tools,
                     stats: &workerStats
                 )
                 messages.append(reply.message)
@@ -322,7 +355,12 @@ public actor MissionEngine {
 
                 var finished = false
                 for call in calls {
-                    let outcome = AgentTools.run(call: call, workspace: workspace)
+                    let outcome: ToolOutcome
+                    if let connectors, connectors.owns(call.function.name) {
+                        outcome = await connectors.run(call: call)
+                    } else {
+                        outcome = AgentTools.run(call: call, workspace: workspace)
+                    }
                     if let name = outcome.wroteFiles.first {
                         deliverables = Array(Set(deliverables + outcome.wroteFiles)).sorted()
                         await store.appendEvent(mission.id, kind: .deliverable, agent: agent, text: task.deliverable, deliverableName: name)
@@ -341,11 +379,11 @@ public actor MissionEngine {
         } catch is CancellationError {
             await store.saveConversation(missionID: mission.id, agentName: agent.name, messages: messages)
             let partial = MissionStats(inputTokens: workerStats.inputTokens, outputTokens: workerStats.outputTokens, costUSD: workerStats.costUSD, turns: workerStats.turns)
-            return WorkerResult(task: task, agent: agent, handoff: "Task stopped mid-run.", deliverables: deliverables, stats: partial, error: "stopped")
+            return WorkerResult(task: task, agent: agent, handoff: l10n("engine.taskStopped", mission: mission), deliverables: deliverables, stats: partial, error: "stopped")
         } catch {
             await store.saveConversation(missionID: mission.id, agentName: agent.name, messages: messages)
             let failed = MissionStats(inputTokens: workerStats.inputTokens, outputTokens: workerStats.outputTokens, costUSD: workerStats.costUSD, turns: workerStats.turns)
-            return WorkerResult(task: task, agent: agent, handoff: "Task failed.", deliverables: deliverables, stats: failed, error: "\(agent.name) failed on \(task.deliverable): \(error.localizedDescription)")
+            return WorkerResult(task: task, agent: agent, handoff: l10n("engine.taskFailed", mission: mission), deliverables: deliverables, stats: failed, error: l10nf("engine.workerFailed", agent.name, task.deliverable, errorText(error, mission: mission), mission: mission))
         }
     }
 
@@ -365,21 +403,21 @@ public actor MissionEngine {
             if !listed {
                 findings.append(VerificationReport.Finding(
                     level: result.error == nil ? .fail : .concern,
-                    check: "mechanical",
-                    detail: "\(result.task.deliverable) was not found in the workspace."
+                    check: l10n("engine.checkMechanical", mission: mission),
+                    detail: l10nf("engine.deliverableMissing", result.task.deliverable, mission: mission)
                 ))
             } else if result.error == nil {
                 findings.append(VerificationReport.Finding(
                     level: .pass,
-                    check: "mechanical",
-                    detail: "\(result.task.deliverable) exists and was written by \(result.agent.name)."
+                    check: l10n("engine.checkMechanical", mission: mission),
+                    detail: l10nf("engine.deliverableWritten", result.task.deliverable, result.agent.name, mission: mission)
                 ))
             }
         }
 
         var verdict: VerificationReport.Verdict
         if let verifier = team.verifier, config.verifyWithAgent, !deliverableNames.isEmpty {
-            var messages: [APIMessage] = [.user(PromptBuilder.verifyPrompt(deliverables: deliverableNames))]
+            var messages: [APIMessage] = [.user(PromptBuilder.verifyPrompt(deliverables: deliverableNames, mission: mission))]
             var verifierFindings: [VerificationReport.Finding] = []
             do {
                 for _ in 0..<6 {
@@ -409,20 +447,25 @@ public actor MissionEngine {
                 if parsed.findings.isEmpty {
                     verifierFindings.append(VerificationReport.Finding(
                         level: .concern,
-                        check: "verifier",
-                        detail: "Verifier reply could not be parsed; manual review recommended."
+                        check: l10n("engine.checkVerifier", mission: mission),
+                        detail: l10n("engine.verifierUnparseable", mission: mission)
                     ))
                 }
             } catch {
                 verifierFindings.append(VerificationReport.Finding(
                     level: .concern,
-                    check: "verifier",
-                    detail: "Verifier agent could not run: \(error.localizedDescription)"
+                    check: l10n("engine.checkVerifier", mission: mission),
+                    detail: l10nf("engine.verifierFailed", error.localizedDescription, mission: mission)
                 ))
                 verdict = .unverified
             }
             await store.saveConversation(missionID: mission.id, agentName: verifier.name, messages: messages)
             findings += verifierFindings
+            if verifierFindings.contains(where: { $0.level == .fail }) {
+                verdict = .failed
+            } else if verifierFindings.contains(where: { $0.level == .concern }) {
+                verdict = .concerns
+            }
         } else {
             verdict = .unverified
         }
@@ -463,12 +506,12 @@ public actor MissionEngine {
         let handoffs = results.map { result in
             "\(result.agent.name) — \(result.task.deliverable): \(result.handoff)"
         }
-        var messages: [APIMessage] = [.user(PromptBuilder.reportPrompt(mission: mission, handoffs: handoffs))]
+        var messages: [APIMessage] = [.user(PromptBuilder.reportPrompt(mission: mission, handoffs: handoffs, verification: verification))]
         let reply = try await call(
             agent: coordinator,
             registry: registry,
             missionID: mission.id,
-            system: PromptBuilder.coordinatorSystem(team: team),
+            system: PromptBuilder.coordinatorSystem(team: team, mission: mission),
             messages: messages,
             tools: nil,
             stats: &stats
@@ -477,10 +520,10 @@ public actor MissionEngine {
 
         var report = stripFences(reply.message.content ?? "")
         if report.isEmpty {
-            report = "# Mission report\n\nThe coordinator did not return a report.\n\n" + handoffs.joined(separator: "\n\n")
+            report = l10n("engine.fallbackReport", mission: mission) + "\n\n" + handoffs.joined(separator: "\n\n")
         }
         if verification.verdict != .clean {
-            report += "\n\n" + verification.markdown
+            report += "\n\n" + verification.markdown(language: CoreL10n.language(for: mission))
         }
         await store.writeDeliverable(missionID: mission.id, name: "final-report.md", content: report)
         await store.saveConversation(missionID: mission.id, agentName: coordinator.name, messages: messages)

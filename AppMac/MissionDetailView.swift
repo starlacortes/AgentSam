@@ -2,11 +2,12 @@ import SwiftUI
 import AgentSamCore
 
 private enum MissionRailTab: String, CaseIterable, Identifiable {
-    case plan = "Plan"
-    case chatter = "Chatter"
-    case files = "Files"
-    case activity = "Activity"
+    case plan
+    case chatter
+    case files
+    case activity
     var id: String { rawValue }
+    var label: String { NSLocalizedString(rawValue.capitalized, comment: "") }
 }
 
 struct MissionDetailView: View {
@@ -41,14 +42,14 @@ struct MissionDetailView: View {
             AgentMissionDetail(agent: agent, task: presentation.agents.first(where: { $0.agent.id == agent.id })?.task)
                 .frame(minWidth: 440, minHeight: 320)
         }
-        .confirmationDialog("Delete this mission and its local workspace?", isPresented: $confirmDelete, titleVisibility: .visible) {
-            Button("Delete Mission", role: .destructive) {
+        .confirmationDialog(String(localized: "Delete this mission and its local workspace?"), isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button(String(localized: "Delete Mission"), role: .destructive) {
                 Task {
                     if let mission = state.mission { await model.deleteMission(mission.id) }
                     dismiss()
                 }
             }
-            Button("Cancel", role: .cancel) {}
+            Button(String(localized: "Cancel"), role: .cancel) {}
         }
     }
 
@@ -60,7 +61,7 @@ struct MissionDetailView: View {
                     .frame(width: 9, height: 9)
                     .shadow(color: AgentSamTheme.emerald.opacity(state.mission?.status == .running ? 0.7 : 0), radius: 7)
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(state.mission?.objective ?? "Mission")
+                    Text(state.mission?.objective ?? String(localized: "Mission"))
                         .font(AgentSamTheme.displayFont(19))
                         .foregroundStyle(AgentSamTheme.ink)
                         .lineLimit(2)
@@ -73,21 +74,21 @@ struct MissionDetailView: View {
                 }
                 Spacer()
                 if let mission = state.mission {
-                    Metric(value: "\(mission.totalInputTokens + mission.totalOutputTokens)", label: "TOKENS")
-                    Metric(value: mission.totalCostUSD < 0.01 && mission.totalCostUSD > 0 ? String(format: "$%.4f", mission.totalCostUSD) : String(format: "$%.2f", mission.totalCostUSD), label: "COST")
+                    Metric(value: "\(mission.totalInputTokens + mission.totalOutputTokens)", label: String(localized: "TOKENS"))
+                    Metric(value: mission.totalCostUSD < 0.01 && mission.totalCostUSD > 0 ? String(format: "$%.4f", mission.totalCostUSD) : String(format: "$%.2f", mission.totalCostUSD), label: String(localized: "COST"))
                 }
                 if let mission = state.mission, mission.status == .running {
-                    Button(role: .destructive) { Task { await model.stopMission(mission.id) } } label: { Label("Stop", systemImage: "stop.fill") }
+                    Button(role: .destructive) { Task { await model.stopMission(mission.id) } } label: { Label(String(localized: "Stop"), systemImage: "stop.fill") }
                         .buttonStyle(AgentSamGhostButtonStyle())
                 }
                 if state.mission?.status != .running && state.mission != nil {
-                    Button(role: .destructive) { confirmDelete = true } label: { Label("Delete", systemImage: "trash") }
+                    Button(role: .destructive) { confirmDelete = true } label: { Label(String(localized: "Delete"), systemImage: "trash") }
                         .buttonStyle(AgentSamGhostButtonStyle())
                 }
                 Button { dismiss() } label: { Image(systemName: "xmark") }
                     .buttonStyle(AgentSamGhostButtonStyle())
                     .keyboardShortcut(.cancelAction)
-                    .accessibilityLabel("Close mission")
+                    .accessibilityLabel(String(localized: "Close mission"))
             }
             .padding(.horizontal, 18)
             .padding(.top, 15)
@@ -104,8 +105,8 @@ struct MissionDetailView: View {
 
     private var rightRail: some View {
         VStack(spacing: 0) {
-            Picker("Mission detail", selection: $railTab) {
-                ForEach(MissionRailTab.allCases) { Text($0.rawValue).tag($0) }
+            Picker(String(localized: "Mission detail"), selection: $railTab) {
+                ForEach(MissionRailTab.allCases) { Text($0.label).tag($0) }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -146,7 +147,7 @@ struct MissionDetailView: View {
     private var deliverablesPane: some View {
         VStack(spacing: 0) {
             if state.deliverables.isEmpty {
-                ContentUnavailableView("No files yet", systemImage: "doc.text.magnifyingglass", description: Text("Files your agents produce will appear here."))
+                ContentUnavailableView(String(localized: "No files yet"), systemImage: "doc.text.magnifyingglass", description: Text(String(localized: "Files your agents produce will appear here.")))
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 7) {
@@ -168,7 +169,7 @@ struct MissionDetailView: View {
                 if let selected = state.selectedDeliverable {
                     DeliverablePreview(name: selected) { await state.content(for: selected, store: model.store) }
                 } else {
-                    ContentUnavailableView("Select a file", systemImage: "doc.text")
+                    ContentUnavailableView(String(localized: "Select a file"), systemImage: "doc.text")
                 }
             }
         }
@@ -179,13 +180,13 @@ struct MissionDetailView: View {
             HStack(spacing: 14) {
                 Image(systemName: "checkmark.seal.fill").font(.title2).foregroundStyle(AgentSamTheme.goldLight)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("Mission complete").font(.headline).foregroundStyle(AgentSamTheme.ink)
-                    Text("\(state.deliverables.count) files delivered · \(mission.totalInputTokens + mission.totalOutputTokens) tokens")
+                    Text(String(localized: "Mission complete")).font(.headline).foregroundStyle(AgentSamTheme.ink)
+                    Text(String(format: String(localized: "%lld files delivered · %lld tokens"), state.deliverables.count, mission.totalInputTokens + mission.totalOutputTokens))
                         .font(.caption).foregroundStyle(AgentSamTheme.muted)
                 }
                 Spacer()
                 if state.deliverables.contains("final-report.md") {
-                    Button("Read report") {
+                    Button(String(localized: "Read report")) {
                         state.selectedDeliverable = "final-report.md"
                         railTab = .files
                     }
@@ -228,9 +229,9 @@ private struct AgentMissionDetail: View {
                     AgentSamRoleBadge(role: agent.role)
                 }
             }
-            LabeledContent("Model") { Text(agent.model).monospaced() }
-            if let task { LabeledContent("Current assignment") { Text(task).multilineTextAlignment(.trailing) } }
-            Text("PERSONA").agentSamKicker()
+            LabeledContent(String(localized: "Model")) { Text(agent.model).monospaced() }
+            if let task { LabeledContent(String(localized: "Current assignment")) { Text(task).multilineTextAlignment(.trailing) } }
+            Text(String(localized: "PERSONA")).agentSamKicker()
             Text(agent.systemPrompt).font(.callout).foregroundStyle(AgentSamTheme.secondaryInk).textSelection(.enabled)
             Spacer()
         }

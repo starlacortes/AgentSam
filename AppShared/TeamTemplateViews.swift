@@ -26,7 +26,7 @@ struct TeamTemplateCard: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(16)
                     if template.lowCost {
-                        AgentSamChip("LOW COST", tint: AgentSamTheme.goldLight)
+                        AgentSamChip(String(localized: "LOW COST"), tint: AgentSamTheme.goldLight)
                             .padding(10)
                     }
                 }
@@ -34,7 +34,7 @@ struct TeamTemplateCard: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Preview \(template.name)")
+            .accessibilityLabel(String(format: String(localized: "Preview %@"), template.name))
 
             VStack(alignment: .leading, spacing: 12) {
                 Text(template.summary)
@@ -46,12 +46,12 @@ struct TeamTemplateCard: View {
                     ForEach(template.capabilities, id: \.self) { AgentSamChip($0) }
                 }
                 HStack {
-                    Button("Meet the squad", action: onPreview)
+                    Button(String(localized: "Meet the squad"), action: onPreview)
                         .buttonStyle(.plain)
                         .font(.caption.weight(.medium))
                         .foregroundStyle(AgentSamTheme.emeraldLight)
                     Spacer()
-                    Button("Hire team", action: onHire)
+                    Button(String(localized: "Hire team"), action: onHire)
                         .buttonStyle(AgentSamPrimaryButtonStyle())
                 }
             }
@@ -73,10 +73,10 @@ struct BuildTeamCard: View {
                 Image(systemName: "plus")
                     .font(AgentSamTheme.displayFont(34))
                     .foregroundStyle(AgentSamTheme.gold)
-                Text("Build from scratch")
+                Text(String(localized: "Build from scratch"))
                     .font(AgentSamTheme.displayFont(18))
                     .foregroundStyle(AgentSamTheme.ink)
-                Text("Hand-pick agents from the full roster.")
+                Text(String(localized: "Hand-pick agents from the full roster."))
                     .font(.callout)
                     .foregroundStyle(AgentSamTheme.muted)
             }
@@ -108,7 +108,7 @@ struct TeamTemplatePreview: View {
                     Spacer()
                     Button(action: onClose) { Image(systemName: "xmark") }
                         .buttonStyle(AgentSamGhostButtonStyle())
-                        .accessibilityLabel("Close preview")
+                        .accessibilityLabel(String(localized: "Close preview"))
                 }
                 VStack(spacing: 9) {
                     ForEach(agents) { agent in
@@ -125,13 +125,13 @@ struct TeamTemplatePreview: View {
                                     .lineLimit(3)
                             }
                             Spacer()
-                            AgentSamChip(agent.model.isEmpty ? "Choose model" : agent.model, tint: AgentSamTheme.emeraldLight)
+                            AgentSamChip(agent.model.isEmpty ? String(localized: "Choose model") : agent.model, tint: AgentSamTheme.emeraldLight)
                         }
                         .agentSamPanel(padding: 11)
                     }
                 }
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("TRY IT ON").agentSamKicker()
+                    Text(String(localized: "TRY IT ON")).agentSamKicker()
                     Text("“\(template.example)”")
                         .font(.callout.italic())
                         .foregroundStyle(AgentSamTheme.secondaryInk)
@@ -141,9 +141,9 @@ struct TeamTemplatePreview: View {
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                 }
                 HStack {
-                    Button("Keep browsing", action: onClose).buttonStyle(AgentSamGhostButtonStyle())
+                    Button(String(localized: "Keep browsing"), action: onClose).buttonStyle(AgentSamGhostButtonStyle())
                     Spacer()
-                    Button("Hire this team", action: onHire).buttonStyle(AgentSamPrimaryButtonStyle())
+                    Button(String(localized: "Hire this team"), action: onHire).buttonStyle(AgentSamPrimaryButtonStyle())
                 }
             }
             .padding(22)
@@ -167,7 +167,7 @@ struct MissionObjectiveEditor: View {
                 .background(AgentSamTheme.deep)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
                 .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(AgentSamTheme.strongLine))
-                .accessibilityLabel("Mission objective")
+                .accessibilityLabel(String(localized: "Mission objective"))
             if showsIdeas {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {

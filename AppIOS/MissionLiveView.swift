@@ -5,11 +5,12 @@ func iosStatusColor(_ status: MissionStatus) -> Color { AgentSamTheme.color(for:
 func iosRoleColor(_ role: AgentProfile.Role) -> Color { AgentSamTheme.color(for: role) }
 
 private enum IOMissionTab: String, CaseIterable, Identifiable {
-    case plan = "Plan"
-    case chatter = "Chatter"
-    case files = "Files"
-    case activity = "Activity"
+    case plan
+    case chatter
+    case files
+    case activity
     var id: String { rawValue }
+    var label: String { NSLocalizedString(rawValue.capitalized, comment: "") }
 }
 
 struct MissionLiveView: View {
@@ -35,14 +36,14 @@ struct MissionLiveView: View {
                 Button {
                     showDeliverable = FileItem(name: "final-report.md")
                 } label: {
-                    Label("Mission complete · Read final report", systemImage: "checkmark.seal.fill")
+                    Label(String(localized: "Mission complete · Read final report"), systemImage: "checkmark.seal.fill")
                         .font(.callout.weight(.semibold))
                 }
                 .buttonStyle(AgentSamPrimaryButtonStyle())
                 .padding(.bottom, 10)
             }
-            Picker("Mission detail", selection: $tab) {
-                ForEach(IOMissionTab.allCases) { Text($0.rawValue).tag($0) }
+            Picker(String(localized: "Mission detail"), selection: $tab) {
+                ForEach(IOMissionTab.allCases) { Text($0.label).tag($0) }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
@@ -51,13 +52,13 @@ struct MissionLiveView: View {
             content
         }
         .background(AgentSamBackground())
-        .navigationTitle("Live Mission")
+        .navigationTitle(String(localized: "Live Mission"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .toolbar {
             if live.mission?.status == .running {
                 ToolbarItem(placement: .primaryAction) {
-                    Button("Stop", role: .destructive) { Task { await session.stopMission(id: live.missionID) } }
+                    Button(String(localized: "Stop"), role: .destructive) { Task { await session.stopMission(id: live.missionID) } }
                 }
             }
         }
@@ -69,7 +70,7 @@ struct MissionLiveView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(live.mission?.objective ?? "Loading mission…")
+            Text(live.mission?.objective ?? String(localized: "Loading mission…"))
                 .font(.headline)
                 .foregroundStyle(AgentSamTheme.ink)
                 .lineLimit(3)
@@ -97,7 +98,7 @@ struct MissionLiveView: View {
             AgentSamChatterList(items: presentation.chatter)
         case .files:
             if live.deliverables.isEmpty {
-                ContentUnavailableView("No files yet", systemImage: "doc.text.magnifyingglass", description: Text("Agent deliverables will appear here."))
+                ContentUnavailableView(String(localized: "No files yet"), systemImage: "doc.text.magnifyingglass", description: Text(String(localized: "Agent deliverables will appear here.")))
             } else {
                 List(live.deliverables, id: \.self) { name in
                     Button { showDeliverable = FileItem(name: name) } label: {
@@ -145,18 +146,18 @@ private struct IOAgentMissionDetail: View {
                             AgentSamRoleBadge(role: agent.role)
                         }
                     }
-                    LabeledContent("Model") { Text(agent.model).monospaced() }
+                    LabeledContent(String(localized: "Model")) { Text(agent.model).monospaced() }
                     if let task {
-                        Text("CURRENT ASSIGNMENT").agentSamKicker()
+                        Text(String(localized: "CURRENT ASSIGNMENT")).agentSamKicker()
                         Text(task).font(.callout).foregroundStyle(AgentSamTheme.secondaryInk)
                     }
-                    Text("PERSONA").agentSamKicker()
+                    Text(String(localized: "PERSONA")).agentSamKicker()
                     Text(agent.systemPrompt).font(.callout).foregroundStyle(AgentSamTheme.secondaryInk).textSelection(.enabled)
                 }
                 .padding(20)
             }
             .background(AgentSamBackground())
-            .navigationTitle("Agent")
+            .navigationTitle(String(localized: "Agent"))
             .navigationBarTitleDisplayMode(.inline)
         }
     }
@@ -188,7 +189,7 @@ struct DeliverableSheet: View {
             .foregroundStyle(AgentSamTheme.secondaryInk)
             .navigationTitle(name)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button(String(localized: "Done")) { dismiss() } } }
             .task(id: name) { text = await live.content(for: name) }
         }
     }

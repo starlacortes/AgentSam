@@ -16,7 +16,7 @@ struct TokenMiddleware: AsyncMiddleware {
             provided = request.query[String.self, at: "token"]
         }
         guard let provided, provided == token, !token.isEmpty else {
-            throw Abort(.unauthorized, reason: "Missing or invalid token")
+            throw Abort(.unauthorized, reason: SrvL10n.t("srv.missingToken", lang: SrvL10n.lang(for: request)))
         }
         return try await next.respond(to: request)
     }
@@ -42,9 +42,19 @@ extension Request {
     }
 }
 
+extension Mission {
+    var publicRepresentation: Mission {
+        var copy = self
+        copy.inputContext = nil
+        return copy
+    }
+}
+
 struct MissionStartBody: Decodable {
-    var teamID: UUID
-    var objective: String
+    var teamID: UUID?
+    var workflowID: String?
+    var objective: String?
+    var language: String?
 }
 
 struct KeyBody: Decodable {
@@ -86,4 +96,23 @@ struct ServerInfo: Encodable {
 struct AckResult: Encodable {
     var ok: Bool
     var detail: String?
+}
+
+struct ConnectorPatchBody: Decodable {
+    var enabled: Bool?
+    var permissions: ConnectorPermissions?
+}
+
+struct GoogleAdsCredentialsBody: Decodable {
+    var developerToken: String?
+    var customerId: String?
+}
+
+struct OAuthAuthorizeBody: Decodable {
+    var clientKind: String?
+}
+
+struct ConnectorTestResult: Encodable {
+    var ok: Bool
+    var message: String
 }

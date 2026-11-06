@@ -2,11 +2,12 @@ import SwiftUI
 import AgentSamCore
 
 private enum IOMissionFilter: String, CaseIterable, Identifiable {
-    case all = "All"
-    case running = "Running"
-    case completed = "Completed"
-    case attention = "Attention"
+    case all
+    case running
+    case completed
+    case attention
     var id: String { rawValue }
+    var label: String { NSLocalizedString(rawValue.capitalized, comment: "") }
 }
 
 struct MissionsTab: View {
@@ -22,13 +23,13 @@ struct MissionsTab: View {
                 if session.missions.isEmpty { emptyState } else { missionList }
             }
             .background(AgentSamBackground())
-            .navigationTitle("Missions")
-            .searchable(text: $search, prompt: "Search missions")
+            .navigationTitle(String(localized: "Missions"))
+            .searchable(text: $search, prompt: String(localized: "Search missions"))
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
                     Menu {
-                        Picker("Filter", selection: $filter) {
-                            ForEach(IOMissionFilter.allCases) { Text($0.rawValue).tag($0) }
+                        Picker(String(localized: "Filter"), selection: $filter) {
+                            ForEach(IOMissionFilter.allCases) { Text($0.label).tag($0) }
                         }
                     } label: {
                         Image(systemName: "line.3.horizontal.decrease.circle")
@@ -48,12 +49,12 @@ struct MissionsTab: View {
     private var emptyState: some View {
         VStack(spacing: 14) {
             Image(systemName: "flag.checkered.2.crossed").font(.system(size: 44)).foregroundStyle(AgentSamTheme.emerald)
-            Text("No missions yet").font(AgentSamTheme.displayFont(24)).foregroundStyle(AgentSamTheme.ink)
-            Text("Launch one from a team, then watch your agents work in real time.").font(.callout).foregroundStyle(AgentSamTheme.muted).multilineTextAlignment(.center)
-            Button("Launch first mission") { showNewMission = true }.buttonStyle(AgentSamPrimaryButtonStyle()).disabled(session.teams.filter { !$0.agents.isEmpty }.isEmpty)
+            Text(String(localized: "No missions yet")).font(AgentSamTheme.displayFont(24)).foregroundStyle(AgentSamTheme.ink)
+            Text(String(localized: "Launch one from a team, then watch your agents work in real time.")).font(.callout).foregroundStyle(AgentSamTheme.muted).multilineTextAlignment(.center)
+            Button(String(localized: "Launch first mission")) { showNewMission = true }.buttonStyle(AgentSamPrimaryButtonStyle()).disabled(session.teams.filter { !$0.agents.isEmpty }.isEmpty)
             if let error = session.lastError {
                 Label(error, systemImage: "wifi.exclamationmark").font(.caption).foregroundStyle(AgentSamTheme.danger)
-                Button("Retry") { Task { await session.refreshAll() } }.buttonStyle(AgentSamGhostButtonStyle())
+                Button(String(localized: "Retry")) { Task { await session.refreshAll() } }.buttonStyle(AgentSamGhostButtonStyle())
             }
         }
         .padding()
@@ -66,7 +67,7 @@ struct MissionsTab: View {
                 Label(error, systemImage: "wifi.exclamationmark").font(.caption).foregroundStyle(AgentSamTheme.danger).listRowBackground(Color.clear)
             }
             if filteredMissions.isEmpty {
-                ContentUnavailableView("No matching missions", systemImage: "magnifyingglass").listRowBackground(Color.clear)
+                ContentUnavailableView(String(localized: "No matching missions"), systemImage: "magnifyingglass").listRowBackground(Color.clear)
             }
             ForEach(filteredMissions) { mission in
                 Button {
@@ -124,7 +125,7 @@ struct MissionListRow: View {
             Spacer()
             VStack(alignment: .trailing, spacing: 3) {
                 AgentSamMoneyText(amount: mission.totalCostUSD).font(.caption).foregroundStyle(AgentSamTheme.secondaryInk)
-                Text("\(mission.totalInputTokens + mission.totalOutputTokens) tok").font(.caption2).foregroundStyle(AgentSamTheme.dim)
+                Text(String(localized: "\(mission.totalInputTokens + mission.totalOutputTokens) tok")).font(.caption2).foregroundStyle(AgentSamTheme.dim)
             }
         }
         .padding(12)
@@ -160,15 +161,15 @@ struct NewMissionSheet: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     if !session.maloonWorkflows.isEmpty {
-                        Picker("Mission type", selection: $useOwnerWorkflow) {
-                            Text("General").tag(false)
-                            Text("Maloon Owner").tag(true)
+                        Picker(String(localized: "Mission type"), selection: $useOwnerWorkflow) {
+                            Text(String(localized: "General")).tag(false)
+                            Text(String(localized: "Maloon Owner")).tag(true)
                         }
                         .pickerStyle(.segmented)
                     }
 
                     if useOwnerWorkflow, !session.maloonWorkflows.isEmpty {
-                        Picker("Workflow", selection: $workflowID) {
+                        Picker(String(localized: "Workflow"), selection: $workflowID) {
                             ForEach(session.maloonWorkflows) { workflow in
                                 Text(workflow.title).tag(workflow.id)
                             }
@@ -183,15 +184,15 @@ struct NewMissionSheet: View {
                                 Text(workflow.summary).font(.callout).foregroundStyle(AgentSamTheme.ink)
                                 Label(workflow.behavior, systemImage: "lock.doc")
                                     .font(.caption).foregroundStyle(AgentSamTheme.emeraldLight)
-                                Text("AgentSam fetches a fresh Indigo snapshot at launch. The owner team uses one configured provider.")
+                                Text(String(localized: "AgentSam fetches a fresh Indigo snapshot at launch. The owner team uses one configured provider."))
                                     .font(.caption).foregroundStyle(AgentSamTheme.muted)
                             }
                             .agentSamPanel()
                         }
-                        Text("OWNER NOTES · OPTIONAL").agentSamKicker()
+                        Text(String(localized: "OWNER NOTES · OPTIONAL")).agentSamKicker()
                         MissionObjectiveEditor(objective: $objective)
                     } else {
-                        Picker("Team", selection: $teamID) {
+                        Picker(String(localized: "Team"), selection: $teamID) {
                             ForEach(session.teams.filter { !$0.agents.isEmpty }) { team in Text("\(team.emoji) \(team.name)").tag(Optional(team.id)) }
                         }
                         .pickerStyle(.menu)
@@ -204,12 +205,12 @@ struct NewMissionSheet: View {
                                 AgentSamAvatarStack(agents: team.agents, size: 38)
                                 VStack(alignment: .leading) {
                                     Text(team.name).font(.headline).foregroundStyle(AgentSamTheme.ink)
-                                    Text("\(team.agents.count) agents · \(team.coordinator?.name ?? "No coordinator")").font(.caption).foregroundStyle(AgentSamTheme.muted)
+                                    Text(String(format: String(localized: "%lld agents · %@"), team.agents.count, team.coordinator?.name ?? String(localized: "No coordinator"))).font(.caption).foregroundStyle(AgentSamTheme.muted)
                                 }
                             }
                             .agentSamPanel()
                         }
-                        Text("OBJECTIVE").agentSamKicker()
+                        Text(String(localized: "OBJECTIVE")).agentSamKicker()
                         MissionObjectiveEditor(objective: $objective)
                     }
                     if let error = session.lastError { Text(error).font(.caption).foregroundStyle(AgentSamTheme.danger) }
@@ -217,10 +218,10 @@ struct NewMissionSheet: View {
                 .padding(18)
             }
             .background(AgentSamBackground())
-            .navigationTitle("New Mission")
+            .navigationTitle(String(localized: "New Mission"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button(String(localized: "Cancel")) { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
                         launching = true
@@ -229,7 +230,7 @@ struct NewMissionSheet: View {
                             launching = false
                         }
                     } label: {
-                        if launching { ProgressView() } else { Text("Launch") }
+                        if launching { ProgressView() } else { Text(String(localized: "Launch")) }
                     }
                     .disabled(!canLaunch || launching)
                 }

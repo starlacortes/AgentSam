@@ -87,9 +87,9 @@ public struct AgentProfile: Codable, Identifiable, Hashable, Sendable {
 
         public var label: String {
             switch self {
-            case .coordinator: "Coordination"
-            case .worker: "Worker"
-            case .verifier: "Verification"
+            case .coordinator: CoreL10n.t("role.coordinator")
+            case .worker: CoreL10n.t("role.worker")
+            case .verifier: CoreL10n.t("role.verifier")
             }
         }
     }
@@ -130,72 +130,72 @@ public struct AgentProfile: Codable, Identifiable, Hashable, Sendable {
         AgentProfile(
             name: "Ada",
             emoji: "🧭",
-            title: "Mission Coordinator",
+            title: CoreL10n.t("roster.ada.title"),
             role: .coordinator,
-            systemPrompt: "You are a decisive mission coordinator. You break objectives into short, concrete tasks for specialist agents, assign each task to the best-suited worker by name, and merge worker handoffs into a crisp final report. You never do the workers' jobs yourself.",
+            systemPrompt: CoreL10n.t("roster.ada.prompt"),
             providerID: "anthropic",
             model: "claude-sonnet-4-5"
         ),
         AgentProfile(
             name: "Scout",
             emoji: "🔍",
-            title: "Research Analyst",
+            title: CoreL10n.t("roster.scout.title"),
             role: .worker,
-            systemPrompt: "You are a rigorous research analyst. You gather, organize, and fact-check material for your assigned task. You write findings to your deliverable file in clear markdown with sources or reasoning stated. You finish with a short summary of what you found.",
+            systemPrompt: CoreL10n.t("roster.scout.prompt"),
             providerID: "anthropic",
             model: "claude-haiku-4-5"
         ),
         AgentProfile(
             name: "Quill",
             emoji: "✍️",
-            title: "Staff Writer",
+            title: CoreL10n.t("roster.quill.title"),
             role: .worker,
-            systemPrompt: "You are a strong staff writer. You produce the deliverable your task asks for: well-structured, concrete, and ready to use without editing. You write the full document to your deliverable file, then finish with a one-paragraph summary.",
+            systemPrompt: CoreL10n.t("roster.quill.prompt"),
             providerID: "anthropic",
             model: "claude-sonnet-4-5"
         ),
         AgentProfile(
             name: "Plot",
             emoji: "📊",
-            title: "Data Analyst",
+            title: CoreL10n.t("roster.plot.title"),
             role: .worker,
-            systemPrompt: "You are a precise data analyst. You structure information into tables, comparisons, and step-by-step reasoning inside your deliverable file. Numbers and claims are explicit; assumptions are labeled.",
+            systemPrompt: CoreL10n.t("roster.plot.prompt"),
             providerID: "openai",
             model: "gpt-5.2-mini"
         ),
         AgentProfile(
             name: "Judge",
             emoji: "⚖️",
-            title: "Independent Verifier",
+            title: CoreL10n.t("roster.judge.title"),
             role: .verifier,
-            systemPrompt: "You are an independent verifier. You are read-only: you never edit files. You check the deliverables against the mission objective and report findings in the exact format required of you. You are skeptical but fair.",
+            systemPrompt: CoreL10n.t("roster.judge.prompt"),
             providerID: "deepseek",
             model: "deepseek-chat"
         ),
         AgentProfile(
             name: "Iris",
             emoji: "🎨",
-            title: "Designer",
+            title: CoreL10n.t("roster.iris.title"),
             role: .worker,
-            systemPrompt: "You are a thoughtful product and visual designer. You turn objectives into clear information hierarchy, polished layouts, and practical design specifications. You consider accessibility, consistency, and the production constraints of the deliverable.",
+            systemPrompt: CoreL10n.t("roster.iris.prompt"),
             providerID: "anthropic",
             model: "claude-sonnet-4-5"
         ),
         AgentProfile(
             name: "Bolt",
             emoji: "🛠️",
-            title: "Builder",
+            title: CoreL10n.t("roster.bolt.title"),
             role: .worker,
-            systemPrompt: "You are a pragmatic technical builder. You produce concrete architectures, implementation plans, and readable pseudo-code or source sketches. You call out trade-offs, edge cases, and the smallest useful path to a working result.",
+            systemPrompt: CoreL10n.t("roster.bolt.prompt"),
             providerID: "anthropic",
             model: "claude-sonnet-4-5"
         ),
         AgentProfile(
             name: "Anchor",
             emoji: "📝",
-            title: "Editor",
+            title: CoreL10n.t("roster.anchor.title"),
             role: .worker,
-            systemPrompt: "You are a meticulous editor. You improve structure, clarity, tone, grammar, and consistency while preserving the author's intent. You deliver polished copy rather than a list of suggested changes.",
+            systemPrompt: CoreL10n.t("roster.anchor.prompt"),
             providerID: "anthropic",
             model: "claude-haiku-4-5"
         ),
@@ -238,8 +238,14 @@ public struct Team: Codable, Identifiable, Hashable, Sendable {
             ?? agents.first(where: { $0.name.lowercased().contains(lower) || lower.contains($0.name.lowercased()) })
     }
 
+    public func worker(named name: String) -> AgentProfile? {
+        let lower = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return workers.first(where: { $0.name.lowercased() == lower })
+            ?? workers.first(where: { $0.name.lowercased().contains(lower) || lower.contains($0.name.lowercased()) })
+    }
+
     public static func starterTeam() -> Team {
-        var team = Team(name: "Starter Crew", emoji: "🛡️", goal: "Handle whatever mission I assign.")
+        var team = Team(name: CoreL10n.t("team.starter.name"), emoji: "🛡️", goal: CoreL10n.t("team.starter.goal"))
         team.agents = [
             AgentProfile.rosterTemplates[0],
             AgentProfile.rosterTemplates[1],
@@ -267,11 +273,11 @@ public enum MissionPhase: String, Codable, Sendable {
 
     public var label: String {
         switch self {
-        case .planning: "Planning"
-        case .working: "Agents working"
-        case .verifying: "Verifying"
-        case .reporting: "Final report"
-        case .done: "Done"
+        case .planning: CoreL10n.t("phase.planning")
+        case .working: CoreL10n.t("phase.working")
+        case .verifying: CoreL10n.t("phase.verifying")
+        case .reporting: CoreL10n.t("phase.reporting")
+        case .done: CoreL10n.t("phase.done")
         }
     }
 }
@@ -281,8 +287,13 @@ public struct Mission: Codable, Identifiable, Hashable, Sendable {
     public var teamID: UUID
     public var teamName: String
     public var objective: String
+    public var sourceName: String?
+    public var workflowID: String?
+    public var inputContext: String?
     public var status: MissionStatus
     public var phase: MissionPhase
+    /// Preferred output language for the agents ("es", "en", …). Empty/nil keeps the default (English).
+    public var outputLanguage: String?
     public var createdAt: Date
     public var startedAt: Date?
     public var finishedAt: Date?
@@ -296,16 +307,24 @@ public struct Mission: Codable, Identifiable, Hashable, Sendable {
         teamID: UUID,
         teamName: String = "",
         objective: String,
+        sourceName: String? = nil,
+        workflowID: String? = nil,
+        inputContext: String? = nil,
         status: MissionStatus = .queued,
         phase: MissionPhase = .planning,
+        outputLanguage: String? = nil,
         createdAt: Date = Date()
     ) {
         self.id = id
         self.teamID = teamID
         self.teamName = teamName
         self.objective = objective
+        self.sourceName = sourceName
+        self.workflowID = workflowID
+        self.inputContext = inputContext
         self.status = status
         self.phase = phase
+        self.outputLanguage = outputLanguage
         self.createdAt = createdAt
         self.totalCostUSD = 0
         self.totalInputTokens = 0
@@ -430,10 +449,14 @@ public struct VerificationReport: Codable, Hashable, Sendable {
     public var isClean: Bool { verdict == .clean }
     public var worstLevel: Level? { findings.map(\.level).max() }
 
-    public var markdown: String {
-        var out = "## Verification report\n\nVerdict: **\(verdict.rawValue.uppercased())**\n\n"
+    public var markdown: String { markdown(language: CoreL10n.preferredLanguage()) }
+
+    /// Renders the report markdown in the given language (`"en"` | `"es"`).
+    public func markdown(language: String) -> String {
+        let lang = language.lowercased().hasPrefix("es") ? "es" : "en"
+        var out = "## \(CoreL10n.t("verification.title", lang: lang))\n\n\(CoreL10n.t("verification.verdictPrefix", lang: lang)) **\(verdict.rawValue.uppercased())**\n\n"
         if findings.isEmpty {
-            out += "_No findings recorded._\n"
+            out += "\(CoreL10n.t("verification.noFindings", lang: lang))\n"
         } else {
             for f in findings {
                 let icon = f.level == .pass ? "✅" : (f.level == .concern ? "⚠️" : "❌")

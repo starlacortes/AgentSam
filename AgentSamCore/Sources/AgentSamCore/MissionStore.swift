@@ -63,6 +63,28 @@ public actor MissionStore {
         }
     }
 
+    // MARK: Connectors
+
+    public func loadConnectorConfigs() -> [ConnectorConfig] {
+        let url = root.appendingPathComponent("connectors.json")
+        guard let data = try? Data(contentsOf: url),
+              let configs = try? Self.decoder.decode([ConnectorConfig].self, from: data) else {
+            return ConnectorConfig.defaults()
+        }
+        var merged = configs
+        for connectorID in ConnectorID.allCases where !merged.contains(where: { $0.id == connectorID }) {
+            merged.append(ConnectorConfig(id: connectorID))
+        }
+        return merged
+    }
+
+    public func saveConnectorConfigs(_ configs: [ConnectorConfig]) {
+        let url = root.appendingPathComponent("connectors.json")
+        if let data = try? Self.encoder.encode(configs) {
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
     // MARK: Teams
 
     public func loadTeams() -> [Team] {
@@ -97,8 +119,23 @@ public actor MissionStore {
 
     // MARK: Missions
 
-    public func createMission(team: Team, objective: String) -> Mission {
-        let mission = Mission(teamID: team.id, teamName: team.name, objective: objective)
+    public func createMission(
+        team: Team,
+        objective: String,
+        sourceName: String? = nil,
+        workflowID: String? = nil,
+        inputContext: String? = nil,
+        outputLanguage: String? = nil
+    ) -> Mission {
+        let mission = Mission(
+            teamID: team.id,
+            teamName: team.name,
+            objective: objective,
+            sourceName: sourceName,
+            workflowID: workflowID,
+            inputContext: inputContext,
+            outputLanguage: outputLanguage
+        )
         try? FileManager.default.createDirectory(at: deliverablesDirectory(mission.id), withIntermediateDirectories: true)
         try? FileManager.default.createDirectory(at: conversationsDirectory(mission.id), withIntermediateDirectories: true)
         saveMission(mission)

@@ -24,13 +24,13 @@ struct RootView: View {
                         .padding(.vertical, 8)
                         .listRowBackground(Color.clear)
                 }
-                Section("Workspace") {
-                    Label("Missions", systemImage: "flag.checkered.2.crossed").tag(NavSection.missions)
-                    Label("Teams", systemImage: "person.3").tag(NavSection.teams)
-                    Label("Team Templates", systemImage: "square.grid.2x2").tag(NavSection.templates)
+                Section(String(localized: "Workspace")) {
+                    Label(String(localized: "Missions"), systemImage: "flag.checkered.2.crossed").tag(NavSection.missions)
+                    Label(String(localized: "Teams"), systemImage: "person.3").tag(NavSection.teams)
+                    Label(String(localized: "Team Templates"), systemImage: "square.grid.2x2").tag(NavSection.templates)
                 }
-                Section("Configuration") {
-                    Label("Settings", systemImage: "gearshape").tag(NavSection.settings)
+                Section(String(localized: "Configuration")) {
+                    Label(String(localized: "Settings"), systemImage: "gearshape").tag(NavSection.settings)
                 }
             }
             .listStyle(.sidebar)
@@ -38,7 +38,7 @@ struct RootView: View {
             .background(AgentSamTheme.deep)
             .navigationSplitViewColumnWidth(220)
             .safeAreaInset(edge: .bottom) {
-                Label("Local workspace", systemImage: "externaldrive")
+                Label(String(localized: "Local workspace"), systemImage: "externaldrive")
                     .font(.caption2)
                     .foregroundStyle(AgentSamTheme.dim)
                     .help(model.dataDirPath)
@@ -63,12 +63,12 @@ struct RootView: View {
                 Button {
                     showNewMission = true
                 } label: {
-                    Label("New Mission", systemImage: "plus.circle.fill")
+                    Label(String(localized: "New Mission"), systemImage: "plus.circle.fill")
                 }
                 .buttonStyle(AgentSamPrimaryButtonStyle())
                 .disabled(model.teams.filter { !$0.agents.isEmpty }.isEmpty)
                 .keyboardShortcut("n")
-                .help(model.teams.filter { !$0.agents.isEmpty }.isEmpty ? "Create a team before launching a mission" : "Create a new mission (⌘N)")
+                .help(model.teams.filter { !$0.agents.isEmpty }.isEmpty ? String(localized: "Create a team before launching a mission") : String(localized: "Create a new mission (⌘N)"))
             }
         }
         // Sheet content doesn't inherit the environment on macOS 27, so re-inject the model.
@@ -104,22 +104,22 @@ struct NewMissionSheet: View {
         VStack(spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("NEW MISSION").agentSamKicker()
-                    Text("Put your team to work").font(AgentSamTheme.displayFont(24)).foregroundStyle(AgentSamTheme.ink)
+                    Text(String(localized: "NEW MISSION")).agentSamKicker()
+                    Text(String(localized: "Put your team to work")).font(AgentSamTheme.displayFont(24)).foregroundStyle(AgentSamTheme.ink)
                 }
                 Spacer()
                 Button { dismiss() } label: { Image(systemName: "xmark") }
                     .buttonStyle(AgentSamGhostButtonStyle())
                     .keyboardShortcut(.cancelAction)
-                    .accessibilityLabel("Close")
+                    .accessibilityLabel(String(localized: "Close"))
             }
             .padding(20)
             Divider().overlay(AgentSamTheme.line)
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("TEAM").agentSamKicker()
-                        Picker("Team", selection: $teamID) {
+                        Text(String(localized: "TEAM")).agentSamKicker()
+                        Picker(String(localized: "Team"), selection: $teamID) {
                             ForEach(model.teams.filter { !$0.agents.isEmpty }) { team in
                                 Text("\(team.emoji) \(team.name)").tag(Optional(team.id))
                             }
@@ -136,7 +136,7 @@ struct NewMissionSheet: View {
                             AgentSamAvatarStack(agents: team.agents, size: 40)
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(team.name).font(.headline).foregroundStyle(AgentSamTheme.ink)
-                                Text("\(team.agents.count) agents · Coordinated by \(team.coordinator?.name ?? "unassigned")")
+                                Text(String(format: String(localized: "%lld agents · Coordinated by %@"), team.agents.count, team.coordinator?.name ?? String(localized: "unassigned")))
                                     .font(.caption).foregroundStyle(AgentSamTheme.muted)
                             }
                             Spacer()
@@ -144,7 +144,7 @@ struct NewMissionSheet: View {
                         .agentSamPanel()
                     }
                     VStack(alignment: .leading, spacing: 9) {
-                        Text("OBJECTIVE").agentSamKicker()
+                        Text(String(localized: "OBJECTIVE")).agentSamKicker()
                         MissionObjectiveEditor(objective: $objective)
                     }
                 }
@@ -152,10 +152,10 @@ struct NewMissionSheet: View {
             }
             Divider().overlay(AgentSamTheme.line)
             HStack {
-                Text("Watch every handoff live. Stop anytime.")
+                Text(String(localized: "Watch every handoff live. Stop anytime."))
                     .font(.caption).foregroundStyle(AgentSamTheme.dim)
                 Spacer()
-                Button("Cancel") { dismiss() }.buttonStyle(AgentSamGhostButtonStyle())
+                Button(String(localized: "Cancel")) { dismiss() }.buttonStyle(AgentSamGhostButtonStyle())
                 Button {
                     launching = true
                     Task {
@@ -166,7 +166,7 @@ struct NewMissionSheet: View {
                 } label: {
                     HStack {
                         if launching { ProgressView().controlSize(.small) }
-                        Text("Launch mission")
+                        Text(String(localized: "Launch mission"))
                     }
                 }
                 .buttonStyle(AgentSamPrimaryButtonStyle())

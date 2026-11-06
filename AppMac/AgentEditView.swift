@@ -21,18 +21,18 @@ struct AgentEditSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text(isExisting ? "Edit \(agent.name)" : "Hire agent")
+                Text(isExisting ? String(format: String(localized: "Edit %@"), agent.name) : String(localized: "Hire agent"))
                     .font(AgentSamTheme.displayFont(23))
                     .foregroundStyle(AgentSamTheme.ink)
                 Spacer()
                 if isExisting {
-                    Button("Fire agent", role: .destructive) {
+                    Button(String(localized: "Fire agent"), role: .destructive) {
                         onFire(agent)
                         dismiss()
                     }
                     .buttonStyle(AgentSamGhostButtonStyle())
                 }
-                Button("Save") { save() }
+                Button(String(localized: "Save")) { save() }
                     .keyboardShortcut(.return)
                     .buttonStyle(AgentSamPrimaryButtonStyle())
                     .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || providerID.isEmpty || model_.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -40,51 +40,51 @@ struct AgentEditSheet: View {
             .padding()
             Divider()
             Form {
-                Section("Identity") {
+                Section(String(localized: "Identity")) {
                     HStack {
-                        TextField("Emoji", text: $emoji)
+                        TextField(String(localized: "Emoji"), text: $emoji)
                             .frame(width: 50)
-                        TextField("Name", text: $name)
-                        TextField("Title", text: $title)
+                        TextField(String(localized: "Name"), text: $name)
+                        TextField(String(localized: "Title"), text: $title)
                     }
-                    Picker("Role", selection: $role) {
+                    Picker(String(localized: "Role"), selection: $role) {
                         ForEach(AgentProfile.Role.allCases, id: \.self) { r in
                             Text(r.label).tag(r)
                         }
                     }
                     .pickerStyle(.segmented)
                 }
-                Section("Engine") {
-                    Picker("Provider", selection: $providerID) {
+                Section(String(localized: "Engine")) {
+                    Picker(String(localized: "Provider"), selection: $providerID) {
                         ForEach(model.providers) { provider in
                             Text(provider.name).tag(provider.id)
                         }
                     }
                     HStack {
-                        TextField("Model", text: $model_)
+                        TextField(String(localized: "Model"), text: $model_)
                         if let provider = selectedProvider, !provider.models.isEmpty {
-                            Menu("Known models") {
+                            Menu(String(localized: "Known models")) {
                                 ForEach(provider.models, id: \.self) { known in
                                     Button(known) { model_ = known }
                                 }
                             }
                         }
                     }
-                    LabeledContent("Temperature") {
+                    LabeledContent(String(localized: "Temperature")) {
                         Slider(value: $temperature, in: 0...1, step: 0.1) {
-                            Text("Temperature")
+                            Text(String(localized: "Temperature"))
                         }
                         Text(String(format: "%.1f", temperature))
                             .font(.callout.monospacedDigit())
                             .frame(width: 36)
                     }
                 }
-                Section("System prompt") {
+                Section(String(localized: "System prompt")) {
                     TextEditor(text: $systemPrompt)
                         .font(.system(size: 12))
                         .frame(minHeight: 160)
                         .scrollContentBackground(.hidden)
-                    Text("House rules (tool use, deliverables, finish tool) are appended automatically.")
+                    Text(String(localized: "House rules (tool use, deliverables, finish tool) are appended automatically."))
                         .font(.caption2)
                         .foregroundStyle(AgentSamTheme.dim)
                 }
@@ -127,7 +127,7 @@ struct AgentEditSheet: View {
             id: agent.id,
             name: name.trimmingCharacters(in: .whitespaces),
             emoji: emoji.isEmpty ? "🤖" : String(emoji.prefix(2)),
-            title: title.isEmpty ? "Specialist" : title,
+            title: title.isEmpty ? String(localized: "Specialist") : title,
             role: role,
             systemPrompt: systemPrompt,
             providerID: providerID,

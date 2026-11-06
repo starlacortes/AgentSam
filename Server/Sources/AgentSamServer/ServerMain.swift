@@ -17,7 +17,7 @@ enum ServerMain {
         do {
             try await configure(app)
         } catch {
-            app.logger.critical("Configuration failed: \(error)")
+            app.logger.critical("Configuration failed: \(error.localizedDescription)")
             try? await app.asyncShutdown()
             throw error
         }

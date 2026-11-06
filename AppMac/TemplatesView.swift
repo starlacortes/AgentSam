@@ -11,11 +11,11 @@ struct TemplatesView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 7) {
-                    Text("CURATED TEAMS").agentSamKicker()
-                    Text("Hire a team in one click.")
+                    Text(String(localized: "CURATED TEAMS")).agentSamKicker()
+                    Text(String(localized: "Hire a team in one click."))
                         .font(AgentSamTheme.displayFont(31))
                         .foregroundStyle(AgentSamTheme.ink)
-                    Text("Preview the roster, then make it yours. Every role, model, and prompt remains editable.")
+                    Text(String(localized: "Preview the roster, then make it yours. Every role, model, and prompt remains editable."))
                         .font(.callout)
                         .foregroundStyle(AgentSamTheme.muted)
                 }
@@ -29,7 +29,7 @@ struct TemplatesView: View {
                         }
                     }
                     BuildTeamCard {
-                        editingTeam = Team(name: "New Team", emoji: "🛡️")
+                        editingTeam = Team(name: String(localized: "New Team"), emoji: "🛡️")
                     }
                 }
             }
@@ -38,7 +38,7 @@ struct TemplatesView: View {
             .frame(maxWidth: .infinity)
         }
         .background(AgentSamBackground())
-        .navigationTitle("Team Templates")
+        .navigationTitle(String(localized: "Team Templates"))
         .sheet(item: $preview) { template in
             TeamTemplatePreview(template: template, agents: template.agents(providers: model.providers)) {
                 preview = nil
@@ -54,7 +54,7 @@ struct TemplatesView: View {
                 .environment(model)
         }
         .overlay {
-            if saving { ProgressView("Hiring team…").padding().agentSamPanel() }
+            if saving { ProgressView(String(localized: "Hiring team…")).padding().agentSamPanel() }
         }
     }
 

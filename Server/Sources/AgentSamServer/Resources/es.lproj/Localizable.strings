@@ -1,0 +1,70 @@
+/* AgentSamServer — Spanish translations. */
+
+"srv.unknownConnector" = "Conector desconocido.";
+"srv.connectionFailed" = "Conexión fallida";
+"srv.oauthSessionExpired" = "La sesión de autorización falta o ha caducado. Empieza de nuevo desde Ajustes.";
+"srv.oauthMismatch" = "La respuesta de autorización no coincide con el conector.";
+"srv.oauthNoCode" = "Google no devolvió un código de autorización.";
+"srv.oauthNoRefreshToken" = "Google no devolvió un token de actualización. Vuelve a conectar y aprueba la pantalla de consentimiento.";
+"srv.connectorConnectedTitle" = "%@ conectado";
+"srv.connectorConnectedMessage" = "AgentSam ya puede usar %@ en las misiones. Puedes cerrar esta ventana.";
+"srv.badTeamID" = "ID de equipo no válido";
+"srv.teamNotFound" = "Equipo no encontrado";
+"srv.missingProviderID" = "Falta el ID del proveedor";
+"srv.unknownProvider" = "Proveedor desconocido: %@";
+"srv.noAPIKey" = "No hay ninguna clave de API guardada para %@.";
+"srv.keyStored" = "Clave guardada para %@";
+"srv.maloonNotConfigured" = "La integración de Maloon no está configurada en este servidor.";
+"srv.cloudflareTokenRequired" = "Se requiere el token de API de Cloudflare.";
+"srv.cloudflareStored" = "Token de Cloudflare verificado y guardado.";
+"srv.adsStored" = "Credenciales de Google Ads guardadas.";
+"srv.notGoogleOAuth" = "Este conector no usa Google OAuth.";
+"srv.googleOAuthNotConfigured" = "Google OAuth no está configurado en este servidor. Define AGENTSAM_GOOGLE_CLIENT_ID y AGENTSAM_GOOGLE_CLIENT_SECRET.";
+"srv.googleAuthURLFailed" = "No se pudo construir la URL de autorización de Google.";
+"srv.disconnected" = "%@ desconectado.";
+"srv.badMissionID" = "ID de misión no válido";
+"srv.missionNotFound" = "Misión no encontrada";
+"srv.missingDeliverable" = "Falta el nombre del entregable";
+"srv.deliverableNotFound" = "Entregable no encontrado";
+"srv.stopRequested" = "Detención solicitada.";
+"srv.missingToken" = "Token ausente o no válido";
+"srv.publicURLUnknown" = "No se pudo determinar la URL pública del servidor. Define AGENTSAM_PUBLIC_URL.";
+"srv.ownerNotesLimit" = "Las notas del propietario deben tener 4.000 caracteres o menos.";
+"srv.objectiveRequired" = "El objetivo de la misión es obligatorio.";
+"srv.objectiveLimit" = "El objetivo de la misión debe tener 20.000 caracteres o menos.";
+"srv.interrupted" = "Misión interrumpida por un reinicio del servidor. Revisa el trabajo guardado e inicia una nueva misión cuando quieras.";
+"srv.maloonRosterIncomplete" = "El equipo de propietario de Maloon necesita una plantilla completa y una clave de API configurada para su proveedor.";
+"srv.maloonProviderMissing" = "Configura una clave de API y un modelo por defecto de un proveedor en el servidor AgentSam antes de lanzar un flujo de Maloon.";
+"srv.maloonTeamName" = "Equipo de propietario Maloon";
+"srv.maloonTeamGoal" = "Convierte las instantáneas empresariales nuevas de Indigo en información operativa de solo lectura y borradores revisados por el propietario.";
+"srv.maloonTestOK" = "Conectado con Indigo y se ha recibido una instantánea válida de Maloon.";
+"srv.maloonUnknownWorkflow" = "Flujo de Maloon desconocido.";
+"srv.maloonBadURL" = "AGENTSAM_MALOON_URL no es una URL HTTP(S) válida.";
+"srv.indigoUnreachable" = "No se pudo contactar con Indigo: %@";
+"srv.indigoInvalidResponse" = "Indigo devolvió una respuesta no válida.";
+"srv.indigoStatusFailed" = "La solicitud de instantánea de Indigo falló con el estado %lld. Comprueba la URL y el token de la integración.";
+"srv.indigoTooLarge" = "La instantánea de Indigo superó el límite de seguridad de 500 KB.";
+"srv.indigoIncomplete" = "Indigo devolvió una instantánea no compatible o incompleta.";
+"srv.indigoNotUTF8" = "La instantánea de Indigo no era UTF-8 válido.";
+"srv.indigoMalformed" = "Indigo devolvió un JSON de instantánea mal formado.";
+
+"maloon.workflow.daily-operations.title" = "Informe diario de operaciones";
+"maloon.workflow.daily-operations.summary" = "Trabajos de hoy, progreso, huecos de personal, próximos trabajos y asuntos que requieren atención.";
+"maloon.workflow.daily-operations.behavior" = "Resumen operativo de solo lectura";
+"maloon.workflow.daily-operations.objective" = "Prepara un informe de operaciones conciso para el propietario con la fecha local de la instantánea. Cubre los trabajos de hoy y su progreso de finalización, el trabajo sin asignar o en riesgo, los problemas de personal y los trabajos importantes de los próximos 14 días. Separa los hechos de las recomendaciones, prioriza las acciones concretas del propietario y cita los detalles relevantes de cada trabajo o asignación. No trates los datos incompletos como prueba de que un trabajo no se hizo.";
+
+"maloon.workflow.quote-follow-ups.title" = "Seguimiento de presupuestos";
+"maloon.workflow.quote-follow-ups.summary" = "Encuentra presupuestos abiertos que requieren atención y redacta seguimientos para la revisión del propietario.";
+"maloon.workflow.quote-follow-ups.behavior" = "Solo borradores · no se envía nada";
+"maloon.workflow.quote-follow-ups.objective" = "Revisa los presupuestos en borrador y enviados de la instantánea. Prioriza los presupuestos que requieren atención del propietario según su estado, antigüedad, valor y notas aportadas. Explica cada recomendación y redacta mensajes de seguimiento concisos y cordiales cuando sea útil. Etiqueta claramente cada mensaje como borrador para la revisión del propietario. No envíes mensajes, no cambies el estado de los presupuestos ni inventes el historial de clientes.";
+
+"maloon.workflow.staffing-dispatch.title" = "Revisión de personal y despacho";
+"maloon.workflow.staffing-dispatch.summary" = "Señala trabajos sin asignar o en riesgo y revisa las opciones según la disponibilidad de los trabajadores.";
+"maloon.workflow.staffing-dispatch.behavior" = "Solo recomendaciones · sin cambios de calendario";
+"maloon.workflow.staffing-dispatch.objective" = "Revisa los trabajos actuales y próximos, las asignaciones y la disponibilidad activa de los trabajadores en la instantánea. Señala el trabajo sin asignar, los riesgos de calendario y las posibles sobrecargas o huecos. Sugiere opciones prácticas de personal o despacho solo cuando estén respaldadas por los datos de disponibilidad y asignación aportados. Indica la incertidumbre y nunca afirmes haber asignado trabajadores o cambiado un calendario.";
+
+"maloon.workflow.customer-marketing.title" = "Borradores de clientes y marketing";
+"maloon.workflow.customer-marketing.summary" = "Redacta comunicaciones útiles con clientes y marketing de servicios a partir del contexto empresarial actual.";
+"maloon.workflow.customer-marketing.behavior" = "Solo borradores · no se publica nada";
+"maloon.workflow.customer-marketing.objective" = "Usando únicamente el contexto empresarial, de servicios, presupuestos y trabajos aportado, propón un conjunto pequeño de comunicaciones útiles con clientes y borradores de marketing. Basa las descripciones de servicios y los precios en la instantánea, mantén afirmaciones respaldables e identifica el público y el canal previstos para cada borrador. No publiques, no envíes, no inventes testimonios ni hagas garantías que no estén presentes en los datos de origen.";
+

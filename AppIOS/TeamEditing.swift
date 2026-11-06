@@ -20,14 +20,14 @@ struct IOTeamEditView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     VStack(alignment: .leading, spacing: 9) {
-                        Text("TEAM IDENTITY").agentSamKicker()
-                        TextField("Team name", text: $name)
+                        Text(String(localized: "TEAM IDENTITY")).agentSamKicker()
+                        TextField(String(localized: "Team name"), text: $name)
                             .textFieldStyle(.plain)
                             .font(.title3.weight(.semibold))
                             .padding(12)
                             .background(AgentSamTheme.raised)
                             .clipShape(RoundedRectangle(cornerRadius: 10))
-                        TextField("What is this team for?", text: $goal, axis: .vertical)
+                        TextField(String(localized: "What is this team for?"), text: $goal, axis: .vertical)
                             .textFieldStyle(.plain)
                             .lineLimit(2...4)
                             .padding(12)
@@ -35,7 +35,7 @@ struct IOTeamEditView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 10))
                     }
                     HStack {
-                        Text("ROSTER").agentSamKicker()
+                        Text(String(localized: "ROSTER")).agentSamKicker()
                         Spacer()
                         Text(validationMessage).font(.caption2).foregroundStyle(isValid ? AgentSamTheme.dim : AgentSamTheme.goldLight)
                     }
@@ -46,7 +46,7 @@ struct IOTeamEditView: View {
                         Button { showRoster = true } label: {
                             VStack(spacing: 8) {
                                 Image(systemName: "person.badge.plus").font(.title2).foregroundStyle(AgentSamTheme.emerald)
-                                Text("Hire agent").font(.callout.weight(.semibold)).foregroundStyle(AgentSamTheme.secondaryInk)
+                                Text(String(localized: "Hire agent")).font(.callout.weight(.semibold)).foregroundStyle(AgentSamTheme.secondaryInk)
                             }
                             .frame(maxWidth: .infinity, minHeight: 170)
                             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(AgentSamTheme.emerald.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [5, 4])))
@@ -57,10 +57,10 @@ struct IOTeamEditView: View {
                 .padding(18)
             }
             .background(AgentSamBackground())
-            .navigationTitle(team == nil ? "New Team" : "Edit Team")
+            .navigationTitle(team == nil ? String(localized: "New Team") : String(localized: "Edit Team"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { attemptClose() } }
+                ToolbarItem(placement: .cancellationAction) { Button(String(localized: "Cancel")) { attemptClose() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button {
                         saving = true
@@ -70,7 +70,7 @@ struct IOTeamEditView: View {
                             saving = false
                         }
                     } label: {
-                        if saving { ProgressView() } else { Text(team == nil ? "Create" : "Save") }
+                        if saving { ProgressView() } else { Text(team == nil ? String(localized: "Create") : String(localized: "Save")) }
                     }
                     .disabled(!isValid || saving)
                 }
@@ -95,9 +95,9 @@ struct IOTeamEditView: View {
                     editingAgent = agent
                 }
             }
-            .confirmationDialog("Discard unsaved team changes?", isPresented: $showDiscardConfirmation) {
-                Button("Discard Changes", role: .destructive) { dismiss() }
-                Button("Keep Editing", role: .cancel) {}
+            .confirmationDialog(String(localized: "Discard unsaved team changes?"), isPresented: $showDiscardConfirmation) {
+                Button(String(localized: "Discard Changes"), role: .destructive) { dismiss() }
+                Button(String(localized: "Keep Editing"), role: .cancel) {}
             }
             .interactiveDismissDisabled(hasChanges)
         }
@@ -112,12 +112,12 @@ struct IOTeamEditView: View {
     }
 
     private var validationMessage: String {
-        if isValid { return "\(roster.count) ready" }
-        if roster.isEmpty { return "Add a coordinator and worker" }
-        if !roster.contains(where: { $0.role == .coordinator }) { return "Needs a coordinator" }
-        if !roster.contains(where: { $0.role == .worker }) { return "Needs a worker" }
-        if Set(roster.map { $0.name.lowercased() }).count != roster.count { return "Names must be unique" }
-        return "Choose every model"
+        if isValid { return String(localized: "\(roster.count) ready") }
+        if roster.isEmpty { return String(localized: "Add a coordinator and worker") }
+        if !roster.contains(where: { $0.role == .coordinator }) { return String(localized: "Needs a coordinator") }
+        if !roster.contains(where: { $0.role == .worker }) { return String(localized: "Needs a worker") }
+        if Set(roster.map { $0.name.lowercased() }).count != roster.count { return String(localized: "Names must be unique") }
+        return String(localized: "Choose every model")
     }
 
     private var hasChanges: Bool {
@@ -130,7 +130,7 @@ struct IOTeamEditView: View {
     }
 
     private func providerName(_ agent: AgentProfile) -> String {
-        session.providers.first(where: { $0.provider.id == agent.providerID })?.provider.name ?? "Choose provider"
+        session.providers.first(where: { $0.provider.id == agent.providerID })?.provider.name ?? String(localized: "Choose provider")
     }
 }
 
@@ -154,38 +154,38 @@ struct IOAgentEditView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Identity") {
-                    TextField("Name", text: $name)
-                    TextField("Title", text: $title)
-                    TextField("Emoji", text: $emoji)
-                    Picker("Role", selection: $role) {
+                Section(String(localized: "Identity")) {
+                    TextField(String(localized: "Name"), text: $name)
+                    TextField(String(localized: "Title"), text: $title)
+                    TextField(String(localized: "Emoji"), text: $emoji)
+                    Picker(String(localized: "Role"), selection: $role) {
                         ForEach(AgentProfile.Role.allCases, id: \.self) { Text($0.label).tag($0) }
                     }
                 }
-                Section("Engine") {
-                    Picker("Provider", selection: $providerID) {
+                Section(String(localized: "Engine")) {
+                    Picker(String(localized: "Provider"), selection: $providerID) {
                         ForEach(session.providers, id: \.provider.id) { status in
                             Text(status.provider.name).tag(status.provider.id)
                         }
                     }
-                    TextField("Model", text: $model)
+                    TextField(String(localized: "Model"), text: $model)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                     if let provider = selectedProvider, !provider.models.isEmpty {
-                        Menu("Choose a known model") {
+                        Menu(String(localized: "Choose a known model")) {
                             ForEach(provider.models, id: \.self) { known in Button(known) { model = known } }
                         }
                     }
-                    Stepper("Temperature \(String(format: "%.1f", temperature))", value: $temperature, in: 0...1, step: 0.1)
+                    Stepper(String(format: String(localized: "Temperature %.1f"), temperature), value: $temperature, in: 0...1, step: 0.1)
                 }
-                Section("System prompt") {
+                Section(String(localized: "System prompt")) {
                     TextEditor(text: $prompt).frame(minHeight: 180)
-                    Text("Tool use, deliverables, and finish rules are appended automatically.")
+                    Text(String(localized: "Tool use, deliverables, and finish rules are appended automatically."))
                         .font(.caption).foregroundStyle(AgentSamTheme.muted)
                 }
                 if isExisting {
                     Section {
-                        Button("Fire agent", role: .destructive) {
+                        Button(String(localized: "Fire agent"), role: .destructive) {
                             onFire(agent)
                             dismiss()
                         }
@@ -194,12 +194,12 @@ struct IOAgentEditView: View {
             }
             .scrollContentBackground(.hidden)
             .background(AgentSamBackground())
-            .navigationTitle(isExisting ? "Edit \(agent.name)" : "Hire Agent")
+            .navigationTitle(isExisting ? String(format: String(localized: "Edit %@"), agent.name) : String(localized: "Hire Agent"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button(String(localized: "Cancel")) { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { save() }
+                    Button(String(localized: "Save")) { save() }
                         .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || providerID.isEmpty || model.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
@@ -229,7 +229,7 @@ struct IOAgentEditView: View {
     private func save() {
         onSave(AgentProfile(
             id: agent.id, name: name.trimmingCharacters(in: .whitespaces), emoji: emoji.isEmpty ? "🤖" : String(emoji.prefix(2)),
-            title: title.isEmpty ? "Specialist" : title, role: role, systemPrompt: prompt,
+            title: title.isEmpty ? String(localized: "Specialist") : title, role: role, systemPrompt: prompt,
             providerID: providerID, model: model.trimmingCharacters(in: .whitespaces), temperature: temperature
         ))
         dismiss()
@@ -263,9 +263,9 @@ struct IORosterPicker: View {
                 .padding(16)
             }
             .background(AgentSamBackground())
-            .navigationTitle("Hire from Roster")
+            .navigationTitle(String(localized: "Hire from Roster"))
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button(String(localized: "Cancel")) { dismiss() } } }
         }
     }
 }

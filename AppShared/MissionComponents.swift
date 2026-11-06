@@ -35,7 +35,7 @@ struct AgentSamTaskList: View {
         if tasks.isEmpty {
             VStack(spacing: 8) {
                 Image(systemName: "list.bullet.clipboard").font(.title3).foregroundStyle(AgentSamTheme.dim)
-                Text("The coordinator’s task plan will appear here.")
+                Text(String(localized: "The coordinator's task plan will appear here."))
                     .font(.caption)
                     .foregroundStyle(AgentSamTheme.muted)
                     .multilineTextAlignment(.center)
@@ -95,7 +95,7 @@ struct AgentSamChatterList: View {
                         row(item).id(item.id)
                     }
                     if items.isEmpty {
-                        Text("Agent handoffs and mission notices will appear here.")
+                        Text(String(localized: "Agent handoffs and mission notices will appear here."))
                             .font(.caption)
                             .foregroundStyle(AgentSamTheme.muted)
                             .frame(maxWidth: .infinity)
@@ -119,7 +119,7 @@ struct AgentSamChatterList: View {
             }
             VStack(alignment: .leading, spacing: 4) {
                 if !item.system {
-                    Text(item.agentName ?? "Agent")
+                    Text(item.agentName ?? String(localized: "Agent"))
                         .font(.system(size: 9, weight: .medium, design: .monospaced))
                         .textCase(.uppercase)
                         .foregroundStyle(AgentSamTheme.dim)
@@ -173,21 +173,21 @@ struct AgentSamEventRow: View {
 
     private var label: String {
         switch event.kind {
-        case .missionStart: "Mission started"
-        case .phase: "Phase — \(event.text ?? "")"
-        case .plan: "Task plan"
-        case .taskStarted: "Task started"
-        case .agentMessage: "Agent reply"
-        case .toolCall: "Tool call"
-        case .taskDone: "Task done"
-        case .deliverable: "Deliverable — \(event.deliverableName ?? "")"
-        case .verifyFinding: "Verification finding"
-        case .verifyVerdict: "Verdict — \(event.text ?? "")"
-        case .report: "Final report"
-        case .cost: "Cost"
-        case .notice: "Notice"
-        case .missionEnd: "Mission ended"
-        case .error: "Error"
+        case .missionStart: String(localized: "Mission started")
+        case .phase: String(format: String(localized: "Phase — %@"), event.text ?? "")
+        case .plan: String(localized: "Task plan")
+        case .taskStarted: String(localized: "Task started")
+        case .agentMessage: String(localized: "Agent reply")
+        case .toolCall: String(localized: "Tool call")
+        case .taskDone: String(localized: "Task done")
+        case .deliverable: String(format: String(localized: "Deliverable — %@"), event.deliverableName ?? "")
+        case .verifyFinding: String(localized: "Verification finding")
+        case .verifyVerdict: String(format: String(localized: "Verdict — %@"), event.text ?? "")
+        case .report: String(localized: "Final report")
+        case .cost: String(localized: "Cost")
+        case .notice: String(localized: "Notice")
+        case .missionEnd: String(localized: "Mission ended")
+        case .error: String(localized: "Error")
         }
     }
 

@@ -1,5 +1,71 @@
 import Foundation
 
+public struct MissionWorkflow: Codable, Identifiable, Hashable, Sendable {
+    public var id: String
+    public var title: String
+    public var summary: String
+    public var behavior: String
+
+    public init(id: String, title: String, summary: String, behavior: String) {
+        self.id = id
+        self.title = title
+        self.summary = summary
+        self.behavior = behavior
+    }
+}
+
+public struct IntegrationStatus: Codable, Identifiable, Hashable, Sendable {
+    public var id: String
+    public var name: String
+    public var isConfigured: Bool
+    public var workflows: [MissionWorkflow]
+
+    public init(id: String, name: String, isConfigured: Bool, workflows: [MissionWorkflow]) {
+        self.id = id
+        self.name = name
+        self.isConfigured = isConfigured
+        self.workflows = workflows
+    }
+}
+
+public struct IntegrationTestResult: Codable, Hashable, Sendable {
+    public var ok: Bool
+    public var message: String
+
+    public init(ok: Bool, message: String) {
+        self.ok = ok
+        self.message = message
+    }
+}
+
+public struct ConnectorStatus: Codable, Identifiable, Hashable, Sendable {
+    public var id: ConnectorID
+    public var name: String
+    public var detail: String
+    public var enabled: Bool
+    public var configured: Bool
+    public var permissions: ConnectorPermissions
+    public var oauthAvailable: Bool
+
+    public init(id: ConnectorID, name: String, detail: String, enabled: Bool, configured: Bool, permissions: ConnectorPermissions, oauthAvailable: Bool) {
+        self.id = id
+        self.name = name
+        self.detail = detail
+        self.enabled = enabled
+        self.configured = configured
+        self.permissions = permissions
+        self.oauthAvailable = oauthAvailable
+    }
+}
+
+public struct OAuthStartResult: Codable, Hashable, Sendable {
+    public var url: String
+
+    public init(url: String) {
+        self.url = url
+    }
+}
+
 public indirect enum JSONValue: Codable, Hashable, Sendable {
     case string(String)
     case number(Double)
@@ -54,6 +120,16 @@ public indirect enum JSONValue: Codable, Hashable, Sendable {
 
     public var objectValue: [String: JSONValue]? {
         if case .object(let o) = self { return o }
+        return nil
+    }
+
+    public var boolValue: Bool? {
+        if case .bool(let b) = self { return b }
+        return nil
+    }
+
+    public var arrayValue: [JSONValue]? {
+        if case .array(let a) = self { return a }
         return nil
     }
 

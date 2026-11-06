@@ -1,0 +1,434 @@
+/* AppShared — Spanish translations for both AgentSamMac and AgentSamiOS. */
+
+/* Mission stage & presentation */
+"No roster available" = "No hay equipo disponible";
+"The original team is no longer available. Mission activity remains accessible below." = "El equipo original ya no está disponible. La actividad de la misión sigue accesible más abajo.";
+"idle" = "en espera";
+"working" = "trabajando";
+"done" = "terminado";
+"attention" = "atención";
+"task.Queued" = "En cola";
+"task.Working" = "Trabajando";
+"task.Done" = "Terminada";
+"task.Failed" = "Fallida";
+
+/* Mission components */
+"The coordinator's task plan will appear here." = "El plan de tareas de la coordinación aparecerá aquí.";
+"Agent handoffs and mission notices will appear here." = "Aquí aparecerán los resúmenes de los agentes y los avisos de la misión.";
+"Mission started" = "Misión iniciada";
+"Task plan" = "Plan de tareas";
+"Task started" = "Tarea iniciada";
+"Agent reply" = "Respuesta del agente";
+"Tool call" = "Llamada a herramienta";
+"Task done" = "Tarea terminada";
+"Verification finding" = "Hallazgo de verificación";
+"Final report" = "Informe final";
+"Cost" = "Coste";
+"Notice" = "Aviso";
+"Mission ended" = "Misión terminada";
+"Error" = "Error";
+"Phase — %@" = "Fase — %@";
+"Deliverable — %@" = "Entregable — %@";
+"Verdict — %@" = "Veredicto — %@";
+"Agent" = "Agente";
+
+/* Mission status labels (AgentSamStatusChip) */
+"Queued" = "En cola";
+"Running" = "En marcha";
+"Completed" = "Completada";
+"Failed" = "Fallida";
+"Stopped" = "Detenida";
+
+/* Guided setup (shared components) */
+"Connect models" = "Conecta modelos";
+"BRING YOUR OWN KEYS" = "TRAE TUS PROPIAS CLAVES";
+"Pick a squad" = "Elige un equipo";
+"OR START FROM SCRATCH" = "O EMPIEZA DESDE CERO";
+"Meet the crew" = "Conoce al equipo";
+"RENAME & RETUNE" = "RENOMBRA Y REAJUSTA";
+"First mission" = "Primera misión";
+"WATCH IT RUN" = "MÍRALA EN MARCHA";
+"Step %lld of 4" = "Paso %lld de 4";
+"Selected" = "Seleccionado";
+"Select provider" = "Seleccionar proveedor";
+"lower cost" = "menor coste";
+"full capability" = "capacidad completa";
+"Choose model" = "Elegir modelo";
+"Edit %@" = "Editar %@";
+
+/* Team templates */
+"Research Crew" = "Equipo de investigación";
+"Find facts, cite sources, and deliver defensible research briefs." = "Encuentra datos, cita fuentes y entrega informes de investigación defendibles.";
+"Finds facts, cites sources, and hands you a clean, defensible brief." = "Encuentra datos, cita fuentes y te entrega un informe limpio y defendible.";
+"fact-checked" = "verificado";
+"sources cited" = "fuentes citadas";
+"What's new in AI this week" = "Novedades de IA esta semana";
+"What's actually new in solid-state batteries this quarter?" = "¿Qué hay realmente nuevo en baterías de estado sólido este trimestre?";
+"Content Studio" = "Estudio de contenidos";
+"Brainstorm, draft, design, and polish on-brand content." = "Genera ideas, redacta, diseña y pule contenido fiel a la marca.";
+"A small creative agency—brainstorms, drafts, designs, and ships copy daily." = "Una pequeña agencia creativa: genera ideas, redacta, diseña y entrega textos a diario.";
+"brand voice" = "voz de marca";
+"headline variants" = "variantes de titular";
+"Launch email sequence for our new oat-milk line." = "Secuencia de correos de lanzamiento para nuestra nueva línea de leche de avena.";
+"Data Lab" = "Laboratorio de datos";
+"Turn tables and data into clear, carefully checked analysis." = "Convierte tablas y datos en análisis claros y cuidadosamente revisados.";
+"Drop in data; walk out with comparisons, flagged outliers, and a plain-English verdict." = "Entrega datos y obtén comparaciones, valores atípicos señalados y un veredicto en lenguaje claro.";
+"table-native" = "nativo de tablas";
+"stat-skeptic" = "escéptico con las estadísticas";
+"Why did trial conversions dip in March?" = "¿Por qué cayeron las conversiones de prueba en marzo?";
+"News Desk" = "Redacción de noticias";
+"Scan topics, rank what matters, and write concise briefings." = "Analiza temas, prioriza lo importante y redacta informes concisos.";
+"A morning briefing desk—scans your topics, ranks what matters, writes it tight." = "Un equipo de informes matutinos: analiza tus temas, prioriza lo importante y escribe con precisión.";
+"daily digest" = "resumen diario";
+"no fluff" = "sin relleno";
+"Everything worth knowing about the chip market, 8am daily." = "Todo lo que merece la pena saber del mercado de chips, cada día a las 8:00.";
+"Startup Foundry" = "Fundición de startups";
+"Pressure-test ideas with market research and candid analysis." = "Pon a prueba ideas con investigación de mercado y análisis sincero.";
+"Pressure-tests ideas—market research, holes poked, one-pager drafted." = "Pone a prueba ideas: investigación de mercado, puntos débiles detectados y resumen redactado.";
+"candid" = "sincero";
+"deck-ready" = "listo para presentar";
+"Pressure-test my idea: task-running for elderly care." = "Pon a prueba mi idea: gestión de tareas para el cuidado de mayores.";
+"Reading Room" = "Sala de lectura";
+"Read long material thoroughly and summarize it honestly." = "Lee material extenso a fondo y lo resume con honestidad.";
+"Slow and thorough—reads the whole document, disagrees politely, summarizes honestly." = "Lento y riguroso: lee el documento completo, discrepa con educación y resume con honestidad.";
+"long-form" = "formato largo";
+"polite dissent" = "discrepancia educada";
+"Summarize this thesis and flag weak claims." = "Resume esta tesis y señala las afirmaciones débiles.";
+"Plan a 3-day Kyoto trip" = "Planifica un viaje de 3 días a Kioto";
+"Explain the chip shortage simply" = "Explica la escasez de chips de forma sencilla";
+"7-day meal plan on a budget" = "Plan de comidas para 7 días con presupuesto ajustado";
+
+/* Team template views */
+"LOW COST" = "BAJO COSTE";
+"Preview %@" = "Vista previa de %@";
+"Meet the squad" = "Conoce al equipo";
+"Hire team" = "Contratar equipo";
+"Build from scratch" = "Crear desde cero";
+"Hand-pick agents from the full roster." = "Elige agentes a mano de la plantilla completa.";
+"Close preview" = "Cerrar vista previa";
+"TRY IT ON" = "PRUÉBALO";
+"Keep browsing" = "Seguir explorando";
+"Hire this team" = "Contratar este equipo";
+"Mission objective" = "Objetivo de la misión";
+
+/* Theme & brand */
+"1 agent: %@" = "1 agente: %@";
+"%lld agents: %@" = "%lld agentes: %@";
+"AUTONOMOUS WORKGROUP" = "GRUPO DE TRABAJO AUTÓNOMO";
+
+/* Mac & iOS navigation */
+"Workspace" = "Espacio de trabajo";
+"Configuration" = "Configuración";
+"Missions" = "Misiones";
+"Teams" = "Equipos";
+"Team Templates" = "Plantillas de equipo";
+"Templates" = "Plantillas";
+"Settings" = "Ajustes";
+"Server" = "Servidor";
+"Local workspace" = "Espacio de trabajo local";
+"New Mission" = "Nueva misión";
+"New Team" = "Nuevo equipo";
+"New team" = "Nuevo equipo";
+"Create a team before launching a mission" = "Crea un equipo antes de lanzar una misión";
+"Create a new mission (⌘N)" = "Crear una nueva misión (⌘N)";
+"NEW MISSION" = "NUEVA MISIÓN";
+"Put your team to work" = "Pon a tu equipo a trabajar";
+"Close" = "Cerrar";
+"TEAM" = "EQUIPO";
+"Team" = "Equipo";
+"unassigned" = "sin asignar";
+"OBJECTIVE" = "OBJETIVO";
+"Watch every handoff live. Stop anytime." = "Observa cada entrega en directo. Puedes detenerlo en cualquier momento.";
+"Cancel" = "Cancelar";
+"Launch mission" = "Lanzar misión";
+"%lld agents · Coordinated by %@" = "%lld agentes · Coordinado por %@";
+"All" = "Todas";
+"Attention" = "Atención";
+"Search objectives or teams" = "Buscar objetivos o equipos";
+"Search missions" = "Buscar misiones";
+"Filter" = "Filtro";
+"No missions yet" = "Aún no hay misiones";
+"Hire a team, give it an objective, and watch every handoff live." = "Contrata un equipo, asígnale un objetivo y observa cada entrega en directo.";
+"Launch first mission" = "Lanzar la primera misión";
+"Create a team from Templates first." = "Primero crea un equipo desde Plantillas.";
+"No matching missions" = "No hay misiones que coincidan";
+"Try another search or status filter." = "Prueba con otra búsqueda o filtro de estado.";
+"%lld tokens" = "%lld tokens";
+"Open live mission" = "Abrir misión en directo";
+"Plan" = "Plan";
+"Chatter" = "Conversación";
+"Files" = "Archivos";
+"Activity" = "Actividad";
+"Delete this mission and its local workspace?" = "¿Eliminar esta misión y su espacio de trabajo local?";
+"Delete Mission" = "Eliminar misión";
+"Mission" = "Misión";
+"TOKENS" = "TOKENS";
+"COST" = "COSTE";
+"Stop" = "Detener";
+"Delete" = "Eliminar";
+"Close mission" = "Cerrar misión";
+"Mission detail" = "Detalle de la misión";
+"No files yet" = "Aún no hay archivos";
+"Files your agents produce will appear here." = "Aquí aparecerán los archivos que produzcan tus agentes.";
+"Select a file" = "Selecciona un archivo";
+"Mission complete" = "Misión completada";
+"%lld files delivered · %lld tokens" = "%lld archivos entregados · %lld tokens";
+"Read report" = "Leer informe";
+"Model" = "Modelo";
+
+/* Teams (Mac & iOS) */
+"Build your first team" = "Crea tu primer equipo";
+"Start with a specialist roster and tune every agent to your workflow." = "Empieza con una plantilla de especialistas y ajusta cada agente a tu flujo de trabajo.";
+"Create a team" = "Crear un equipo";
+"Launch mission with this team…" = "Lanzar misión con este equipo…";
+"Edit roster" = "Editar plantilla";
+"Delete team" = "Eliminar equipo";
+"Delete %@? Existing missions will be kept." = "¿Eliminar %@? Se conservarán las misiones existentes.";
+"Delete Team" = "Eliminar equipo";
+"this team" = "este equipo";
+"%lld AGENTS" = "AGENTES";
+"No standing goal" = "Sin objetivo fijo";
+"Launch" = "Lanzar";
+"Team name" = "Nombre del equipo";
+"Create team" = "Crear equipo";
+"Save changes" = "Guardar cambios";
+"STANDING GOAL" = "OBJETIVO FIJO";
+"What this team is for, e.g. 'Research and write reports'" = "Para qué sirve este equipo; p. ej., «Investigar y redactar informes»";
+"Discard unsaved team changes?" = "¿Descartar los cambios sin guardar del equipo?";
+"Discard Changes" = "Descartar cambios";
+"Keep Editing" = "Seguir editando";
+"Hire agent" = "Contratar agente";
+"Choose a specialist" = "Elige un especialista";
+"%lld agents ready" = "%lld agentes listos";
+"Hire a coordinator and at least one worker." = "Contrata una coordinación y al menos un trabajador.";
+"Assign one agent to Coordination." = "Asigna un agente a Coordinación.";
+"Add at least one Worker." = "Añade al menos un Trabajador.";
+"Agent names must be unique." = "Los nombres de los agentes deben ser únicos.";
+"Choose a provider and model for every agent." = "Elige un proveedor y un modelo para cada agente.";
+"Edit agent" = "Editar agente";
+"Hire from the roster" = "Contratar desde la plantilla";
+"Pick a specialist, then tune the model and prompt." = "Elige un especialista y después ajusta el modelo y el prompt.";
+"Choose provider" = "Elegir proveedor";
+"Edit" = "Editar";
+"No teams yet" = "Aún no hay equipos";
+"Hire a template or build your own roster." = "Contrata una plantilla o crea tu propia plantilla.";
+"TEAM IDENTITY" = "IDENTIDAD DEL EQUIPO";
+"What is this team for?" = "¿Para qué es este equipo?";
+"ROSTER" = "PLANTILLA";
+"%lld ready" = "%lld listos";
+"Add a coordinator and worker" = "Añade una coordinación y un trabajador";
+"Needs a coordinator" = "Falta una coordinación";
+"Needs a worker" = "Falta un trabajador";
+"Names must be unique" = "Los nombres deben ser únicos";
+"Choose every model" = "Elige todos los modelos";
+
+/* Agent editor */
+"Edit Team" = "Editar equipo";
+"Hire Agent" = "Contratar agente";
+"Hire from Roster" = "Contratar desde la plantilla";
+"Fire agent" = "Despedir agente";
+"Save" = "Guardar";
+"Identity" = "Identidad";
+"Emoji" = "Emoji";
+"Name" = "Nombre";
+"Title" = "Título";
+"Role" = "Rol";
+"Engine" = "Motor";
+"Provider" = "Proveedor";
+"Known models" = "Modelos conocidos";
+
+/* Settings & providers */
+"Data location" = "Ubicación de los datos";
+"Reveal in Finder" = "Mostrar en el Finder";
+"Run guided setup" = "Ejecutar configuración guiada";
+"Import starter team" = "Importar equipo inicial";
+"Providers — bring your own keys" = "Proveedores: trae tus propias claves";
+"No providers configured." = "No hay proveedores configurados.";
+"OpenAI-compatible endpoint" = "Endpoint compatible con OpenAI";
+"Add provider" = "Añadir proveedor";
+"Connectors — optional external services" = "Conectores: servicios externos opcionales";
+"No connectors available." = "No hay conectores disponibles.";
+"How it works" = "Cómo funciona";
+"Coordinator plans → workers run in parallel → mechanical + independent verification → final report" = "La coordinación planifica → los trabajadores ejecutan en paralelo → verificación mecánica e independiente → informe final";
+"Run AgentSamServer on a secured host (see README) and control missions from the iPhone app." = "Ejecuta AgentSamServer en un servidor seguro (ver README) y controla las misiones desde la app del iPhone.";
+"CONNECTED" = "CONECTADO";
+"NOT CONNECTED" = "NO CONECTADO";
+"Enabled in missions" = "Habilitado en misiones";
+"Google OAuth client not configured — set AGENTSAM_GOOGLE_CLIENT_ID and restart AgentSam." = "Cliente OAuth de Google no configurado: define AGENTSAM_GOOGLE_CLIENT_ID y reinicia AgentSam.";
+"Reconnect with Google" = "Volver a conectar con Google";
+"Connect with Google" = "Conectar con Google";
+"Test" = "Probar";
+"Disconnect" = "Desconectar";
+"Allow agents to create drafts" = "Permitir que los agentes creen borradores";
+"Allow agents to send email" = "Permitir que los agentes envíen correos";
+"Allow DNS writes and cache purge" = "Permitir escrituras de DNS y purga de caché";
+"Cloudflare API token" = "Token de API de Cloudflare";
+"Save & verify" = "Guardar y verificar";
+"Google Ads developer token" = "Token de desarrollador de Google Ads";
+"Login customer ID (optional)" = "ID de cliente de acceso (opcional)";
+"Save credentials" = "Guardar credenciales";
+"Connected with Google." = "Conectado con Google.";
+"Anthropic API" = "API de Anthropic";
+"OpenAI-compatible" = "Compatible con OpenAI";
+"%@ · %lld models" = "%@ · %lld modelos";
+"Configure" = "Configurar";
+"Key saved in Keychain" = "Clave guardada en el Llavero";
+"API key saved — paste to replace" = "Clave de API guardada: pégala para sustituirla";
+"Paste API key" = "Pegar clave de API";
+"Replace" = "Sustituir";
+"Save key" = "Guardar clave";
+"Remove" = "Quitar";
+"Teams, missions, transcripts, deliverables, and the event ledger live here. Point AGENTSAM_DATA at a synced folder to share work between devices." = "Aquí viven los equipos, las misiones, las transcripciones, los entregables y el registro de eventos. Apunta AGENTSAM_DATA a una carpeta sincronizada para compartir el trabajo entre dispositivos.";
+"Google Ads credentials saved." = "Credenciales de Google Ads guardadas.";
+"Configure %@" = "Configurar %@";
+"provider" = "proveedor";
+"Display name" = "Nombre visible";
+"Kind" = "Tipo";
+"Base URL" = "URL base";
+"Models" = "Modelos";
+"Comma-separated model ids" = "IDs de modelos separados por comas";
+"Default model" = "Modelo por defecto";
+
+/* Guided setup */
+"Skip setup" = "Omitir configuración";
+"Bring your own keys" = "Trae tus propias claves";
+"Connect your models." = "Conecta tus modelos.";
+"AgentSam runs on your API keys—no subscriptions or markup. Keys stay in this Mac's Keychain." = "AgentSam funciona con tus claves de API: sin suscripciones ni recargos. Las claves se guardan en el Llavero de este Mac.";
+"Start with a squad" = "Empieza con un equipo";
+"Who do you need?" = "¿A quién necesitas?";
+"Choose a curated team with working chemistry. You can tune every agent before the first mission." = "Elige un equipo seleccionado con buena química de trabajo. Puedes ajustar cada agente antes de la primera misión.";
+"Meet & greet" = "Presentaciones";
+"Meet the crew." = "Conoce al equipo.";
+"Rename agents, adjust their prompts, or swap the provider and model behind each role." = "Renombra a los agentes, ajusta sus prompts o cambia el proveedor y el modelo de cada rol.";
+"Put them to work" = "Ponlos a trabajar";
+"Your first mission." = "Tu primera misión.";
+"Describe the outcome. The coordinator will create a plan and every handoff will be visible live." = "Describe el resultado. La coordinación creará un plan y cada entrega será visible en directo.";
+"Paste API key for %@" = "Pegar clave de API para %@";
+"Key saved — paste to replace" = "Clave guardada: pégala para sustituirla";
+"Add a custom provider" = "Añadir un proveedor personalizado";
+"Add custom provider" = "Añadir proveedor personalizado";
+"Save at least one provider key to continue." = "Guarda al menos una clave de proveedor para continuar.";
+"Back" = "Atrás";
+"Continue" = "Continuar";
+"Add a coordinator and worker, use unique agent names, and choose a provider/model for every agent." = "Añade una coordinación y un trabajador, usa nombres de agente únicos y elige un proveedor/modelo para cada agente.";
+"Choose a provider" = "Elige un proveedor";
+"Every step runs in the open. Stop anytime; you only pay your own API meter." = "Cada paso se ejecuta a la vista. Detenlo cuando quieras: solo pagas el consumo de tu propia API.";
+"No coordinator" = "Sin coordinación";
+"Skip" = "Omitir";
+"Server-side keys" = "Claves del servidor";
+"Done" = "Hecho";
+"Add a coordinator and worker, use unique names, and choose every provider/model." = "Añade una coordinación y un trabajador, usa nombres únicos y elige todos los proveedores/modelos.";
+
+/* iOS connect & server */
+"Your teams, wherever you work." = "Tus equipos, estés donde estés.";
+"Connect to your secured AgentSam server to launch missions and watch agents work in real time." = "Conéctate a tu servidor AgentSam protegido para lanzar misiones y ver trabajar a los agentes en tiempo real.";
+"SERVER CONNECTION" = "CONEXIÓN AL SERVIDOR";
+"Server URL (https://…)" = "URL del servidor (https://…)";
+"Access token" = "Token de acceso";
+"Use the HTTPS address and long-lived token from your server deployment." = "Usa la dirección HTTPS y el token de larga duración de tu despliegue de servidor.";
+"Could not reach server." = "No se pudo contactar con el servidor.";
+"Connect to AgentSam" = "Conectar con AgentSam";
+"Server URL" = "URL del servidor";
+"Reconnect" = "Reconectar";
+"Connected." = "Conectado.";
+"Connection failed." = "Falló la conexión.";
+"Status" = "Estado";
+"Connected · %lld teams · %lld missions" = "Conectado · %lld equipos · %lld misiones";
+"Source" = "Fuente";
+"Indigo · %lld owner workflows" = "Indigo · %lld flujos de propietario";
+"Test Indigo connection" = "Probar conexión con Indigo";
+"Maloon" = "Maloon";
+"Workflows fetch read-only business snapshots. AgentSam never sends messages or changes Indigo records." = "Los flujos obtienen instantáneas empresariales de solo lectura. AgentSam nunca envía mensajes ni modifica registros de Indigo.";
+"Provider API keys (server-side)" = "Claves de API de proveedores (en el servidor)";
+"Keys are stored only on your server and used when missions run there." = "Las claves se guardan solo en tu servidor y se usan cuando las misiones se ejecutan allí.";
+"Refresh to load connector status." = "Actualiza para cargar el estado de los conectores.";
+"Connectors" = "Conectores";
+"Connected services give mission workers external tools. Write actions like sending email or changing DNS are opt-in per connector." = "Los servicios conectados dan a los trabajadores herramientas externas. Las acciones de escritura, como enviar correos o cambiar DNS, se activan por conector.";
+"App" = "App";
+"AgentSam for iOS" = "AgentSam para iOS";
+"Configure Provider" = "Configurar proveedor";
+
+"Default model id" = "ID del modelo por defecto";
+"Anthropic" = "Anthropic";
+"e.g. https://api.anthropic.com" = "p. ej. https://api.anthropic.com";
+"e.g. https://api.openai.com/v1" = "p. ej. https://api.openai.com/v1";
+"Comma-separated model IDs" = "IDs de modelos separados por comas";
+"Default model ID" = "ID del modelo por defecto";
+
+"Temperature" = "Temperatura";
+"System prompt" = "Prompt de sistema";
+"House rules (tool use, deliverables, finish tool) are appended automatically." = "Las normas internas (uso de herramientas, entregables, herramienta finish) se añaden automáticamente.";
+"Specialist" = "Especialista";
+
+/* iOS mission screens */
+"Mission type" = "Tipo de misión";
+"General" = "General";
+"Maloon Owner" = "Propietario Maloon";
+"Workflow" = "Flujo";
+"AgentSam fetches a fresh Indigo snapshot at launch. The owner team uses one configured provider." = "AgentSam obtiene una instantánea nueva de Indigo al lanzarse. El equipo de propietario usa un proveedor configurado.";
+"OWNER NOTES · OPTIONAL" = "NOTAS DEL PROPIETARIO · OPCIONAL";
+"%lld agents · %@" = "%lld agentes · %@";
+"%lld tok" = "%lld tok";
+"Mission complete · Read final report" = "Misión completada · Leer informe final";
+"Live Mission" = "Misión en directo";
+"Loading mission…" = "Cargando misión…";
+"Agent deliverables will appear here." = "Aquí aparecerán los entregables de los agentes.";
+"CURRENT ASSIGNMENT" = "ASIGNACIÓN ACTUAL";
+
+/* iOS connectors */
+"Allow creating drafts" = "Permitir crear borradores";
+"Allow sending email" = "Permitir enviar correos";
+"Developer token" = "Token de desarrollador";
+"Server has no Google OAuth client (set AGENTSAM_GOOGLE_CLIENT_ID)." = "El servidor no tiene cliente OAuth de Google (define AGENTSAM_GOOGLE_CLIENT_ID).";
+"Reconnect Google" = "Volver a conectar Google";
+"Connect Google" = "Conectar Google";
+"Google sign-in did not complete. If you approved access, pull to refresh." = "El inicio de sesión de Google no se completó. Si aprobaste el acceso, tira para actualizar.";
+"Could not start Google authorization." = "No se pudo iniciar la autorización de Google.";
+
+/* Server session fallbacks */
+"The server URL is not valid." = "La URL del servidor no es válida.";
+"Unexpected server response — check the token and that the server is running." = "Respuesta inesperada del servidor: comprueba el token y que el servidor esté en marcha.";
+"Server rejected the mission (%lld)." = "El servidor rechazó la misión (%lld).";
+"Server rejected the team (%lld)." = "El servidor rechazó el equipo (%lld).";
+"Server rejected the delete (%lld)." = "El servidor rechazó el borrado (%lld).";
+"Server rejected the provider (%lld)." = "El servidor rechazó el proveedor (%lld).";
+"Server rejected the connection test (%lld)." = "El servidor rechazó la prueba de conexión (%lld).";
+"Maloon connection test failed (%lld)." = "La prueba de conexión con Maloon falló (%lld).";
+"Server rejected the key (%lld)." = "El servidor rechazó la clave (%lld).";
+"Server rejected the connector change (%lld)." = "El servidor rechazó el cambio del conector (%lld).";
+"Server rejected the disconnect (%lld)." = "El servidor rechazó la desconexión (%lld).";
+"Connector test failed (%lld)." = "La prueba del conector falló (%lld).";
+"Server rejected the token (%lld)." = "El servidor rechazó el token (%lld).";
+"Server rejected the credentials (%lld)." = "El servidor rechazó las credenciales (%lld).";
+"Could not start Google authorization (%lld)." = "No se pudo iniciar la autorización de Google (%lld).";
+"Cloudflare token verified and stored." = "Token de Cloudflare verificado y guardado.";
+"Google Ads credentials stored." = "Credenciales de Google Ads guardadas.";
+
+/* Templates screens */
+"CURATED TEAMS" = "EQUIPOS SELECCIONADOS";
+"Hire a team in one click." = "Contrata un equipo con un clic.";
+"Preview the roster, then make it yours. Every role, model, and prompt remains editable." = "Previsualiza la plantilla y hazla tuya. Todos los roles, modelos y prompts siguen siendo editables.";
+"Preview the roster, then make every role and model your own." = "Previsualiza la plantilla y personaliza todos los roles y modelos.";
+"Hiring team…" = "Contratando equipo…";
+"Test connection" = "Probar conexión";
+
+"Choose a known model" = "Elige un modelo conocido";
+"Temperature %.1f" = "Temperatura %.1f";
+"Tool use, deliverables, and finish rules are appended automatically." = "Las reglas de uso de herramientas, entregables y finish se añaden automáticamente.";
+
+"Current assignment" = "Asignación actual";
+"PERSONA" = "PERSONA";
+"Launch one from a team, then watch your agents work in real time." = "Lanza una desde un equipo y observa a tus agentes trabajar en tiempo real.";
+"Retry" = "Reintentar";
+
+", working" = ", trabajando";
+", done" = ", terminado";
+
+
+"Keys are saved only on your AgentSam server and used for headless missions. Test the connection before continuing." = "Las claves se guardan solo en tu servidor AgentSam y se usan para misiones autónomas. Prueba la conexión antes de continuar.";
+"Choose a curated team. You can tune every agent before the first mission." = "Elige un equipo seleccionado. Puedes ajustar cada agente antes de la primera misión.";
+"Rename agents, adjust prompts, or swap the provider and model behind each role." = "Renombra a los agentes, ajusta los prompts o cambia el proveedor y el modelo de cada rol.";
+"Describe the outcome and watch every real handoff live." = "Describe el resultado y observa cada entrega real en directo.";
+"Create" = "Crear";
+
+"STEP" = "PASO";

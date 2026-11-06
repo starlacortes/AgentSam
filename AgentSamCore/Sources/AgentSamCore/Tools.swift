@@ -91,14 +91,7 @@ public enum AgentTools {
     }
 
     public static func run(call: APIToolCall, workspace: URL, readOnly: Bool = false) -> ToolOutcome {
-        let args: [String: JSONValue]
-        if let data = call.function.arguments.data(using: .utf8),
-           let decoded = try? JSONDecoder().decode(JSONValue.self, from: data),
-           let object = decoded.objectValue {
-            args = object
-        } else {
-            args = [:]
-        }
+        let args = arguments(of: call)
 
         switch call.function.name {
         case "finish":
@@ -153,6 +146,15 @@ public enum AgentTools {
         default:
             return ToolOutcome(resultText: "Unknown tool: \(call.function.name).")
         }
+    }
+
+    public static func arguments(of call: APIToolCall) -> [String: JSONValue] {
+        guard let data = call.function.arguments.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode(JSONValue.self, from: data),
+              let object = decoded.objectValue else {
+            return [:]
+        }
+        return object
     }
 
     public static func resolve(_ rawPath: String, in workspace: URL) -> URL? {

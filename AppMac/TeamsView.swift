@@ -15,10 +15,10 @@ struct TeamsView: View {
             if model.teams.isEmpty {
                 VStack(spacing: 13) {
                     Image(systemName: "person.3").font(.system(size: 44)).foregroundStyle(AgentSamTheme.emerald)
-                    Text("Build your first team").font(AgentSamTheme.displayFont(24)).foregroundStyle(AgentSamTheme.ink)
-                    Text("Start with a specialist roster and tune every agent to your workflow.")
+                    Text(String(localized: "Build your first team")).font(AgentSamTheme.displayFont(24)).foregroundStyle(AgentSamTheme.ink)
+                    Text(String(localized: "Start with a specialist roster and tune every agent to your workflow."))
                         .font(.callout).foregroundStyle(AgentSamTheme.muted)
-                    Button("Create a team") { showNewTeam = true }.buttonStyle(AgentSamPrimaryButtonStyle())
+                    Button(String(localized: "Create a team")) { showNewTeam = true }.buttonStyle(AgentSamPrimaryButtonStyle())
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -31,10 +31,10 @@ struct TeamsView: View {
                                 selectedTeam = team
                             }
                             .contextMenu {
-                                Button("Launch mission with this team…") { selectedTeam = team }
-                                Button("Edit roster") { editingTeam = team }
+                                Button(String(localized: "Launch mission with this team…")) { selectedTeam = team }
+                                Button(String(localized: "Edit roster")) { editingTeam = team }
                                 Divider()
-                                Button("Delete team", role: .destructive) { deletingTeam = team }
+                                Button(String(localized: "Delete team"), role: .destructive) { deletingTeam = team }
                             }
                         }
                     }
@@ -43,10 +43,10 @@ struct TeamsView: View {
             }
         }
         .background(AgentSamBackground())
-        .navigationTitle("Teams")
+        .navigationTitle(String(localized: "Teams"))
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
-                Button { showNewTeam = true } label: { Label("New team", systemImage: "plus.circle.fill") }
+                Button { showNewTeam = true } label: { Label(String(localized: "New team"), systemImage: "plus.circle.fill") }
                     .buttonStyle(AgentSamGhostButtonStyle())
             }
         }
@@ -57,12 +57,12 @@ struct TeamsView: View {
         .sheet(item: $editingTeam) { team in
             TeamEditSheet(team: team).frame(minWidth: 680, minHeight: 560).environment(model)
         }
-        .confirmationDialog("Delete \(deletingTeam?.name ?? "this team")? Existing missions will be kept.", isPresented: Binding(get: { deletingTeam != nil }, set: { if !$0 { deletingTeam = nil } }), titleVisibility: .visible) {
-            Button("Delete Team", role: .destructive) {
+        .confirmationDialog(String(format: String(localized: "Delete %@? Existing missions will be kept."), deletingTeam?.name ?? String(localized: "this team")), isPresented: Binding(get: { deletingTeam != nil }, set: { if !$0 { deletingTeam = nil } }), titleVisibility: .visible) {
+            Button(String(localized: "Delete Team"), role: .destructive) {
                 if let deletingTeam { Task { await model.deleteTeam(deletingTeam) } }
                 deletingTeam = nil
             }
-            Button("Cancel", role: .cancel) { deletingTeam = nil }
+            Button(String(localized: "Cancel"), role: .cancel) { deletingTeam = nil }
         }
     }
 }
@@ -77,19 +77,19 @@ struct TeamCard: View {
             HStack(alignment: .top) {
                 Text(team.emoji).font(.system(size: 34))
                 Spacer()
-                AgentSamChip("\(team.agents.count) AGENTS", tint: AgentSamTheme.emeraldLight)
+                AgentSamChip(String(localized: "\(team.agents.count) AGENTS"), tint: AgentSamTheme.emeraldLight)
             }
             VStack(alignment: .leading, spacing: 5) {
                 Text(team.name).font(AgentSamTheme.displayFont(20)).foregroundStyle(AgentSamTheme.ink)
-                Text(team.goal.isEmpty ? "No standing goal" : team.goal)
+                Text(team.goal.isEmpty ? String(localized: "No standing goal") : team.goal)
                     .font(.callout).foregroundStyle(AgentSamTheme.muted).lineLimit(2)
             }
             AgentSamAvatarStack(agents: team.agents, size: 36)
             Divider().overlay(AgentSamTheme.line)
             HStack {
-                Button("Edit roster", action: onEdit).buttonStyle(.plain).font(.caption.weight(.medium)).foregroundStyle(AgentSamTheme.emeraldLight)
+                Button(String(localized: "Edit roster"), action: onEdit).buttonStyle(.plain).font(.caption.weight(.medium)).foregroundStyle(AgentSamTheme.emeraldLight)
                 Spacer()
-                Button("Launch", action: onLaunch).buttonStyle(AgentSamPrimaryButtonStyle()).disabled(team.agents.isEmpty)
+                Button(String(localized: "Launch"), action: onLaunch).buttonStyle(AgentSamPrimaryButtonStyle()).disabled(team.agents.isEmpty)
             }
         }
         .agentSamPanel(padding: 16)
@@ -115,19 +115,19 @@ struct TeamEditSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                TextField("Team name", text: $name)
+                TextField(String(localized: "Team name"), text: $name)
                     .textFieldStyle(.plain)
                     .font(AgentSamTheme.displayFont(23))
                     .foregroundStyle(AgentSamTheme.ink)
                 Spacer()
-                Button("Cancel") { attemptClose() }.buttonStyle(AgentSamGhostButtonStyle())
+                Button(String(localized: "Cancel")) { attemptClose() }.buttonStyle(AgentSamGhostButtonStyle())
                 Button {
                     saving = true
                     Task { await saveAndClose() }
                 } label: {
                     HStack {
                         if saving { ProgressView().controlSize(.small) }
-                        Text(team == nil ? "Create team" : "Save changes")
+                        Text(team == nil ? String(localized: "Create team") : String(localized: "Save changes"))
                     }
                 }
                 .keyboardShortcut(.return)
@@ -140,11 +140,11 @@ struct TeamEditSheet: View {
             Divider().overlay(AgentSamTheme.line)
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
-                    Text("STANDING GOAL").agentSamKicker()
+                    Text(String(localized: "STANDING GOAL")).agentSamKicker()
                     Spacer()
                     Text(validationMessage).font(.caption2).foregroundStyle(isValid ? AgentSamTheme.dim : AgentSamTheme.goldLight)
                 }
-                TextField("What this team is for, e.g. ‘Research and write reports’", text: $goal)
+                TextField(String(localized: "What this team is for, e.g. 'Research and write reports'"), text: $goal)
                     .textFieldStyle(.plain)
                     .padding(10)
                     .background(AgentSamTheme.deep)
@@ -187,9 +187,9 @@ struct TeamEditSheet: View {
             }
             .frame(minWidth: 440, minHeight: 400)
         }
-        .confirmationDialog("Discard unsaved team changes?", isPresented: $showDiscardConfirmation) {
-            Button("Discard Changes", role: .destructive) { dismiss() }
-            Button("Keep Editing", role: .cancel) {}
+        .confirmationDialog(String(localized: "Discard unsaved team changes?"), isPresented: $showDiscardConfirmation) {
+            Button(String(localized: "Discard Changes"), role: .destructive) { dismiss() }
+            Button(String(localized: "Keep Editing"), role: .cancel) {}
         }
         .interactiveDismissDisabled(hasChanges)
     }
@@ -211,8 +211,8 @@ struct TeamEditSheet: View {
         Button { showAgentPicker = true } label: {
             VStack(spacing: 8) {
                 Image(systemName: "person.badge.plus").font(.title2).foregroundStyle(AgentSamTheme.emerald)
-                Text("Hire agent").font(.callout.weight(.semibold)).foregroundStyle(AgentSamTheme.secondaryInk)
-                Text("Choose a specialist").font(.caption2).foregroundStyle(AgentSamTheme.dim)
+                Text(String(localized: "Hire agent")).font(.callout.weight(.semibold)).foregroundStyle(AgentSamTheme.secondaryInk)
+                Text(String(localized: "Choose a specialist")).font(.caption2).foregroundStyle(AgentSamTheme.dim)
             }
             .frame(maxWidth: .infinity, minHeight: 145)
             .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(AgentSamTheme.emerald.opacity(0.35), style: StrokeStyle(lineWidth: 1.2, dash: [5, 4])))
@@ -229,12 +229,12 @@ struct TeamEditSheet: View {
     }
 
     private var validationMessage: String {
-        if isValid { return "\(roster.count) agents ready" }
-        if roster.isEmpty { return "Hire a coordinator and at least one worker." }
-        if !roster.contains(where: { $0.role == .coordinator }) { return "Assign one agent to Coordination." }
-        if !roster.contains(where: { $0.role == .worker }) { return "Add at least one Worker." }
-        if Set(roster.map { $0.name.lowercased() }).count != roster.count { return "Agent names must be unique." }
-        return "Choose a provider and model for every agent."
+        if isValid { return String(localized: "\(roster.count) agents ready") }
+        if roster.isEmpty { return String(localized: "Hire a coordinator and at least one worker.") }
+        if !roster.contains(where: { $0.role == .coordinator }) { return String(localized: "Assign one agent to Coordination.") }
+        if !roster.contains(where: { $0.role == .worker }) { return String(localized: "Add at least one Worker.") }
+        if Set(roster.map { $0.name.lowercased() }).count != roster.count { return String(localized: "Agent names must be unique.") }
+        return String(localized: "Choose a provider and model for every agent.")
     }
 
     private var hasChanges: Bool {
@@ -247,7 +247,7 @@ struct TeamEditSheet: View {
     }
 
     private func providerName(_ agent: AgentProfile) -> String {
-        model.providers.first(where: { $0.id == agent.providerID })?.name ?? "Choose provider"
+        model.providers.first(where: { $0.id == agent.providerID })?.name ?? String(localized: "Choose provider")
     }
 
     private func saveAndClose() async {
@@ -283,7 +283,7 @@ struct AgentCard: View {
         }
         .agentSamPanel(padding: 12, tint: AgentSamTheme.color(for: agent.role))
         .contentShape(Rectangle())
-        .accessibilityHint("Edit agent")
+        .accessibilityHint(String(localized: "Edit agent"))
     }
 }
 
@@ -292,8 +292,8 @@ struct TemplateRosterPicker: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Hire from the roster").font(AgentSamTheme.displayFont(23)).foregroundStyle(AgentSamTheme.ink).padding(.top)
-            Text("Pick a specialist, then tune the model and prompt.").font(.callout).foregroundStyle(AgentSamTheme.muted)
+            Text(String(localized: "Hire from the roster")).font(AgentSamTheme.displayFont(23)).foregroundStyle(AgentSamTheme.ink).padding(.top)
+            Text(String(localized: "Pick a specialist, then tune the model and prompt.")).font(.callout).foregroundStyle(AgentSamTheme.muted)
             ScrollView {
                 VStack(spacing: 8) {
                     ForEach(AgentProfile.rosterTemplates, id: \.id) { agent in

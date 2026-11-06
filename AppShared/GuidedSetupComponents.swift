@@ -4,10 +4,10 @@ import AgentSamCore
 struct GuidedSetupRail: View {
     let step: Int
     private let steps = [
-        ("Connect models", "BRING YOUR OWN KEYS"),
-        ("Pick a squad", "OR START FROM SCRATCH"),
-        ("Meet the crew", "RENAME & RETUNE"),
-        ("First mission", "WATCH IT RUN")
+        (String(localized: "Connect models"), String(localized: "BRING YOUR OWN KEYS")),
+        (String(localized: "Pick a squad"), String(localized: "OR START FROM SCRATCH")),
+        (String(localized: "Meet the crew"), String(localized: "RENAME & RETUNE")),
+        (String(localized: "First mission"), String(localized: "WATCH IT RUN"))
     ]
 
     var body: some View {
@@ -41,7 +41,7 @@ struct GuidedSetupRail: View {
                 .tint(AgentSamTheme.emerald)
                 .padding(.horizontal, 8)
                 .padding(.top, 12)
-            Text("Step \(step) of 4")
+            Text(String(format: String(localized: "Step %lld of 4"), step))
                 .font(.caption2)
                 .foregroundStyle(AgentSamTheme.dim)
                 .padding(.horizontal, 8)
@@ -60,7 +60,7 @@ struct GuidedSetupHeading: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text("STEP \(String(format: "%02d", step)) · \(kicker)").agentSamKicker()
+            Text("\(String(localized: "STEP")) \(String(format: "%02d", step)) · \(kicker)").agentSamKicker()
             Text(title).font(AgentSamTheme.displayFont(29)).foregroundStyle(AgentSamTheme.ink)
             Text(description)
                 .font(.callout)
@@ -106,7 +106,7 @@ struct ProviderSelectionCard: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityHint(selected ? "Selected" : "Select provider")
+        .accessibilityHint(selected ? String(localized: "Selected") : String(localized: "Select provider"))
     }
 }
 
@@ -121,7 +121,7 @@ struct SquadSelectionCard: View {
             VStack(alignment: .leading, spacing: 11) {
                 AgentSamAvatarStack(agents: agents, size: 36)
                 Text(template.name).font(.headline).foregroundStyle(AgentSamTheme.ink)
-                Text("\(agents.count) agents · \(template.lowCost ? "lower cost" : "full capability")")
+                Text("\(String(localized: "\(agents.count) agents")) · \(template.lowCost ? String(localized: "lower cost") : String(localized: "full capability"))")
                     .font(.caption2.monospaced())
                     .foregroundStyle(AgentSamTheme.muted)
             }
@@ -145,12 +145,12 @@ struct PersonaCard: View {
                 Button(action: onEdit) { Image(systemName: "pencil") }
                     .buttonStyle(.plain)
                     .foregroundStyle(AgentSamTheme.dim)
-                    .accessibilityLabel("Edit \(agent.name)")
+                    .accessibilityLabel(String(format: String(localized: "Edit %@"), agent.name))
             }
             AgentSamAvatar(name: agent.name, role: agent.role, size: 58)
             Text(agent.name).font(AgentSamTheme.displayFont(19)).foregroundStyle(AgentSamTheme.ink).lineLimit(1)
             Text(agent.title).agentSamKicker().foregroundStyle(AgentSamTheme.muted)
-            AgentSamChip(agent.model.isEmpty ? "Choose model" : agent.model, tint: AgentSamTheme.emeraldLight, systemImage: "cpu")
+            AgentSamChip(agent.model.isEmpty ? String(localized: "Choose model") : agent.model, tint: AgentSamTheme.emeraldLight, systemImage: "cpu")
             Text(providerName).font(.caption2).foregroundStyle(AgentSamTheme.dim).lineLimit(1)
         }
         .frame(maxWidth: .infinity)

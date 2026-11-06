@@ -7,7 +7,7 @@ enum AgentSamTaskState: String, Hashable {
     case done
     case failed
 
-    var label: String { rawValue }
+    var label: String { NSLocalizedString("task.\(rawValue.capitalized)", comment: "") }
 }
 
 struct AgentSamTaskPresentation: Identifiable, Hashable {

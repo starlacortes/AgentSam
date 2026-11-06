@@ -22,8 +22,21 @@ struct ProviderStatus: Decodable, Sendable {
 }
 
 struct MissionStartBody: Encodable {
-    var teamID: UUID
-    var objective: String
+    var teamID: UUID?
+    var workflowID: String?
+    var objective: String?
+    var language: String?
+
+    init(teamID: UUID? = nil, workflowID: String? = nil, objective: String? = nil, language: String? = nil) {
+        self.teamID = teamID
+        self.workflowID = workflowID
+        self.objective = objective
+        self.language = language
+    }
+}
+
+struct ServerErrorPayload: Decodable {
+    var reason: String
 }
 
 struct KeyBody: Encodable {
@@ -74,8 +87,14 @@ final class ServerSession {
     var teams: [Team] = []
     var missions: [Mission] = []
     var providers: [ProviderStatus] = []
+    var integrations: [IntegrationStatus] = []
+    var connectors: [ConnectorStatus] = []
     var lastError: String?
     var refreshing = false
+
+    var maloonWorkflows: [MissionWorkflow] {
+        integrations.first(where: { $0.id == "maloon" && $0.isConfigured })?.workflows ?? []
+    }
 
     func connect(url rawURL: String, token rawToken: String) async -> Bool {
         var url = rawURL.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -105,10 +124,14 @@ final class ServerSession {
             async let teamsTask = get("api/teams", as: [Team].self)
             async let missionsTask = get("api/missions?limit=100", as: [Mission].self)
             async let providersTask = get("api/providers", as: [ProviderStatus].self)
+            async let integrationsTask = get("api/integrations", as: [IntegrationStatus].self)
+            async let connectorsTask = get("api/connectors", as: [ConnectorStatus].self)
             info = try await infoTask
             teams = try await teamsTask
             missions = try await missionsTask
             providers = try await providersTask
+            integrations = try await integrationsTask
+            connectors = try await connectorsTask
             lastError = nil
         } catch {
             lastError = error.localizedDescription
@@ -124,11 +147,26 @@ final class ServerSession {
     }
 
     func startMission(team: Team, objective: String) async -> Mission? {
+        await startMission(MissionStartBody(teamID: team.id, objective: objective, language: Self.preferredLanguage()))
+    }
+
+    func startMission(workflow: MissionWorkflow, notes: String) async -> Mission? {
+        await startMission(MissionStartBody(workflowID: workflow.id, objective: notes, language: Self.preferredLanguage()))
+    }
+
+    /// The device language tag ("es" | "en") sent to the server so missions run in the user's language.
+    static func preferredLanguage() -> String {
+        let first = Locale.preferredLanguages.first?.lowercased() ?? ""
+        return first.hasPrefix("es") ? "es" : "en"
+    }
+
+    private func startMission(_ input: MissionStartBody) async -> Mission? {
         do {
-            let body = try JSONEncoder.iso.encode(MissionStartBody(teamID: team.id, objective: objective))
+            let body = try JSONEncoder.iso.encode(input)
             let (data, response) = try await request("api/missions", method: "POST", body: body)
             guard (200..<300).contains(response.statusCode) else {
-                lastError = "Server rejected the mission (\(response.statusCode))."
+                let reason = try? JSONDecoder.iso.decode(ServerErrorPayload.self, from: data).reason
+                lastError = reason ?? String(format: NSLocalizedString("Server rejected the mission (%lld).", comment: ""), response.statusCode)
                 return nil
             }
             let mission = try JSONDecoder.iso.decode(Mission.self, from: data)
@@ -148,7 +186,7 @@ final class ServerSession {
             let path = exists ? "api/teams/\(team.id.uuidString)" : "api/teams"
             let (data, response) = try await request(path, method: exists ? "PUT" : "POST", body: body)
             guard (200..<300).contains(response.statusCode) else {
-                lastError = "Server rejected the team (\(response.statusCode))."
+                lastError = String(format: NSLocalizedString("Server rejected the team (%lld).", comment: ""), response.statusCode)
                 return nil
             }
             let saved = try JSONDecoder.iso.decode(Team.self, from: data)
@@ -164,7 +202,7 @@ final class ServerSession {
         do {
             let (_, response) = try await request("api/teams/\(team.id.uuidString)", method: "DELETE")
             guard (200..<300).contains(response.statusCode) else {
-                lastError = "Server rejected the delete (\(response.statusCode))."
+                lastError = String(format: NSLocalizedString("Server rejected the delete (%lld).", comment: ""), response.statusCode)
                 return false
             }
             await refreshAll()
@@ -180,7 +218,7 @@ final class ServerSession {
             let body = try JSONEncoder.iso.encode(provider)
             let (_, response) = try await request("api/providers", method: "POST", body: body)
             guard (200..<300).contains(response.statusCode) else {
-                lastError = "Server rejected the provider (\(response.statusCode))."
+                lastError = String(format: NSLocalizedString("Server rejected the provider (%lld).", comment: ""), response.statusCode)
                 return false
             }
             await refreshAll()
@@ -195,10 +233,25 @@ final class ServerSession {
         do {
             let (data, response) = try await request("api/providers/\(provider.id)/test", method: "POST")
             guard (200..<300).contains(response.statusCode) else {
-                lastError = "Server rejected the connection test (\(response.statusCode))."
+                lastError = String(format: NSLocalizedString("Server rejected the connection test (%lld).", comment: ""), response.statusCode)
                 return nil
             }
             return try JSONDecoder.iso.decode(ProviderTestResult.self, from: data)
+        } catch {
+            lastError = error.localizedDescription
+            return nil
+        }
+    }
+
+    func testMaloonIntegration() async -> IntegrationTestResult? {
+        do {
+            let (data, response) = try await request("api/integrations/maloon/test", method: "POST")
+            guard (200..<300).contains(response.statusCode) else {
+                let reason = try? JSONDecoder.iso.decode(ServerErrorPayload.self, from: data).reason
+                lastError = reason ?? String(format: NSLocalizedString("Maloon connection test failed (%lld).", comment: ""), response.statusCode)
+                return nil
+            }
+            return try JSONDecoder.iso.decode(IntegrationTestResult.self, from: data)
         } catch {
             lastError = error.localizedDescription
             return nil
@@ -228,7 +281,7 @@ final class ServerSession {
             let body = try JSONEncoder.iso.encode(KeyBody(key: key))
             let (_, response) = try await request("api/providers/\(provider.id)/key", method: "POST", body: body)
             guard (200..<300).contains(response.statusCode) else {
-                lastError = "Server rejected the key (\(response.statusCode))."
+                lastError = String(format: NSLocalizedString("Server rejected the key (%lld).", comment: ""), response.statusCode)
                 return false
             }
             await refreshAll()
@@ -239,14 +292,132 @@ final class ServerSession {
         }
     }
 
+    // MARK: Connectors
+
+    func refreshConnectors() async {
+        do {
+            connectors = try await get("api/connectors", as: [ConnectorStatus].self)
+            lastError = nil
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+
+    func updateConnector(_ id: ConnectorID, enabled: Bool? = nil, permissions: ConnectorPermissions? = nil) async -> Bool {
+        struct PatchBody: Encodable {
+            var enabled: Bool?
+            var permissions: ConnectorPermissions?
+        }
+        do {
+            let body = try JSONEncoder.iso.encode(PatchBody(enabled: enabled, permissions: permissions))
+            let (data, response) = try await request("api/connectors/\(id.rawValue)", method: "PATCH", body: body)
+            guard (200..<300).contains(response.statusCode) else {
+                let reason = try? JSONDecoder.iso.decode(ServerErrorPayload.self, from: data).reason
+                lastError = reason ?? String(format: NSLocalizedString("Server rejected the connector change (%lld).", comment: ""), response.statusCode)
+                return false
+            }
+            await refreshConnectors()
+            return true
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+    }
+
+    func disconnectConnector(_ id: ConnectorID) async -> Bool {
+        do {
+            let (_, response) = try await request("api/connectors/\(id.rawValue)/disconnect", method: "POST")
+            guard (200..<300).contains(response.statusCode) else {
+                lastError = String(format: NSLocalizedString("Server rejected the disconnect (%lld).", comment: ""), response.statusCode)
+                return false
+            }
+            await refreshConnectors()
+            return true
+        } catch {
+            lastError = error.localizedDescription
+            return false
+        }
+    }
+
+    func testConnector(_ id: ConnectorID) async -> (ok: Bool, message: String)? {
+        do {
+            let (data, response) = try await request("api/connectors/\(id.rawValue)/test", method: "POST")
+            guard (200..<300).contains(response.statusCode) else {
+                let reason = try? JSONDecoder.iso.decode(ServerErrorPayload.self, from: data).reason
+                return (false, reason ?? String(format: NSLocalizedString("Connector test failed (%lld).", comment: ""), response.statusCode))
+            }
+            let result = try JSONDecoder.iso.decode(IntegrationTestResult.self, from: data)
+            return (result.ok, result.message)
+        } catch {
+            return (false, error.localizedDescription)
+        }
+    }
+
+    func setCloudflareToken(_ token: String) async -> (ok: Bool, message: String) {
+        do {
+            let body = try JSONEncoder.iso.encode(KeyBody(key: token))
+            let (data, response) = try await request("api/connectors/cloudflare/token", method: "POST", body: body)
+            guard (200..<300).contains(response.statusCode) else {
+                let reason = try? JSONDecoder.iso.decode(ServerErrorPayload.self, from: data).reason
+                return (false, reason ?? String(format: NSLocalizedString("Server rejected the token (%lld).", comment: ""), response.statusCode))
+            }
+            await refreshConnectors()
+            return (true, NSLocalizedString("Cloudflare token verified and stored.", comment: ""))
+        } catch {
+            return (false, error.localizedDescription)
+        }
+    }
+
+    func setGoogleAdsCredentials(developerToken: String, customerId: String) async -> (ok: Bool, message: String) {
+        struct Body: Encodable {
+            var developerToken: String?
+            var customerId: String?
+        }
+        do {
+            let body = try JSONEncoder.iso.encode(Body(
+                developerToken: developerToken.isEmpty ? nil : developerToken,
+                customerId: customerId.isEmpty ? nil : customerId
+            ))
+            let (data, response) = try await request("api/connectors/googleads/credentials", method: "POST", body: body)
+            guard (200..<300).contains(response.statusCode) else {
+                let reason = try? JSONDecoder.iso.decode(ServerErrorPayload.self, from: data).reason
+                return (false, reason ?? String(format: NSLocalizedString("Server rejected the credentials (%lld).", comment: ""), response.statusCode))
+            }
+            await refreshConnectors()
+            return (true, NSLocalizedString("Google Ads credentials stored.", comment: ""))
+        } catch {
+            return (false, error.localizedDescription)
+        }
+    }
+
+    func googleAuthorizeURL(_ id: ConnectorID) async -> String? {
+        struct Body: Encodable {
+            var clientKind: String
+        }
+        do {
+            let body = try JSONEncoder.iso.encode(Body(clientKind: "app"))
+            let (data, response) = try await request("api/connectors/\(id.rawValue)/authorize", method: "POST", body: body)
+            guard (200..<300).contains(response.statusCode) else {
+                let reason = try? JSONDecoder.iso.decode(ServerErrorPayload.self, from: data).reason
+                lastError = reason ?? String(format: NSLocalizedString("Could not start Google authorization (%lld).", comment: ""), response.statusCode)
+                return nil
+            }
+            let result = try JSONDecoder.iso.decode(OAuthStartResult.self, from: data)
+            return result.url
+        } catch {
+            lastError = error.localizedDescription
+            return nil
+        }
+    }
+
     enum AgentSamServerError: LocalizedError {
         case badURL
         case badResponse
 
         var errorDescription: String? {
             switch self {
-            case .badURL: "The server URL is not valid."
-            case .badResponse: "Unexpected server response — check the token and that the server is running."
+            case .badURL: NSLocalizedString("The server URL is not valid.", comment: "")
+            case .badResponse: NSLocalizedString("Unexpected server response — check the token and that the server is running.", comment: "")
             }
         }
     }
@@ -257,6 +428,7 @@ final class ServerSession {
         request.httpMethod = method
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(Self.preferredLanguage() == "es" ? "es" : "en", forHTTPHeaderField: "Accept-Language")
         request.httpBody = body
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw AgentSamServerError.badResponse }
@@ -349,7 +521,7 @@ final class LiveMission {
     }
 
     private func openSocket() {
-        guard let url = URL(string: session.baseURL.replacingOccurrences(of: "https://", with: "wss://").replacingOccurrences(of: "http://", with: "ws://") + "/api/missions/\(missionID.uuidString)/live?token=\(session.token.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? session.token)") else {
+        guard let url = URL(string: session.baseURL.replacingOccurrences(of: "https://", with: "wss://").replacingOccurrences(of: "http://", with: "ws://") + "/api/missions/\(missionID.uuidString)/live") else {
             return
         }
         var request = URLRequest(url: url)
