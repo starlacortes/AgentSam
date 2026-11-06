@@ -60,12 +60,14 @@ struct IOGuidedSetupView: View {
                 selectedProviderID = providers.first?.id ?? ""
                 draftTeam = selectedTemplate.makeTeam(providers: providers)
             }
+            // Sheet content doesn't inherit the environment on iOS 27, so re-inject the session.
             .sheet(item: $editingAgent) { agent in
                 IOAgentEditView(agent: agent, isExisting: draftTeam.agents.contains(where: { $0.id == agent.id })) { updated in
                     if let index = draftTeam.agents.firstIndex(where: { $0.id == updated.id }) { draftTeam.agents[index] = updated } else { draftTeam.agents.append(updated) }
                 } onFire: { fired in
                     draftTeam.agents.removeAll { $0.id == fired.id }
                 }
+                .environment(session)
             }
             .sheet(isPresented: $showAgentPicker) {
                 IORosterPicker { agent in
@@ -78,7 +80,7 @@ struct IOGuidedSetupView: View {
                     editingAgent = agent
                 }
             }
-            .sheet(item: $editingProvider) { provider in IOProviderEditView(provider: provider) }
+            .sheet(item: $editingProvider) { provider in IOProviderEditView(provider: provider).environment(session) }
         }
     }
 

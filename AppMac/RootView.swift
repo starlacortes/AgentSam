@@ -71,14 +71,15 @@ struct RootView: View {
                 .help(model.teams.filter { !$0.agents.isEmpty }.isEmpty ? "Create a team before launching a mission" : "Create a new mission (⌘N)")
             }
         }
+        // Sheet content doesn't inherit the environment on macOS 27, so re-inject the model.
         .sheet(isPresented: $showNewMission) {
-            NewMissionSheet(presetTeam: nil).frame(minWidth: 600, minHeight: 520)
+            NewMissionSheet(presetTeam: nil).frame(minWidth: 600, minHeight: 520).environment(model)
         }
         .sheet(item: $selectedTeam) { team in
-            NewMissionSheet(presetTeam: team).frame(minWidth: 600, minHeight: 520)
+            NewMissionSheet(presetTeam: team).frame(minWidth: 600, minHeight: 520).environment(model)
         }
         .sheet(isPresented: $showGuidedSetup) {
-            GuidedSetupView()
+            GuidedSetupView().environment(model)
         }
         .task(id: section) { await model.reload() }
         .onChange(of: model.isBootstrapped) { _, ready in

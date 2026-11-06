@@ -23,7 +23,8 @@ struct AgentSamiOSApp: App {
             .environment(session)
             .preferredColorScheme(.dark)
             .tint(AgentSamTheme.emerald)
-            .sheet(isPresented: $showGuidedSetup) { IOGuidedSetupView() }
+            // Sheet content doesn't inherit the environment on iOS 27, so re-inject the session.
+            .sheet(isPresented: $showGuidedSetup) { IOGuidedSetupView().environment(session) }
             .task {
                 if session.isConfigured {
                     await session.refreshAll()

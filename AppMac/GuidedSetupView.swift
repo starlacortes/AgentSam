@@ -57,6 +57,7 @@ struct GuidedSetupView: View {
             selectedProviderID = model.providers.first?.id ?? ""
             draftTeam = selectedTemplate.makeTeam(providers: model.providers)
         }
+        // Sheet content doesn't inherit the environment on macOS 27, so re-inject the model.
         .sheet(item: $editingAgent) { agent in
             AgentEditSheet(
                 agent: agent,
@@ -65,6 +66,7 @@ struct GuidedSetupView: View {
                 onFire: { fired in draftTeam.agents.removeAll { $0.id == fired.id } }
             )
             .frame(minWidth: 560, minHeight: 620)
+            .environment(model)
         }
         .sheet(isPresented: $showAgentPicker) {
             TemplateRosterPicker { agent in
@@ -92,6 +94,7 @@ struct GuidedSetupView: View {
                 }
             }
             .frame(minWidth: 520, minHeight: 480)
+            .environment(model)
         }
     }
 

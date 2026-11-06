@@ -42,9 +42,9 @@ struct TeamsTab: View {
             }
             .refreshable { await session.refreshAll() }
             .task { await session.refreshAll() }
-            .sheet(isPresented: $showNewTeam) { IOTeamEditView(team: nil) }
-            .sheet(item: $editingTeam) { team in IOTeamEditView(team: team) }
-            .sheet(item: $missionTeam) { team in NewMissionSheet(liveBinding: $liveMission, presetTeam: team) }
+            .sheet(isPresented: $showNewTeam) { IOTeamEditView(team: nil).environment(session) }
+            .sheet(item: $editingTeam) { team in IOTeamEditView(team: team).environment(session) }
+            .sheet(item: $missionTeam) { team in NewMissionSheet(liveBinding: $liveMission, presetTeam: team).environment(session) }
             .navigationDestination(item: $liveMission) { live in MissionLiveView(live: live).onDisappear { live.stop() } }
             .confirmationDialog("Delete \(deletingTeam?.name ?? "this team")? Existing missions will be kept.", isPresented: Binding(get: { deletingTeam != nil }, set: { if !$0 { deletingTeam = nil } })) {
                 Button("Delete Team", role: .destructive) {
@@ -90,6 +90,8 @@ struct SettingsTab: View {
     @State private var keyDrafts: [String: String] = [:]
     @State private var testResults: [String: String] = [:]
     @State private var testingProvider: String?
+    @State private var testingMaloon = false
+    @State private var maloonResult: IntegrationTestResult?
     @State private var message: String?
     @State private var editingProvider: ProviderConfig?
     @State private var showGuidedSetup = false
@@ -112,6 +114,34 @@ struct SettingsTab: View {
                         LabeledContent("Status") { Text("Connected · \(info.teams) teams · \(info.missions) missions").font(.caption) }
                     }
                     if let message { Text(message).font(.caption).foregroundStyle(session.lastError == nil ? AgentSamTheme.emerald : AgentSamTheme.danger) }
+                }
+                if let integration = session.integrations.first(where: { $0.id == "maloon" && $0.isConfigured }) {
+                    Section {
+                        LabeledContent("Source") { Text("Indigo · \(integration.workflows.count) owner workflows") }
+                        Button {
+                            testingMaloon = true
+                            Task {
+                                maloonResult = await session.testMaloonIntegration()
+                                testingMaloon = false
+                            }
+                        } label: {
+                            HStack {
+                                if testingMaloon { ProgressView() } else { Image(systemName: "bolt") }
+                                Text("Test Indigo connection")
+                            }
+                        }
+                        .disabled(testingMaloon)
+                        if let maloonResult {
+                            Text(maloonResult.message)
+                                .font(.caption)
+                                .foregroundStyle(maloonResult.ok ? AgentSamTheme.emerald : AgentSamTheme.danger)
+                                .textSelection(.enabled)
+                        }
+                    } header: {
+                        Text("Maloon")
+                    } footer: {
+                        Text("Workflows fetch read-only business snapshots. AgentSam never sends messages or changes Indigo records.")
+                    }
                 }
                 Section {
                     ForEach(session.providers, id: \.provider.id) { status in
@@ -178,8 +208,8 @@ struct SettingsTab: View {
             .background(AgentSamBackground())
             .navigationTitle("Server")
             .onAppear { url = session.baseURL; token = session.token }
-            .sheet(item: $editingProvider) { provider in IOProviderEditView(provider: provider) }
-            .sheet(isPresented: $showGuidedSetup) { IOGuidedSetupView() }
+            .sheet(item: $editingProvider) { provider in IOProviderEditView(provider: provider).environment(session) }
+            .sheet(isPresented: $showGuidedSetup) { IOGuidedSetupView().environment(session) }
         }
     }
 

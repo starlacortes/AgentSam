@@ -38,7 +38,8 @@ struct MissionsTab: View {
                 }
             }
             .refreshable { await session.refreshAll() }
-            .sheet(isPresented: $showNewMission) { NewMissionSheet(liveBinding: $liveMission) }
+            // Sheet content doesn't inherit the environment on iOS 27, so re-inject the session.
+            .sheet(isPresented: $showNewMission) { NewMissionSheet(liveBinding: $liveMission).environment(session) }
             .navigationDestination(item: $liveMission) { live in MissionLiveView(live: live).onDisappear { live.stop() } }
             .task { await session.refreshAll() }
         }
@@ -109,6 +110,10 @@ struct MissionListRow: View {
             VStack(alignment: .leading, spacing: 5) {
                 Text(mission.objective).font(.subheadline.weight(.semibold)).lineLimit(2).foregroundStyle(AgentSamTheme.ink)
                 HStack(spacing: 6) {
+                    if let sourceName = mission.sourceName {
+                        Text(sourceName).foregroundStyle(AgentSamTheme.emeraldLight)
+                        Text("·")
+                    }
                     Text(mission.teamName)
                     Text("·")
                     Text(mission.createdAt, format: .relative(presentation: .named))
@@ -145,6 +150,8 @@ struct NewMissionSheet: View {
     @Binding var liveBinding: LiveMission?
     var presetTeam: Team?
     @State private var teamID: UUID?
+    @State private var workflowID = ""
+    @State private var useOwnerWorkflow = false
     @State private var objective = ""
     @State private var launching = false
 
@@ -152,26 +159,59 @@ struct NewMissionSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    Picker("Team", selection: $teamID) {
-                        ForEach(session.teams.filter { !$0.agents.isEmpty }) { team in Text("\(team.emoji) \(team.name)").tag(Optional(team.id)) }
+                    if !session.maloonWorkflows.isEmpty {
+                        Picker("Mission type", selection: $useOwnerWorkflow) {
+                            Text("General").tag(false)
+                            Text("Maloon Owner").tag(true)
+                        }
+                        .pickerStyle(.segmented)
                     }
-                    .pickerStyle(.menu)
-                    .padding(11)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(AgentSamTheme.raised)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    if let team = selectedTeam {
-                        HStack {
-                            AgentSamAvatarStack(agents: team.agents, size: 38)
-                            VStack(alignment: .leading) {
-                                Text(team.name).font(.headline).foregroundStyle(AgentSamTheme.ink)
-                                Text("\(team.agents.count) agents · \(team.coordinator?.name ?? "No coordinator")").font(.caption).foregroundStyle(AgentSamTheme.muted)
+
+                    if useOwnerWorkflow, !session.maloonWorkflows.isEmpty {
+                        Picker("Workflow", selection: $workflowID) {
+                            ForEach(session.maloonWorkflows) { workflow in
+                                Text(workflow.title).tag(workflow.id)
                             }
                         }
-                        .agentSamPanel()
+                        .pickerStyle(.menu)
+                        .padding(11)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(AgentSamTheme.raised)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        if let workflow = selectedWorkflow {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(workflow.summary).font(.callout).foregroundStyle(AgentSamTheme.ink)
+                                Label(workflow.behavior, systemImage: "lock.doc")
+                                    .font(.caption).foregroundStyle(AgentSamTheme.emeraldLight)
+                                Text("AgentSam fetches a fresh Indigo snapshot at launch. The owner team uses one configured provider.")
+                                    .font(.caption).foregroundStyle(AgentSamTheme.muted)
+                            }
+                            .agentSamPanel()
+                        }
+                        Text("OWNER NOTES · OPTIONAL").agentSamKicker()
+                        MissionObjectiveEditor(objective: $objective)
+                    } else {
+                        Picker("Team", selection: $teamID) {
+                            ForEach(session.teams.filter { !$0.agents.isEmpty }) { team in Text("\(team.emoji) \(team.name)").tag(Optional(team.id)) }
+                        }
+                        .pickerStyle(.menu)
+                        .padding(11)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(AgentSamTheme.raised)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                        if let team = selectedTeam {
+                            HStack {
+                                AgentSamAvatarStack(agents: team.agents, size: 38)
+                                VStack(alignment: .leading) {
+                                    Text(team.name).font(.headline).foregroundStyle(AgentSamTheme.ink)
+                                    Text("\(team.agents.count) agents · \(team.coordinator?.name ?? "No coordinator")").font(.caption).foregroundStyle(AgentSamTheme.muted)
+                                }
+                            }
+                            .agentSamPanel()
+                        }
+                        Text("OBJECTIVE").agentSamKicker()
+                        MissionObjectiveEditor(objective: $objective)
                     }
-                    Text("OBJECTIVE").agentSamKicker()
-                    MissionObjectiveEditor(objective: $objective)
                     if let error = session.lastError { Text(error).font(.caption).foregroundStyle(AgentSamTheme.danger) }
                 }
                 .padding(18)
@@ -185,23 +225,44 @@ struct NewMissionSheet: View {
                     Button {
                         launching = true
                         Task {
-                            if let team = selectedTeam, let mission = await session.startMission(team: team, objective: objective) {
-                                let live = LiveMission(missionID: mission.id)
-                                live.start()
-                                liveBinding = live
-                                dismiss()
-                            }
+                            await launchMission()
                             launching = false
                         }
                     } label: {
                         if launching { ProgressView() } else { Text("Launch") }
                     }
-                    .disabled(selectedTeam == nil || objective.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || launching)
+                    .disabled(!canLaunch || launching)
                 }
             }
-            .onAppear { if teamID == nil { teamID = presetTeam?.id ?? session.teams.first(where: { !$0.agents.isEmpty })?.id } }
+            .onAppear {
+                if teamID == nil { teamID = presetTeam?.id ?? session.teams.first(where: { !$0.agents.isEmpty })?.id }
+                if workflowID.isEmpty { workflowID = session.maloonWorkflows.first?.id ?? "" }
+            }
         }
     }
 
     private var selectedTeam: Team? { session.teams.first(where: { $0.id == teamID }) }
+    private var selectedWorkflow: MissionWorkflow? { session.maloonWorkflows.first(where: { $0.id == workflowID }) }
+    private var canLaunch: Bool {
+        if useOwnerWorkflow {
+            return selectedWorkflow != nil && objective.count <= 4_000
+        }
+        return selectedTeam != nil && !objective.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func launchMission() async {
+        let mission: Mission?
+        if useOwnerWorkflow, let workflow = selectedWorkflow {
+            mission = await session.startMission(workflow: workflow, notes: objective)
+        } else if let team = selectedTeam {
+            mission = await session.startMission(team: team, objective: objective)
+        } else {
+            mission = nil
+        }
+        guard let mission else { return }
+        let live = LiveMission(missionID: mission.id)
+        live.start()
+        liveBinding = live
+        dismiss()
+    }
 }

@@ -50,11 +50,12 @@ struct TeamsView: View {
                     .buttonStyle(AgentSamGhostButtonStyle())
             }
         }
+        // Sheet content doesn't inherit the environment on macOS 27, so re-inject the model.
         .sheet(isPresented: $showNewTeam) {
-            TeamEditSheet(team: nil).frame(minWidth: 680, minHeight: 560)
+            TeamEditSheet(team: nil).frame(minWidth: 680, minHeight: 560).environment(model)
         }
         .sheet(item: $editingTeam) { team in
-            TeamEditSheet(team: team).frame(minWidth: 680, minHeight: 560)
+            TeamEditSheet(team: team).frame(minWidth: 680, minHeight: 560).environment(model)
         }
         .confirmationDialog("Delete \(deletingTeam?.name ?? "this team")? Existing missions will be kept.", isPresented: Binding(get: { deletingTeam != nil }, set: { if !$0 { deletingTeam = nil } }), titleVisibility: .visible) {
             Button("Delete Team", role: .destructive) {
@@ -161,6 +162,7 @@ struct TeamEditSheet: View {
                 roster = team.agents
             }
         }
+        // Sheet content doesn't inherit the environment on macOS 27, so re-inject the model.
         .sheet(item: $editingAgent) { agent in
             AgentEditSheet(
                 agent: agent,
@@ -171,6 +173,7 @@ struct TeamEditSheet: View {
                 onFire: { fired in roster.removeAll { $0.id == fired.id } }
             )
             .frame(minWidth: 560, minHeight: 620)
+            .environment(model)
         }
         .sheet(isPresented: $showAgentPicker) {
             TemplateRosterPicker { agent in

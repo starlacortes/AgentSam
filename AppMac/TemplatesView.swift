@@ -51,6 +51,7 @@ struct TemplatesView: View {
         .sheet(item: $editingTeam) { team in
             TeamEditSheet(team: team)
                 .frame(minWidth: 680, minHeight: 560)
+                .environment(model)
         }
         .overlay {
             if saving { ProgressView("Hiring team…").padding().agentSamPanel() }

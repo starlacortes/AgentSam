@@ -81,8 +81,9 @@ struct MissionsView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
+        // Sheet content doesn't inherit the environment on macOS 27, so re-inject the model.
         .sheet(item: liveStateBinding) { live in
-            MissionDetailView(state: live).frame(minWidth: 1_020, minHeight: 680)
+            MissionDetailView(state: live).frame(minWidth: 1_020, minHeight: 680).environment(model)
         }
         .refreshable { await model.reload() }
     }

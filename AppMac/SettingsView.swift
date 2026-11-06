@@ -17,6 +17,7 @@ struct SettingsView: View {
         }
         .background(AgentSamBackground())
         .navigationTitle("Settings")
+        // Sheet content doesn't inherit the environment on macOS 27, so re-inject the model.
         .sheet(item: $editingProvider) { provider in
             ProviderEditSheet(provider: provider) { saved in
                 Task {
@@ -30,6 +31,7 @@ struct SettingsView: View {
                 }
             }
             .frame(minWidth: 520, minHeight: 480)
+            .environment(model)
         }
     }
 

@@ -46,8 +46,9 @@ struct TemplatesTab: View {
                     }
                 }
             }
-            .sheet(item: $editingTeam) { team in IOTeamEditView(team: team) }
-            .sheet(isPresented: $showNewTeam) { IOTeamEditView(team: nil) }
+            // Sheet content doesn't inherit the environment on iOS 27, so re-inject the session.
+            .sheet(item: $editingTeam) { team in IOTeamEditView(team: team).environment(session) }
+            .sheet(isPresented: $showNewTeam) { IOTeamEditView(team: nil).environment(session) }
             .overlay { if saving { ProgressView("Hiring team…").padding().agentSamPanel() } }
         }
     }

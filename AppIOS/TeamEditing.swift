@@ -75,12 +75,14 @@ struct IOTeamEditView: View {
                     .disabled(!isValid || saving)
                 }
             }
+            // Sheet content doesn't inherit the environment on iOS 27, so re-inject the session.
             .sheet(item: $editingAgent) { agent in
                 IOAgentEditView(agent: agent, isExisting: roster.contains(where: { $0.id == agent.id })) { updated in
                     if let index = roster.firstIndex(where: { $0.id == updated.id }) { roster[index] = updated } else { roster.append(updated) }
                 } onFire: { fired in
                     roster.removeAll { $0.id == fired.id }
                 }
+                .environment(session)
             }
             .sheet(isPresented: $showRoster) {
                 IORosterPicker { agent in
