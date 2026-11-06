@@ -23,21 +23,24 @@ export function Avatar({ name, role, size = 56, state }: { name: string; role?: 
 const stateLabel: Record<AgentItem['state'], string> = { idle: 'idle', working: 'working', done: 'done', failed: 'attention' }
 
 /** Coordinator on top, workers across the middle, verifier at the bottom, like MissionStageView. */
-export function AgentStage({ agents }: { agents: AgentItem[] }) {
-  const rows: AgentItem[][] = [
+export function AgentStage({ agents, compact = false }: { agents: AgentItem[]; compact?: boolean }) {
+  // Once a mission is over, everyone sits in one short row so the results get the space.
+  const rows: AgentItem[][] = compact
+    ? [agents]
+    : [
     agents.filter((a) => a.agent.role === 'coordinator'),
     agents.filter((a) => a.agent.role === 'worker'),
     agents.filter((a) => a.agent.role === 'verifier'),
-  ].filter((row) => row.length > 0)
+      ].filter((row) => row.length > 0)
 
   if (agents.length === 0) return null
   return (
-    <div className="stage" aria-label="Agent stage">
+    <div className={compact ? 'stage compact' : 'stage'} aria-label="Agent stage">
       {rows.map((row, index) => (
         <div className="stage-row" key={index}>
           {row.map((item) => (
             <div className={`stage-node state-${item.state}`} key={item.agent.id} title={item.task ?? item.agent.title}>
-              <Avatar name={item.agent.name} role={item.agent.role} state={item.state} />
+              <Avatar name={item.agent.name} role={item.agent.role} state={item.state} size={compact ? 40 : 48} />
               <b>{item.agent.name}</b>
               <span className="stage-state">{stateLabel[item.state]}</span>
               {item.state === 'working' && item.task ? <span className="stage-task">{item.task}</span> : null}

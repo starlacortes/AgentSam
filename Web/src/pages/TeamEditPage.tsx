@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { api, errorMessage } from '../api/client'
 import type { AgentProfile, AgentRole, ProviderStatus, Team } from '../api/types'
 import { Avatar } from '../components/mission'
@@ -44,6 +45,7 @@ export function TeamEditPage() {
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [busy, setBusy] = useState(false)
+  useDocumentTitle(isNew ? 'New team' : draft?.name || 'Team')
 
   useEffect(() => {
     void (async () => {

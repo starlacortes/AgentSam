@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { api, errorMessage } from '../api/client'
 import type { InviteCreated, PublicInvite, PublicUser, UserRole } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { ErrorBanner, formatDate, Spinner } from '../components/ui'
 
 export function PeoplePage() {
+  useDocumentTitle('People')
   const { me } = useAuth()
   const [users, setUsers] = useState<PublicUser[] | null>(null)
   const [invites, setInvites] = useState<PublicInvite[]>([])

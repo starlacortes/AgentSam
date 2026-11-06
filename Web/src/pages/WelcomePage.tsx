@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { api, errorMessage } from '../api/client'
 import type { Mission, ProviderStatus, ProviderTestResult, Team, TemplateCatalog } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
@@ -10,6 +11,7 @@ type Step = 'provider' | 'team' | 'mission'
 
 /** Guided setup, like the apps: connect a provider (admins), hire a team, launch a first mission. */
 export function WelcomePage() {
+  useDocumentTitle('Get started')
   const { isAdmin, me } = useAuth()
   const navigate = useNavigate()
   const steps: Step[] = isAdmin ? ['provider', 'team', 'mission'] : ['team', 'mission']

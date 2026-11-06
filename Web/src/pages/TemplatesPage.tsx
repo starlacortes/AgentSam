@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { api, errorMessage } from '../api/client'
 import type { Team, TemplateCatalog } from '../api/types'
 import { Avatar } from '../components/mission'
 import { ErrorBanner, Spinner } from '../components/ui'
 
 export function TemplatesPage() {
+  useDocumentTitle('Templates')
   const navigate = useNavigate()
   const [catalog, setCatalog] = useState<TemplateCatalog | null>(null)
   const [open, setOpen] = useState<string | null>(null)

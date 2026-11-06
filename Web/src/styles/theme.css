@@ -219,7 +219,7 @@ main.page { width: 100%; max-width: 1160px; margin: 0 auto; padding: 28px 20px 8
 .idea:hover { border-color: rgba(74, 217, 158, 0.5); color: var(--em2); }
 
 /* ---------- live mission ---------- */
-.stage { display: flex; flex-direction: column; gap: 22px; padding: 8px 0; }
+.stage { display: flex; flex-direction: column; gap: 14px; padding: 2px 0; }
 .stage-row { display: flex; justify-content: center; gap: 18px; flex-wrap: wrap; }
 .stage-node { width: 140px; display: flex; flex-direction: column; align-items: center; gap: 5px; text-align: center; }
 .stage-node b { color: var(--bright); font-size: 14px; }
@@ -234,7 +234,7 @@ main.page { width: 100%; max-width: 1160px; margin: 0 auto; padding: 28px 20px 8
 .task-num { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; border: 1px solid var(--line2); color: var(--mut); font-size: 12px; flex: none; }
 .task.state-working .task-num { border-color: rgba(74, 217, 158, 0.55); color: var(--em); }
 .task.state-done .task-num { border-color: rgba(212, 184, 120, 0.5); color: var(--gold2); }
-.chatter { display: flex; flex-direction: column; gap: 10px; }
+.chatter { display: flex; flex-direction: column; gap: 10px; max-height: 560px; overflow-y: auto; overscroll-behavior: contain; padding-right: 4px; }
 .chat { border-left: 2px solid var(--line2); padding: 4px 0 4px 12px; }
 .chat.role-coordinator { border-color: rgba(74, 217, 158, 0.6); }
 .chat.role-worker { border-color: rgba(91, 200, 189, 0.6); }
@@ -302,4 +302,55 @@ main.page { width: 100%; max-width: 1160px; margin: 0 auto; padding: 28px 20px 8
   .steprail { flex-direction: row; overflow-x: auto; border-right: none; border-bottom: 1px solid var(--line); padding: 10px; }
   .steprail .pill { margin-top: 0 !important; margin-left: auto; }
   .step-body { padding: 20px 16px; }
+}
+
+/* ---------- compact stage (finished missions) ---------- */
+.stage.compact .stage-row { gap: 10px; }
+.stage.compact .stage-node { width: 96px; gap: 3px; }
+.stage.compact .stage-node b { font-size: 12.5px; }
+
+/* ---------- plain-text files ---------- */
+.file-text {
+  background: var(--deep); border: 1px solid var(--line); border-radius: 10px; padding: 12px;
+  font-size: 12px; line-height: 1.55; white-space: pre; overflow: auto; max-height: 640px; color: var(--ink2);
+}
+.btn.danger-text { color: var(--danger); }
+
+/* ---------- sign out + phone navigation ---------- */
+.signout { padding: 7px 10px; }
+.tabbar { display: none; }
+.sheet, .sheet-backdrop { display: none; }
+
+@media (max-width: 720px) {
+  .topbar .nav, .topbar .signout { display: none; }
+  main.page { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+  .tabbar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+    background: rgba(10, 16, 13, 0.92); backdrop-filter: blur(14px) saturate(1.2);
+    border-top: 1px solid var(--line);
+  }
+  .tab {
+    border: none; background: transparent; color: var(--mut); cursor: pointer;
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase;
+    padding: 12px 4px; border-radius: 10px; text-align: center;
+  }
+  .tab:hover { text-decoration: none; color: var(--ink); }
+  .tab.active { color: var(--em); background: rgba(74, 217, 158, 0.08); }
+  .sheet-backdrop { display: block; position: fixed; inset: 0; z-index: 55; background: rgba(0, 0, 0, 0.45); }
+  .sheet {
+    display: flex; flex-direction: column; gap: 2px;
+    position: fixed; left: 8px; right: 8px; bottom: calc(64px + env(safe-area-inset-bottom)); z-index: 58;
+    background: var(--panel2); border: 1px solid var(--line2); border-radius: 16px; padding: 8px;
+    box-shadow: var(--shadow-pop);
+  }
+  .sheet-who { font-size: 11px; color: var(--dim); padding: 8px 12px 6px; }
+  .sheet-item {
+    border: none; background: transparent; text-align: left; cursor: pointer;
+    color: var(--ink); font-size: 15px; padding: 13px 12px; border-radius: 10px;
+  }
+  .sheet-item:hover { text-decoration: none; background: rgba(148, 190, 156, 0.06); }
+  .sheet-item.active { color: var(--em); }
+  .sheet-item.danger { color: var(--danger); }
 }
