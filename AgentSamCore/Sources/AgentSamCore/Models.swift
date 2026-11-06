@@ -301,6 +301,8 @@ public struct Mission: Codable, Identifiable, Hashable, Sendable {
     public var totalCostUSD: Double
     public var totalInputTokens: Int
     public var totalOutputTokens: Int
+    /// Who started the mission (a user's name on the web app, or "Server token"). Nil for older missions.
+    public var launchedBy: String?
 
     public init(
         id: UUID = UUID(),

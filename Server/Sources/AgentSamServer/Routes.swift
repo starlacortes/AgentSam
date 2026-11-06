@@ -17,7 +17,14 @@ public func configure(_ app: Application) async throws {
         app.http.server.configuration.port = port
     }
 
+    app.middleware.use(SecurityHeadersMiddleware())
+    let webDir = WebApp.directory()
+    if let webDir {
+        app.middleware.use(FileMiddleware(publicDirectory: webDir, defaultFile: "index.html"))
+    }
+
     routes(app, ctx: ctx)
+    WebApp.registerFallback(app, directory: webDir)
 
     let dataPath = ctx.dataDir.path
     app.logger.info("AgentSam server running. Data directory: \(dataPath)")
@@ -69,7 +76,11 @@ func routes(_ app: Application, ctx: ServerContext) {
         }
     }
 
-    let api = app.grouped("api").grouped(TokenMiddleware(token: ctx.token))
+    let api = app.grouped("api").grouped(AuthMiddleware(ctx: ctx))
+    let adminAPI = api.grouped(RequireAdminMiddleware())
+
+    authRoutes(app, ctx: ctx, authed: api)
+    templateRoutes(api, ctx: ctx)
 
     api.get("info") { req async throws -> Response in
         let teams = await ctx.store.loadTeams()
@@ -104,7 +115,7 @@ func routes(_ app: Application, ctx: ServerContext) {
 
     api.post("teams") { req async throws -> Response in
         let input = try req.decodeJSON(TeamInput.self)
-        let team = try await ctx.upsertTeam(input: input, id: nil)
+        let team = try await ctx.upsertTeam(input: input, id: nil, lang: SrvL10n.lang(for: req))
         return try req.json(team, status: .created)
     }
 
@@ -114,7 +125,7 @@ func routes(_ app: Application, ctx: ServerContext) {
             throw Abort(.badRequest, reason: SrvL10n.t("srv.badTeamID", lang: lang))
         }
         let input = try req.decodeJSON(TeamInput.self)
-        let team = try await ctx.upsertTeam(input: input, id: id)
+        let team = try await ctx.upsertTeam(input: input, id: id, lang: lang)
         return try req.json(team)
     }
 
@@ -142,8 +153,23 @@ func routes(_ app: Application, ctx: ServerContext) {
         return try req.json(statuses)
     }
 
-    api.post("providers") { req async throws -> Response in
-        let provider = try req.decodeJSON(ProviderConfig.self)
+    adminAPI.post("providers") { req async throws -> Response in
+        let lang = SrvL10n.lang(for: req)
+        var provider = try req.decodeJSON(ProviderConfig.self)
+        provider.models = provider.models.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let idAllowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789-_")
+        guard !provider.id.isEmpty, provider.id.count <= 40,
+              provider.id.unicodeScalars.allSatisfy(idAllowed.contains) else {
+            throw Abort(.badRequest, reason: SrvL10n.t("srv.providerIDInvalid", lang: lang))
+        }
+        guard !provider.name.trimmingCharacters(in: .whitespaces).isEmpty else {
+            throw Abort(.badRequest, reason: SrvL10n.t("srv.providerNeedsName", lang: lang))
+        }
+        guard let url = URL(string: provider.baseURL), let scheme = url.scheme?.lowercased(),
+              scheme == "https" || scheme == "http", url.host != nil else {
+            throw Abort(.badRequest, reason: SrvL10n.t("srv.providerBadURL", lang: lang))
+        }
+        guard !provider.models.isEmpty else { throw Abort(.badRequest, reason: SrvL10n.t("srv.providerNeedsModels", lang: lang)) }
         var providers = await ctx.store.loadProviders()
         if let index = providers.firstIndex(where: { $0.id == provider.id }) {
             providers[index] = provider
@@ -154,7 +180,7 @@ func routes(_ app: Application, ctx: ServerContext) {
         return try req.json(provider, status: .created)
     }
 
-    api.post("providers", ":id", "key") { req async throws -> Response in
+    adminAPI.post("providers", ":id", "key") { req async throws -> Response in
         let lang = SrvL10n.lang(for: req)
         guard let idString = req.parameters.get("id") else {
             throw Abort(.badRequest, reason: SrvL10n.t("srv.missingProviderID", lang: lang))
@@ -168,7 +194,33 @@ func routes(_ app: Application, ctx: ServerContext) {
         return try req.json(AckResult(ok: true, detail: SrvL10n.tf("srv.keyStored", provider.name, lang: lang)))
     }
 
-    api.post("providers", ":id", "test") { req async throws -> Response in
+    adminAPI.delete("providers", ":id", "key") { req async throws -> Response in
+        let lang = SrvL10n.lang(for: req)
+        guard let idString = req.parameters.get("id") else {
+            throw Abort(.notFound, reason: SrvL10n.tf("srv.unknownProvider", "", lang: lang))
+        }
+        guard let provider = await ctx.store.loadProviders().first(where: { $0.id == idString }) else {
+            throw Abort(.notFound, reason: SrvL10n.tf("srv.unknownProvider", idString, lang: lang))
+        }
+        ctx.keyRing.remove(provider.keyAccount)
+        return try req.json(AckResult(ok: true, detail: SrvL10n.tf("srv.keyRemoved", provider.name, lang: lang)))
+    }
+
+    adminAPI.delete("providers", ":id") { req async throws -> Response in
+        let lang = SrvL10n.lang(for: req)
+        guard let idString = req.parameters.get("id") else { throw Abort(.badRequest, reason: SrvL10n.t("srv.missingProviderID", lang: lang)) }
+        var providers = await ctx.store.loadProviders()
+        guard let provider = providers.first(where: { $0.id == idString }) else {
+            throw Abort(.notFound, reason: SrvL10n.tf("srv.unknownProvider", idString, lang: lang))
+        }
+        providers.removeAll { $0.id == idString }
+        guard !providers.isEmpty else { throw Abort(.conflict, reason: SrvL10n.t("srv.keepProvider", lang: lang)) }
+        await ctx.store.saveProviders(providers)
+        ctx.keyRing.remove(provider.keyAccount)
+        return try req.json(AckResult(ok: true, detail: nil))
+    }
+
+    adminAPI.post("providers", ":id", "test") { req async throws -> Response in
         let lang = SrvL10n.lang(for: req)
         guard let idString = req.parameters.get("id") else {
             throw Abort(.badRequest, reason: SrvL10n.t("srv.missingProviderID", lang: lang))
@@ -297,7 +349,13 @@ func routes(_ app: Application, ctx: ServerContext) {
     api.post("missions") { req async throws -> Response in
         let body = try req.decodeJSON(MissionStartBody.self)
         let language = body.language ?? SrvL10n.lang(for: req)
-        let mission = try await ctx.startMission(teamID: body.teamID, objective: body.objective, workflowID: body.workflowID, language: language)
+        let mission = try await ctx.startMission(
+            teamID: body.teamID,
+            objective: body.objective,
+            workflowID: body.workflowID,
+            launchedBy: req.principal?.name,
+            language: language
+        )
         return try req.json(mission.publicRepresentation, status: .created)
     }
 
@@ -357,7 +415,7 @@ func routes(_ app: Application, ctx: ServerContext) {
         return try req.json(AckResult(ok: true, detail: SrvL10n.t("srv.stopRequested", lang: lang)))
     }
 
-    api.delete("missions", ":id") { req async throws -> Response in
+    adminAPI.delete("missions", ":id") { req async throws -> Response in
         let lang = SrvL10n.lang(for: req)
         guard let idString = req.parameters.get("id"), let id = UUID(uuidString: idString) else {
             throw Abort(.badRequest, reason: SrvL10n.t("srv.badMissionID", lang: lang))

@@ -48,6 +48,15 @@
 "srv.indigoNotUTF8" = "La instantánea de Indigo no era UTF-8 válido.";
 "srv.indigoMalformed" = "Indigo devolvió un JSON de instantánea mal formado.";
 
+"srv.keyRemoved" = "Clave eliminada para %@";
+"srv.teamNameLength" = "El nombre del equipo debe tener entre 1 y 80 caracteres";
+"srv.teamAgentLimit" = "Un equipo puede tener como máximo 16 agentes";
+"srv.providerIDInvalid" = "El ID del proveedor debe contener solo letras minúsculas, dígitos, - o _";
+"srv.providerNeedsName" = "El proveedor necesita un nombre";
+"srv.providerBadURL" = "La URL base debe ser una URL http(s)";
+"srv.providerNeedsModels" = "Indica al menos un modelo";
+"srv.keepProvider" = "Conserva al menos un proveedor";
+
 "maloon.workflow.daily-operations.title" = "Informe diario de operaciones";
 "maloon.workflow.daily-operations.summary" = "Trabajos de hoy, progreso, huecos de personal, próximos trabajos y asuntos que requieren atención.";
 "maloon.workflow.daily-operations.behavior" = "Resumen operativo de solo lectura";

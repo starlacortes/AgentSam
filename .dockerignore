@@ -7,12 +7,15 @@ DerivedData
 **/.build
 **/build
 **/.swiftpm
+**/node_modules
 **/*.xcuserstate
+Web/dist
+Server/data
+deploy/.env
 AgentSam.xcodeproj
 AppIOS
 AppMac
 AppShared
 design
 mockups
-Server/data
-deploy/.env
+

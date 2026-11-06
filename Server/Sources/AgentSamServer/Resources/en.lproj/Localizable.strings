@@ -48,6 +48,15 @@
 "srv.indigoNotUTF8" = "Indigo snapshot was not valid UTF-8.";
 "srv.indigoMalformed" = "Indigo returned malformed snapshot JSON.";
 
+"srv.keyRemoved" = "Key removed for %@";
+"srv.teamNameLength" = "Team name must be 1 to 80 characters";
+"srv.teamAgentLimit" = "A team can have at most 16 agents";
+"srv.providerIDInvalid" = "Provider id must be lowercase letters, digits, - or _";
+"srv.providerNeedsName" = "Provider needs a name";
+"srv.providerBadURL" = "Base URL must be an http(s) URL";
+"srv.providerNeedsModels" = "List at least one model";
+"srv.keepProvider" = "Keep at least one provider";
+
 
 "maloon.workflow.daily-operations.title" = "Daily operations brief";
 "maloon.workflow.daily-operations.summary" = "Today's jobs, progress, staffing gaps, upcoming work, and issues needing attention.";

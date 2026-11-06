@@ -36,6 +36,11 @@ struct ServerContext: Sendable {
     let maloon: MaloonIntegration
     let connectors: ConnectorHub
     let oauthStates: OAuthStateStore
+    let accounts: AccountStore
+    let sessions: SessionStore
+    let throttle: LoginThrottle
+    /// Compared against when an email isn't found, so failed logins take the same time either way.
+    let dummyPasswordHash: String
 
     static func make() throws -> ServerContext {
         let raw = Environment.get("AGENTSAM_DATA") ?? "data"
@@ -74,7 +79,11 @@ struct ServerContext: Sendable {
             dataDir: store.root,
             maloon: MaloonIntegration(),
             connectors: connectors,
-            oauthStates: OAuthStateStore()
+            oauthStates: OAuthStateStore(),
+            accounts: AccountStore(dataDir: store.root),
+            sessions: SessionStore(dataDir: store.root, lifetime: AuthConfig.sessionLifetime),
+            throttle: LoginThrottle(),
+            dummyPasswordHash: (try? Bcrypt.hash(Secrets.randomToken())) ?? ""
         )
     }
 
@@ -116,7 +125,10 @@ struct ServerContext: Sendable {
         await store.saveTeam(team)
     }
 
-    func upsertTeam(input: TeamInput, id: UUID?) async throws -> Team {
+    func upsertTeam(input: TeamInput, id: UUID?, lang: String = "en") async throws -> Team {
+        let name = input.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, name.count <= 80 else { throw Abort(.badRequest, reason: SrvL10n.t("srv.teamNameLength", lang: lang)) }
+        guard (input.agents ?? []).count <= 16 else { throw Abort(.badRequest, reason: SrvL10n.t("srv.teamAgentLimit", lang: lang)) }
         let teamID = id ?? input.id ?? UUID()
         var createdAt = Date()
         if let existing = await store.team(id: teamID) {
@@ -124,7 +136,7 @@ struct ServerContext: Sendable {
         }
         let team = Team(
             id: teamID,
-            name: input.name,
+            name: name,
             emoji: input.emoji ?? "🛡️",
             goal: input.goal ?? "",
             agents: input.agents ?? [],
@@ -135,7 +147,13 @@ struct ServerContext: Sendable {
         return team
     }
 
-    func startMission(teamID: UUID?, objective rawObjective: String?, workflowID: String?, language: String? = nil) async throws -> Mission {
+    func startMission(
+        teamID: UUID?,
+        objective rawObjective: String?,
+        workflowID: String? = nil,
+        launchedBy: String? = nil,
+        language: String? = nil
+    ) async throws -> Mission {
         let lang = (language ?? "en").trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("es") ? "es" : "en"
         if let workflowID {
             let workflow = try maloon.workflow(id: workflowID, lang: lang)
@@ -146,7 +164,7 @@ struct ServerContext: Sendable {
             }
             let snapshot = try await maloon.snapshot(lang: lang)
             let objective = workflow.objective + (notes.isEmpty ? "" : "\n\nOwner notes:\n\(notes)")
-            let mission = await store.createMission(
+            var mission = await store.createMission(
                 team: team,
                 objective: objective,
                 sourceName: MaloonIntegration.sourceName,
@@ -154,6 +172,10 @@ struct ServerContext: Sendable {
                 inputContext: snapshot,
                 outputLanguage: lang
             )
+            if let launchedBy {
+                mission.launchedBy = launchedBy
+                await store.saveMission(mission)
+            }
             await engine.launch(missionID: mission.id, team: team)
             return mission
         }
@@ -168,7 +190,11 @@ struct ServerContext: Sendable {
         guard let teamID, let team = await store.team(id: teamID) else {
             throw Abort(.notFound, reason: SrvL10n.t("srv.teamNotFound", lang: lang))
         }
-        let mission = await store.createMission(team: team, objective: objective, outputLanguage: lang)
+        var mission = await store.createMission(team: team, objective: objective, outputLanguage: lang)
+        if let launchedBy {
+            mission.launchedBy = launchedBy
+            await store.saveMission(mission)
+        }
         await engine.launch(missionID: mission.id, team: team)
         return mission
     }
