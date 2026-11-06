@@ -4,15 +4,17 @@ import { api, errorMessage } from '../api/client'
 import type { Mission, Team } from '../api/types'
 import { ErrorBanner, Spinner } from '../components/ui'
 import { Avatar } from '../components/mission'
+import { useDocumentTitle } from '../lib/useDocumentTitle'
 
 export function NewMissionPage() {
   const navigate = useNavigate()
   const [teams, setTeams] = useState<Team[] | null>(null)
   const [teamID, setTeamID] = useState<string>('')
-  const [objective, setObjective] = useState('')
+  const [objective, setObjective] = useState(() => new URLSearchParams(window.location.search).get('objective') ?? '')
   const [ideas, setIdeas] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  useDocumentTitle('New mission')
 
   useEffect(() => {
     api<Team[]>('teams')

@@ -6,6 +6,7 @@ import { ErrorBanner, formatDate, Spinner } from '../components/ui'
 import { useAuth } from '../auth/AuthContext'
 import type { ProviderStatus } from '../api/types'
 import { formatCost, StatusChip } from '../components/mission'
+import { useDocumentTitle } from '../lib/useDocumentTitle'
 
 const FILTERS: (MissionStatus | 'all')[] = ['all', 'running', 'completed', 'failed', 'stopped']
 
@@ -16,6 +17,8 @@ export function MissionsPage() {
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>('all')
   const { isAdmin } = useAuth()
   const [needsKeys, setNeedsKeys] = useState(false)
+  const liveCount = missions?.filter((m) => m.status === 'running' || m.status === 'queued').length ?? 0
+  useDocumentTitle(liveCount > 0 ? `● ${liveCount} running · Missions` : 'Missions')
 
   useEffect(() => {
     if (!isAdmin) return
@@ -35,8 +38,18 @@ export function MissionsPage() {
 
   useEffect(() => {
     void load()
-    const timer = window.setInterval(() => void load(), 10_000)
-    return () => window.clearInterval(timer)
+    // Refresh while the tab is visible, and right away when you come back to it.
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void load()
+    }, 10_000)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void load()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.clearInterval(timer)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
   }, [load])
 
   const shown = useMemo(() => {
