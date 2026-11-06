@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { api, errorMessage } from '../api/client'
 import type { Ack, ProviderConfig, ProviderStatus, ProviderTestResult } from '../api/types'
 import { ErrorBanner, Spinner } from '../components/ui'
@@ -7,6 +8,7 @@ const BLANK: ProviderConfig = { id: '', name: '', kind: 'openAICompatible', base
 
 /** Admin only: provider configs and the API keys stored on the server. Keys are write-only from here. */
 export function SettingsPage() {
+  useDocumentTitle('Providers')
   const [providers, setProviders] = useState<ProviderStatus[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)

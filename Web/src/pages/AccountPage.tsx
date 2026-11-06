@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { api, errorMessage } from '../api/client'
 import type { Ack } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
@@ -6,6 +7,7 @@ import { ErrorBanner, Field } from '../components/ui'
 import { AppTokens } from './AppTokens'
 
 export function AccountPage() {
+  useDocumentTitle('Account')
   const { me, signOut } = useAuth()
   const [form, setForm] = useState({ currentPassword: '', newPassword: '', confirm: '' })
   const [error, setError] = useState<string | null>(null)

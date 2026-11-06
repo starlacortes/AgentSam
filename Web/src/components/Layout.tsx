@@ -1,10 +1,35 @@
-import { NavLink, Outlet } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { Logo } from './ui'
 
+interface NavItem {
+  to: string
+  label: string
+  end?: boolean
+}
+
 export function Layout() {
-  const { me, isAdmin } = useAuth()
+  const { me, isAdmin, signOut } = useAuth()
+  const location = useLocation()
+  const [moreOpen, setMoreOpen] = useState(false)
   const pill = ({ isActive }: { isActive: boolean }) => (isActive ? 'pill active' : 'pill')
+
+  const primary: NavItem[] = [
+    { to: '/', label: 'Missions', end: true },
+    { to: '/teams', label: 'Teams' },
+    { to: '/templates', label: 'Templates' },
+  ]
+  const secondary: NavItem[] = [
+    ...(isAdmin ? [{ to: '/settings', label: 'Providers' }] : []),
+    ...(isAdmin ? [{ to: '/people', label: 'People' }] : []),
+    { to: '/account', label: 'Account' },
+  ]
+
+  // Close the phone menu whenever the page changes.
+  useEffect(() => setMoreOpen(false), [location.pathname])
+
+  const moreActive = secondary.some((item) => location.pathname.startsWith(item.to))
 
   return (
     <>
@@ -13,36 +38,52 @@ export function Layout() {
           <Logo />
         </NavLink>
         <nav className="nav" aria-label="Main">
-          <NavLink to="/" end className={pill}>
-            Missions
-          </NavLink>
-          <NavLink to="/teams" className={pill}>
-            Teams
-          </NavLink>
-          <NavLink to="/templates" className={pill}>
-            Templates
-          </NavLink>
-          {isAdmin ? (
-            <NavLink to="/settings" className={pill}>
-              Providers
+          {[...primary, ...secondary].map((item) => (
+            <NavLink key={item.to} to={item.to} end={item.end} className={pill}>
+              {item.label}
             </NavLink>
-          ) : null}
-          {isAdmin ? (
-            <NavLink to="/people" className={pill}>
-              People
-            </NavLink>
-          ) : null}
-          <NavLink to="/account" className={pill}>
-            Account
-          </NavLink>
+          ))}
         </nav>
         <span className="whoami">
           {me?.name} · {me?.role}
         </span>
+        <button className="pill signout" onClick={() => void signOut()}>
+          Sign out
+        </button>
       </header>
       <main className="page">
         <Outlet />
       </main>
+
+      {/* Phone navigation: the three main sections plus a "More" sheet for everything else. */}
+      <nav className="tabbar" aria-label="Main">
+        {primary.map((item) => (
+          <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => (isActive ? 'tab active' : 'tab')}>
+            {item.label}
+          </NavLink>
+        ))}
+        <button className={moreActive || moreOpen ? 'tab active' : 'tab'} aria-expanded={moreOpen} onClick={() => setMoreOpen((open) => !open)}>
+          More
+        </button>
+      </nav>
+      {moreOpen ? (
+        <>
+          <div className="sheet-backdrop" onClick={() => setMoreOpen(false)} />
+          <div className="sheet" role="menu">
+            <div className="sheet-who mono">
+              {me?.name} · {me?.role}
+            </div>
+            {secondary.map((item) => (
+              <NavLink key={item.to} to={item.to} role="menuitem" className={({ isActive }) => (isActive ? 'sheet-item active' : 'sheet-item')}>
+                {item.label}
+              </NavLink>
+            ))}
+            <button className="sheet-item danger" role="menuitem" onClick={() => void signOut()}>
+              Sign out
+            </button>
+          </div>
+        </>
+      ) : null}
     </>
   )
 }
