@@ -50,8 +50,11 @@ func voiceRoutes(
                 VoiceInfoResponse.Option(
                     id: provider.id,
                     name: provider.name,
-                    canTranscribe: SpeechDefaults.sttModels[provider.id] != nil,
+                    canTranscribe: SpeechDefaults.transcriptionDialect(for: provider) != nil,
+                    // Built-in providers without speech are left out; a provider you added yourself
+                    // (for example a self-hosted Kokoro server) can be picked for speech.
                     canSpeak: SpeechDefaults.ttsModels[provider.id] != nil
+                        || !ProviderConfig.builtin.contains(where: { $0.id == provider.id })
                 )
             }
         return VoiceInfoResponse(setup: setup, settings: settings, providers: options, voices: SpeechDefaults.ttsVoices)

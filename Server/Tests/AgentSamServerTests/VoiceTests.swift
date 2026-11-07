@@ -46,6 +46,42 @@ final class VoiceTests: XCTestCase {
         XCTAssertEqual(setup.stt?.providerID, "openai")
     }
 
+    // MARK: GreenPT
+
+    func testGreenPTKeyTranscribesWithGreenS() {
+        let setup = resolve(keys: ["anthropic", "greenpt"])
+        XCTAssertEqual(setup.stt?.providerID, "greenpt")
+        XCTAssertEqual(setup.stt?.model, "green-s")
+        XCTAssertNil(setup.tts, "GreenPT has no text-to-speech")
+    }
+
+    func testGreenPTAddedByHandIsRecognizedByHost() {
+        let custom = ProviderConfig(id: "my-green", name: "Green", kind: .openAICompatible, baseURL: "https://api.eu.greenpt.ai/v1", models: ["glm-5.3"])
+        XCTAssertEqual(SpeechDefaults.transcriptionDialect(for: custom), .greenPT)
+        XCTAssertEqual(SpeechDefaults.sttModel(for: custom), "green-s")
+        let setup = SpeechDefaults.resolve(settings: VoiceSettings(), providers: providers + [custom]) { $0.id == "my-green" }
+        XCTAssertEqual(setup.stt?.providerID, "my-green")
+    }
+
+    func testProvidersWithoutSpeechAreNotOffered() {
+        let deepseek = providers.first { $0.id == "deepseek" }!
+        XCTAssertNil(SpeechDefaults.transcriptionDialect(for: deepseek))
+    }
+
+    func testGreenPTRequestAndResponseShape() throws {
+        let provider = providers.first { $0.id == "greenpt" }!
+        let url = try SpeechClient.greenPTListenURL(provider, model: "green-s", language: "es")
+        XCTAssertEqual(url.host, "api.greenpt.ai")
+        XCTAssertEqual(url.path, "/v1/listen")
+        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        XCTAssertTrue(query.contains(URLQueryItem(name: "model", value: "green-s")))
+        XCTAssertTrue(query.contains(URLQueryItem(name: "language", value: "es")))
+
+        let body = #"{"metadata":{},"results":{"channels":[{"alternatives":[{"transcript":" Hola equipo. ","words":[]}]}]}}"#
+        XCTAssertEqual(try SpeechClient.greenPTTranscript(Data(body.utf8)), "Hola equipo.")
+        XCTAssertThrowsError(try SpeechClient.greenPTTranscript(Data("not json".utf8)))
+    }
+
     // MARK: Upload format
 
     func testMultipartBodyCarriesFieldsAndFile() throws {

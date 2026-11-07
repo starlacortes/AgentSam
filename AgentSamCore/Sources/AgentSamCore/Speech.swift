@@ -39,12 +39,40 @@ public struct VoiceSetup: Codable, Hashable, Sendable {
     public var tts: Engine?
 }
 
+/// How a provider's speech-to-text API is shaped.
+public enum TranscriptionDialect: String, Codable, Sendable {
+    /// `POST /audio/transcriptions`, multipart upload, Bearer auth (OpenAI, Groq).
+    case openAI
+    /// `POST /listen`, raw audio body, Token auth, Deepgram-style JSON (GreenPT).
+    case greenPT
+}
+
 public enum SpeechDefaults {
     /// Speech-to-text models for providers with an OpenAI-style `/audio/transcriptions` endpoint, best first.
     public static let sttModels: [String: String] = [
         "openai": "gpt-4o-mini-transcribe",
         "groq": "whisper-large-v3-turbo",
+        "greenpt": "green-s",
     ]
+
+    /// Which transcription API a provider speaks, or nil when it has none we know of.
+    /// GreenPT is recognized by its host too, so a provider added by hand under another id still works.
+    public static func transcriptionDialect(for provider: ProviderConfig) -> TranscriptionDialect? {
+        let host = URL(string: provider.baseURL)?.host?.lowercased() ?? ""
+        if provider.id == "greenpt" || host == "greenpt.ai" || host.hasSuffix(".greenpt.ai") { return .greenPT }
+        if sttModels[provider.id] != nil || host == "api.openai.com" || host == "api.groq.com" { return .openAI }
+        return nil
+    }
+
+    /// The default speech-to-text model for a provider that can transcribe.
+    public static func sttModel(for provider: ProviderConfig) -> String? {
+        if let model = sttModels[provider.id] { return model }
+        switch transcriptionDialect(for: provider) {
+        case .greenPT: return "green-s"
+        case .openAI: return URL(string: provider.baseURL)?.host == "api.groq.com" ? "whisper-large-v3-turbo" : "gpt-4o-mini-transcribe"
+        case nil: return nil
+        }
+    }
     /// Text-to-speech models for providers with an OpenAI-style `/audio/speech` endpoint.
     public static let ttsModels: [String: String] = [
         "openai": "gpt-4o-mini-tts",
@@ -62,11 +90,20 @@ public enum SpeechDefaults {
 
         var setup = VoiceSetup()
 
-        let sttProvider = usable(settings.sttProviderID)
-            ?? usable("openai") ?? usable("groq")
+        func canTranscribe(_ provider: ProviderConfig?) -> ProviderConfig? {
+            guard let provider, transcriptionDialect(for: provider) != nil else { return nil }
+            return provider
+        }
+        // An explicit pick wins; otherwise OpenAI, then Groq, then GreenPT (any id on its host).
+        var greenPT: ProviderConfig?
+        for candidate in providers where transcriptionDialect(for: candidate) == .greenPT {
+            if let found = usable(candidate.id) { greenPT = found; break }
+        }
+        let sttProvider = canTranscribe(usable(settings.sttProviderID))
+            ?? usable("openai") ?? usable("groq") ?? greenPT
         if let provider = sttProvider {
             let model = nonEmpty(settings.sttProviderID == provider.id ? settings.sttModel : nil)
-                ?? sttModels[provider.id] ?? "whisper-1"
+                ?? sttModel(for: provider) ?? "whisper-1"
             setup.stt = .init(providerID: provider.id, providerName: provider.name, model: model)
         }
 
@@ -119,6 +156,9 @@ public struct SpeechClient: Sendable {
     public func transcribe(audio: Data, mimeType: String, provider: ProviderConfig, key: String, model: String, language: String? = nil) async throws -> String {
         guard !audio.isEmpty else { throw SpeechError("The recording was empty.") }
         guard audio.count <= Self.maxAudioBytes else { throw SpeechError("The recording is too long.") }
+        if SpeechDefaults.transcriptionDialect(for: provider) == .greenPT {
+            return try await transcribeGreenPT(audio: audio, mimeType: mimeType, provider: provider, key: key, model: model, language: language)
+        }
 
         let boundary = "agentsam-\(UUID().uuidString)"
         var fields: [(String, String)] = [("model", model), ("response_format", "json")]
@@ -144,6 +184,53 @@ public struct SpeechClient: Sendable {
         guard let text = try? JSONDecoder().decode(Transcription.self, from: data).text else {
             throw SpeechError("The speech provider sent back something unexpected.")
         }
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// GreenPT's Deepgram-style API: raw audio in the body, options in the query, `Token` auth.
+    private func transcribeGreenPT(audio: Data, mimeType: String, provider: ProviderConfig, key: String, model: String, language: String?) async throws -> String {
+        var request = URLRequest(url: try Self.greenPTListenURL(provider, model: model, language: language))
+        request.httpMethod = "POST"
+        request.setValue("Token \(key)", forHTTPHeaderField: "Authorization")
+        request.setValue(Self.baseType(mimeType), forHTTPHeaderField: "Content-Type")
+        request.httpBody = audio
+
+        let (data, response) = try await send(request)
+        try Self.check(response, data)
+        return try Self.greenPTTranscript(data)
+    }
+
+    public static func greenPTListenURL(_ provider: ProviderConfig, model: String, language: String?) throws -> URL {
+        guard var components = URLComponents(url: try endpoint(provider, "listen"), resolvingAgainstBaseURL: false) else {
+            throw SpeechError("The provider's base URL is invalid.")
+        }
+        var query = [
+            URLQueryItem(name: "model", value: model),
+            URLQueryItem(name: "smart_format", value: "true"),
+            URLQueryItem(name: "punctuate", value: "true"),
+        ]
+        if let language, !language.isEmpty { query.append(URLQueryItem(name: "language", value: language)) }
+        components.queryItems = query
+        guard let url = components.url else { throw SpeechError("The provider's base URL is invalid.") }
+        return url
+    }
+
+    /// Reads `results.channels[0].alternatives[0].transcript`.
+    public static func greenPTTranscript(_ data: Data) throws -> String {
+        struct Response: Decodable {
+            struct Results: Decodable {
+                struct Channel: Decodable {
+                    struct Alternative: Decodable { var transcript: String? }
+                    var alternatives: [Alternative]?
+                }
+                var channels: [Channel]?
+            }
+            var results: Results?
+        }
+        guard let decoded = try? JSONDecoder().decode(Response.self, from: data) else {
+            throw SpeechError("The speech provider sent back something unexpected.")
+        }
+        let text = decoded.results?.channels?.first?.alternatives?.first?.transcript ?? ""
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
