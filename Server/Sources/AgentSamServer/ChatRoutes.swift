@@ -103,9 +103,13 @@ func chatRoutes(_ api: RoutesBuilder, admin adminAPI: RoutesBuilder, ctx: Server
         if let id = body.defaultTeamID, await ctx.store.team(id: id) == nil {
             throw Abort(.notFound, reason: SrvL10n.t("srv.teamNotFound", lang: SrvL10n.lang(for: req)))
         }
-        await chats.saveSettings(ChatSettings(defaultTeamID: body.defaultTeamID))
+        var settings = await chats.loadSettings()
+        settings.defaultTeamID = body.defaultTeamID
+        await chats.saveSettings(settings)
         return try req.json(ChatSettingsResponse(defaultTeamID: body.defaultTeamID, effectiveTeamID: await effectiveTeamID()))
     }
+
+    voiceRoutes(api, admin: adminAPI, ctx: ctx, chats: chats, ownedChat: ownedChat)
 
     api.get("chats") { req async throws -> Response in
         let principal = try req.requirePrincipal()
