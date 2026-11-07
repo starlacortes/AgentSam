@@ -82,6 +82,35 @@ final class VoiceTests: XCTestCase {
         XCTAssertThrowsError(try SpeechClient.greenPTTranscript(Data("not json".utf8)))
     }
 
+    // MARK: Kokoro
+
+    private let kokoro = ProviderConfig(id: "kokoro", name: "Kokoro", kind: .openAICompatible, baseURL: "https://voice.example.org/v1", models: ["kokoro"])
+
+    func testKokoroIsPickedForSpeechAndChoosesVoiceByLanguage() {
+        let setup = SpeechDefaults.resolve(settings: VoiceSettings(), providers: providers + [kokoro]) { ["openai", "kokoro"].contains($0.id) }
+        XCTAssertEqual(setup.stt?.providerID, "openai", "Kokoro only speaks")
+        XCTAssertEqual(setup.tts?.providerID, "kokoro", "A Kokoro server you added wins over OpenAI")
+        XCTAssertEqual(setup.tts?.model, "kokoro")
+        XCTAssertNil(setup.tts?.voice)
+        XCTAssertEqual(SpeechDefaults.defaultVoice(for: kokoro, language: "en"), "af_heart")
+        XCTAssertEqual(SpeechDefaults.defaultVoice(for: kokoro, language: "es"), "ef_dora")
+        XCTAssertEqual(SpeechDefaults.voices(for: kokoro).first, "af_heart")
+    }
+
+    func testKokoroIsRecognizedByItsAddress() {
+        let byURL = ProviderConfig(id: "tts", name: "Voice", kind: .openAICompatible, baseURL: "https://kokoro.example.org/v1", models: [])
+        XCTAssertTrue(SpeechDefaults.isKokoro(byURL))
+        XCTAssertFalse(SpeechDefaults.isKokoro(providers.first { $0.id == "openai" }!))
+    }
+
+    func testVoiceThatOpenAIDoesNotKnowFallsBack() {
+        let settings = VoiceSettings(ttsProviderID: "openai", ttsVoice: "af_heart")
+        XCTAssertEqual(resolve(settings, keys: ["openai"]).tts?.voice, "alloy")
+        let kokoroSettings = VoiceSettings(ttsProviderID: "kokoro", ttsVoice: "bm_george")
+        let setup = SpeechDefaults.resolve(settings: kokoroSettings, providers: providers + [kokoro]) { _ in true }
+        XCTAssertEqual(setup.tts?.voice, "bm_george")
+    }
+
     // MARK: Upload format
 
     func testMultipartBodyCarriesFieldsAndFile() throws {

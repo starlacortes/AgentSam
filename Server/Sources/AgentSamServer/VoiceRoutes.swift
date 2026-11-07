@@ -53,11 +53,12 @@ func voiceRoutes(
                     canTranscribe: SpeechDefaults.transcriptionDialect(for: provider) != nil,
                     // Built-in providers without speech are left out; a provider you added yourself
                     // (for example a self-hosted Kokoro server) can be picked for speech.
-                    canSpeak: SpeechDefaults.ttsModels[provider.id] != nil
+                    canSpeak: SpeechDefaults.ttsModels[provider.id] != nil || SpeechDefaults.isKokoro(provider)
                         || !ProviderConfig.builtin.contains(where: { $0.id == provider.id })
                 )
             }
-        return VoiceInfoResponse(setup: setup, settings: settings, providers: options, voices: SpeechDefaults.ttsVoices)
+        let speaker = setup.tts.flatMap { tts in providers.first { $0.id == tts.providerID } }
+        return VoiceInfoResponse(setup: setup, settings: settings, providers: options, voices: SpeechDefaults.voices(for: speaker))
     }
 
     @Sendable func engine(_ engine: VoiceSetup.Engine, _ providers: [ProviderConfig], lang: String) throws -> (ProviderConfig, String) {
@@ -128,7 +129,7 @@ func voiceRoutes(
                 provider: provider,
                 key: key,
                 model: tts.model,
-                voice: tts.voice ?? SpeechDefaults.ttsVoice,
+                voice: tts.voice ?? SpeechDefaults.defaultVoice(for: provider, language: chat.language),
                 instructions: "You are \(name), a calm, friendly team coordinator giving a quick spoken update. Natural pace, warm and clear."
             )
             var headers = HTTPHeaders()

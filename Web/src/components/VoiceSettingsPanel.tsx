@@ -31,7 +31,7 @@ export function VoiceSettingsPanel({ info, onSaved, onError }: { info: VoiceInfo
       <div className="voice-summary dim">
         {stt ? `Listens with ${stt.providerName}` : 'No speech-to-text key'}
         {' · '}
-        {tts ? `speaks with ${tts.providerName} (${tts.voice})` : 'speaks with the browser voice'}
+        {tts ? `speaks with ${tts.providerName} (${tts.voice ?? 'voice by language'})` : 'speaks with the browser voice'}
       </div>
       {open ? (
         <div className="voice-fields">
@@ -57,7 +57,7 @@ export function VoiceSettingsPanel({ info, onSaved, onError }: { info: VoiceInfo
               className="select"
               disabled={busy}
               value={info.settings.ttsProviderID ?? ''}
-              onChange={(e) => void save({ ttsProviderID: e.target.value || undefined, ttsModel: undefined })}
+              onChange={(e) => void save({ ttsProviderID: e.target.value || undefined, ttsModel: undefined, ttsVoice: undefined })}
             >
               <option value="">Automatic</option>
               {speakers.map((p) => (
@@ -71,7 +71,8 @@ export function VoiceSettingsPanel({ info, onSaved, onError }: { info: VoiceInfo
           {tts ? (
             <label className="field">
               <span>Voice</span>
-              <select className="select" disabled={busy} value={tts.voice ?? ''} onChange={(e) => void save({ ttsVoice: e.target.value })}>
+              <select className="select" disabled={busy} value={tts.voice ?? ''} onChange={(e) => void save({ ttsVoice: e.target.value || undefined })}>
+                {tts.voice && info.voices.includes(tts.voice) ? null : <option value={tts.voice ?? ''}>{tts.voice ?? 'Automatic (by language)'}</option>}
                 {info.voices.map((v) => (
                   <option key={v} value={v}>
                     {v}

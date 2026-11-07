@@ -80,6 +80,35 @@ public enum SpeechDefaults {
     public static let ttsVoice = "alloy"
     public static let ttsVoices = ["alloy", "ash", "ballad", "coral", "echo", "fable", "nova", "onyx", "sage", "shimmer"]
 
+    // MARK: Kokoro
+
+    /// A self-hosted Kokoro server (SpeakCrate, Kokoro-FastAPI and similar), recognized by its id, name, address or model list.
+    public static func isKokoro(_ provider: ProviderConfig) -> Bool {
+        let hints = [provider.id, provider.name, provider.baseURL] + provider.models
+        return hints.contains { $0.lowercased().contains("kokoro") || $0.lowercased().contains("speakcrate") }
+    }
+
+    public static let kokoroModel = "kokoro"
+    public static let kokoroVoice = "af_heart"
+    /// Kokoro's own voices for English and Spanish. Kokoro servers also take the OpenAI names, mapped to similar voices.
+    public static let kokoroVoices = [
+        "af_heart", "af_bella", "af_nicole", "af_sarah", "af_sky", "am_michael", "am_adam", "am_fenrir", "am_puck",
+        "bf_emma", "bf_isabella", "bm_george", "bm_fable", "bm_lewis",
+        "ef_dora", "em_alex", "em_santa",
+    ]
+
+    /// The voices worth offering for a provider.
+    public static func voices(for provider: ProviderConfig?) -> [String] {
+        guard let provider else { return ttsVoices }
+        return isKokoro(provider) ? kokoroVoices : ttsVoices
+    }
+
+    /// The voice to use when none was chosen. Kokoro voices speak one language each, so a Spanish chat gets a Spanish voice.
+    public static func defaultVoice(for provider: ProviderConfig, language: String? = nil) -> String {
+        guard isKokoro(provider) else { return ttsVoice }
+        return (language ?? "").lowercased().hasPrefix("es") ? "ef_dora" : kokoroVoice
+    }
+
     /// Picks engines from the settings, falling back to the first provider that has a key.
     public static func resolve(settings: VoiceSettings, providers: [ProviderConfig], hasKey: (ProviderConfig) -> Bool) -> VoiceSetup {
         func usable(_ id: String?) -> ProviderConfig? {
@@ -108,15 +137,30 @@ public enum SpeechDefaults {
         }
 
         if settings.ttsProviderID != "none" {
-            let ttsProvider = usable(settings.ttsProviderID) ?? usable("openai")
-            if let provider = ttsProvider {
+            // An explicit pick wins; otherwise a Kokoro server you added, then OpenAI.
+            var kokoro: ProviderConfig?
+            for candidate in providers where isKokoro(candidate) {
+                if let found = usable(candidate.id) { kokoro = found; break }
+            }
+            if let provider = usable(settings.ttsProviderID) ?? kokoro ?? usable("openai") {
                 let explicit = settings.ttsProviderID == provider.id
-                let model = nonEmpty(explicit ? settings.ttsModel : nil) ?? ttsModels[provider.id] ?? "tts-1"
-                let voice = nonEmpty(settings.ttsVoice) ?? ttsVoice
-                setup.tts = .init(providerID: provider.id, providerName: provider.name, model: model, voice: voice)
+                let model = nonEmpty(explicit ? settings.ttsModel : nil)
+                    ?? ttsModels[provider.id] ?? (isKokoro(provider) ? kokoroModel : "tts-1")
+                setup.tts = .init(providerID: provider.id, providerName: provider.name, model: model, voice: voice(settings.ttsVoice, for: provider))
             }
         }
         return setup
+    }
+
+    /// The chosen voice, if this provider can use it. Nil means "pick by language when speaking".
+    /// OpenAI only knows its own names; Kokoro takes its own names and the OpenAI ones.
+    static func voice(_ chosen: String?, for provider: ProviderConfig) -> String? {
+        guard let chosen = nonEmpty(chosen) else { return isKokoro(provider) ? nil : ttsVoice }
+        if isKokoro(provider) { return chosen }
+        if provider.id == "openai" || URL(string: provider.baseURL)?.host == "api.openai.com" {
+            return ttsVoices.contains(chosen) ? chosen : ttsVoice
+        }
+        return chosen
     }
 
     private static func nonEmpty(_ text: String?) -> String? {
