@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { api, errorMessage } from '../api/client'
-import type { ChatLine, ChatSettings, CoordinatorChat } from '../api/chatTypes'
+import type { ChatLine, ChatSettings, CoordinatorChat, VoiceInfo } from '../api/chatTypes'
 import type { Team } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { Avatar } from '../components/mission'
 import { ErrorBanner, Spinner, formatDate } from '../components/ui'
+import { Speaker, canRecord, MIN_RECORDING_MS, transcribe, useRecorder } from '../lib/voice'
+import { VoiceSettingsPanel } from '../components/VoiceSettingsPanel'
 import '../styles/coordinator.css'
 
 /** The person's main contact: a conversation with a team's coordinator, who can check and launch missions. */
@@ -19,6 +21,22 @@ export function CoordinatorPage() {
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const endRef = useRef<HTMLDivElement | null>(null)
+  const [voice, setVoice] = useState<VoiceInfo | null>(null)
+  const [transcribing, setTranscribing] = useState(false)
+  const [speaking, setSpeaking] = useState(false)
+  const speaker = useRef<Speaker | null>(null)
+  if (!speaker.current) {
+    speaker.current = new Speaker()
+    speaker.current.onChange = setSpeaking
+  }
+
+  useEffect(() => {
+    api<VoiceInfo>('voice')
+      .then(setVoice)
+      .catch(() => setVoice(null))
+    const current = speaker.current
+    return () => current?.stop()
+  }, [])
 
   const loadChats = useCallback(async () => {
     const list = await api<CoordinatorChat[]>('chats')
@@ -63,9 +81,9 @@ export function CoordinatorPage() {
     }
   }
 
-  async function send(event?: FormEvent) {
+  async function send(event?: FormEvent, spoken?: string) {
     event?.preventDefault()
-    const text = draft.trim()
+    const text = (spoken ?? draft).trim()
     if (!text || sending) return
     setSending(true)
     setError(null)
@@ -77,13 +95,20 @@ export function CoordinatorPage() {
       // Show the person's line right away while the coordinator thinks.
       const optimistic: ChatLine = { id: `local-${Date.now()}`, kind: 'user', text, createdAt: new Date().toISOString() }
       setChat({ ...current, lines: [...current.lines, optimistic] })
-      setDraft('')
+      if (spoken === undefined) setDraft('')
+      const before = current.lines.length
       const updated = await api<CoordinatorChat>(`chats/${current.id}/messages`, { method: 'POST', body: { text } })
       setChat(updated)
+      // A spoken question gets a spoken answer.
+      if (spoken !== undefined) {
+        for (const line of updated.lines.slice(before)) {
+          if (line.kind === 'coordinator') speakLine(updated.id, line)
+        }
+      }
       await loadChats()
     } catch (err) {
       setError(errorMessage(err))
-      setDraft(text)
+      if (spoken === undefined) setDraft(text)
       if (chat) setChat(await api<CoordinatorChat>(`chats/${chat.id}`).catch(() => chat))
     } finally {
       setSending(false)
@@ -109,6 +134,45 @@ export function CoordinatorPage() {
     } catch (err) {
       setError(errorMessage(err))
     }
+  }
+
+  function speakLine(chatID: string, line: ChatLine) {
+    const url = voice?.setup.tts ? `/api/chats/${chatID}/lines/${line.id}/speech` : undefined
+    speaker.current?.enqueue(line.text, url)
+  }
+
+  async function onRecorded(audio: Blob, durationMs: number) {
+      if (durationMs < MIN_RECORDING_MS || audio.size === 0) return
+      setTranscribing(true)
+      setError(null)
+      try {
+        let current = chat
+        if (!current) {
+          current = await api<CoordinatorChat>('chats', { method: 'POST', body: {} })
+          setChat(current)
+        }
+        const text = await transcribe(current.id, audio)
+        setTranscribing(false)
+        if (!text) {
+          setError('I didn’t catch that. Try again a little closer to the mic.')
+          return
+        }
+        await send(undefined, text)
+      } catch (err) {
+        setError(errorMessage(err))
+      } finally {
+        setTranscribing(false)
+      }
+  }
+  const recorder = useRecorder((audio, ms) => void onRecorded(audio, ms), setError)
+  const micReady = !!voice?.setup.stt && canRecord()
+
+  function toggleMic() {
+    // Inside the tap: stop any reply that's playing and let audio play later (iOS needs this).
+    speaker.current?.stop()
+    speaker.current?.unlock()
+    if (recorder.state === 'recording') recorder.stop()
+    else void recorder.start()
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -156,6 +220,7 @@ export function CoordinatorPage() {
             </li>
           ))}
         </ul>
+        {isAdmin && voice ? <VoiceSettingsPanel info={voice} onSaved={setVoice} onError={setError} /> : null}
       </aside>
 
       <section className="coord-main">
@@ -200,7 +265,18 @@ export function CoordinatorPage() {
               mission.
             </div>
           ) : (
-            chat.lines.map((line) => <Line key={line.id} line={line} name={coordinator?.name ?? 'Coordinator'} />)
+            chat.lines.map((line) => (
+              <Line
+                key={line.id}
+                line={line}
+                name={coordinator?.name ?? 'Coordinator'}
+                onPlay={voice ? () => {
+                  speaker.current?.stop()
+                  speaker.current?.unlock()
+                  speakLine(chat.id, line)
+                } : undefined}
+              />
+            ))
           )}
           {sending ? (
             <div className="coord-line coordinator">
@@ -238,17 +314,58 @@ export function CoordinatorPage() {
             maxLength={8000}
             aria-label="Message"
           />
+          {voice ? (
+            <button
+              type="button"
+              className={recorder.state === 'recording' ? 'mic recording' : 'mic'}
+              style={{ ['--level' as string]: recorder.level }}
+              onClick={toggleMic}
+              disabled={!micReady || sending || transcribing}
+              aria-pressed={recorder.state === 'recording'}
+              aria-label={recorder.state === 'recording' ? 'Stop and send' : `Talk to ${coordinator?.name ?? 'your coordinator'}`}
+              title={micReady ? undefined : canRecord() ? 'Add an OpenAI or Groq key under Providers to talk by voice.' : 'This browser can’t record audio.'}
+            >
+              <MicIcon />
+            </button>
+          ) : null}
           <button type="submit" className="btn" disabled={sending || !draft.trim()}>
             Send
           </button>
         </form>
+        <div className="coord-status hint" aria-live="polite">
+          {recorder.state === 'recording'
+            ? 'Listening… tap the mic again when you’re done.'
+            : transcribing
+              ? 'Transcribing…'
+              : speaking
+                ? (
+                    <>
+                      {coordinator?.name ?? 'Coordinator'} is speaking ·{' '}
+                      <button type="button" className="linklike" onClick={() => speaker.current?.stop()}>
+                        Stop
+                      </button>
+                    </>
+                  )
+                : voice && !voice.setup.stt
+                  ? 'Voice needs an OpenAI or Groq key under Providers.'
+                  : null}
+        </div>
         {chat && chat.totalCostUSD > 0 ? <div className="hint">Conversation cost about ${chat.totalCostUSD.toFixed(4)}</div> : null}
       </section>
     </div>
   )
 }
 
-function Line({ line, name }: { line: ChatLine; name: string }) {
+function MicIcon() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="9" y="3" width="6" height="11" rx="3" />
+      <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+    </svg>
+  )
+}
+
+function Line({ line, name, onPlay }: { line: ChatLine; name: string; onPlay?: () => void }) {
   if (line.kind === 'action' || line.kind === 'error') {
     return (
       <div className={`coord-note ${line.kind}`}>
@@ -264,7 +381,14 @@ function Line({ line, name }: { line: ChatLine; name: string }) {
   }
   return (
     <div className={`coord-line ${line.kind}`}>
-      <div className="coord-who">{line.kind === 'user' ? 'You' : name}</div>
+      <div className="coord-who">
+        {line.kind === 'user' ? 'You' : name}
+        {onPlay && line.kind === 'coordinator' ? (
+          <button type="button" className="linklike coord-play" onClick={onPlay} aria-label="Play this reply aloud">
+            ▶ Play
+          </button>
+        ) : null}
+      </div>
       <div className="coord-text">{line.text}</div>
     </div>
   )

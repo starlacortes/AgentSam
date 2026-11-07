@@ -82,3 +82,9 @@
 "srv.chatNotFound" = "Chat no encontrado";
 "srv.chatBusy" = "El coordinador todavía está respondiendo tu último mensaje.";
 "srv.chatMessageLength" = "Los mensajes deben tener entre 1 y 8.000 caracteres.";
+"srv.voiceNoKey" = "El proveedor de voz no tiene clave de API.";
+"srv.voiceUnknownProvider" = "Proveedor desconocido.";
+"srv.voiceNoSTT" = "La entrada de voz necesita una clave de API de OpenAI o Groq. Agrégala en Proveedores.";
+"srv.voiceEmpty" = "La grabación estaba vacía.";
+"srv.voiceNoLine" = "No existe esa respuesta.";
+"srv.voiceNoTTS" = "No hay proveedor de voz configurado, así que se usa la voz del navegador.";
