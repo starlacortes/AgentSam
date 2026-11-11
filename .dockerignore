@@ -12,10 +12,6 @@ DerivedData
 Web/dist
 Server/data
 deploy/.env
-AgentSam.xcodeproj
-AppIOS
-AppMac
-AppShared
 design
 mockups
 
