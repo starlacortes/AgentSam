@@ -136,10 +136,16 @@ function ConnectorCard({ status, onChanged }: { status: ConnectorStatus; onChang
       ) : null}
 
       {status.id === 'googleads' ? (
+        <div className="dim" style={{ fontSize: 12 }}>
+          Ads API access now comes from your Google Cloud project: enable the Google Ads API there, and apply for Explorer access or higher to read live accounts.
+        </div>
+      ) : null}
+
+      {status.id === 'googleads' ? (
         <div className="grid-3">
           <label className="field">
-            <span>Developer token</span>
-            <input className="input mono" type="password" autoComplete="off" value={developerToken} onChange={(e) => setDeveloperToken(e.target.value)} placeholder="From the Ads API Center" />
+            <span>Developer token (optional)</span>
+            <input className="input mono" type="password" autoComplete="off" value={developerToken} onChange={(e) => setDeveloperToken(e.target.value)} placeholder="Only for older Ads API setups" />
           </label>
           <label className="field">
             <span>Manager (login) customer ID</span>
@@ -147,7 +153,7 @@ function ConnectorCard({ status, onChanged }: { status: ConnectorStatus; onChang
           </label>
           <div className="field" style={{ justifyContent: 'flex-end' }}>
             <button className="btn small" disabled={(!developerToken.trim() && !customerId.trim()) || busy !== null} onClick={() => void saveAds()}>
-              {busy === 'ads' ? 'Saving…' : 'Save Ads details'}
+              {busy === 'ads' ? 'Saving…' : 'Save'}
             </button>
           </div>
         </div>

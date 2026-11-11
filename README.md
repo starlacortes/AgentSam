@@ -152,7 +152,7 @@ Agents treat everything a connector returns as untrusted data. `web_fetch` refus
 3. Credentials: create a **Web application** client with these redirect URIs: `https://<your-host>/api/connectors/gmail/callback` and `https://<your-host>/api/connectors/googleads/callback`.
 4. In Railway, set `AGENTSAM_GOOGLE_CLIENT_ID`, `AGENTSAM_GOOGLE_CLIENT_SECRET` and `AGENTSAM_PUBLIC_URL=https://<your-host>`.
 5. On the Connectors page, choose **Connect with Google**. For Gmail, switch on drafts or sending first; if you switch them on later, connect again so Google grants the extra permission.
-6. Google Ads also needs a developer token (Ads API Center) and, if you use a manager account, its customer ID. The connector calls Ads API `v25`; set `AGENTSAM_GOOGLE_ADS_API_VERSION` when Google retires it.
+6. Google Ads access comes from your Google Cloud project: enabling the Google Ads API gives Test access, and the Google Ads API page in the Cloud Console is where you apply for Explorer access or higher to read live accounts. No developer token is needed (one can still be saved for older setups). If you use a manager account, save its customer ID. The connector calls Ads API `v25`; set `AGENTSAM_GOOGLE_ADS_API_VERSION` when Google retires it.
 
 ### Web search
 
