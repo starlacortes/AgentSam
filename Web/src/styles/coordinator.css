@@ -45,3 +45,30 @@
   .coord-main { padding: 14px; min-height: 0; }
   .coord-line { max-width: 92%; }
 }
+
+/* ---------- voice ---------- */
+.mic {
+  --level: 0;
+  flex: none; width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; cursor: pointer;
+  border: 1px solid rgba(74, 217, 158, 0.42); background: var(--deep); color: var(--em2); transition: 0.15s;
+}
+.mic:hover { border-color: var(--em); }
+.mic[disabled] { opacity: 0.4; cursor: not-allowed; }
+.mic.recording {
+  color: #fff; background: #c2453e; border-color: #e5635b;
+  box-shadow: 0 0 0 calc(4px + var(--level) * 14px) rgba(229, 99, 91, 0.22);
+}
+.coord-status { min-height: 18px; }
+.linklike { background: none; border: none; padding: 0; color: var(--em2); cursor: pointer; font: inherit; }
+.linklike:hover { text-decoration: underline; }
+.coord-play { margin-left: 8px; font-size: 11px; opacity: 0.7; }
+.coord-play:hover { opacity: 1; }
+
+.voice-panel { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 10px; font-size: 12px; }
+.voice-panel-toggle {
+  width: 100%; display: flex; justify-content: space-between; background: none; border: none; cursor: pointer;
+  color: var(--ink); font: inherit; font-weight: 600; padding: 2px 0;
+}
+.voice-summary { margin-top: 2px; }
+.voice-fields { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.voice-fields .select { padding: 7px 10px; }

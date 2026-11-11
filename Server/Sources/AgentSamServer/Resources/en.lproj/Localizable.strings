@@ -82,3 +82,9 @@
 "srv.chatNotFound" = "Chat not found";
 "srv.chatBusy" = "The coordinator is still answering your last message.";
 "srv.chatMessageLength" = "Messages must be between 1 and 8,000 characters.";
+"srv.voiceNoKey" = "The speech provider has no API key.";
+"srv.voiceUnknownProvider" = "Unknown provider.";
+"srv.voiceNoSTT" = "Voice input needs an OpenAI or Groq API key. Add one under Providers.";
+"srv.voiceEmpty" = "The recording was empty.";
+"srv.voiceNoLine" = "No such reply.";
+"srv.voiceNoTTS" = "No speech provider is set up, so the browser's own voice is used.";

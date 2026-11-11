@@ -111,9 +111,12 @@ public struct CoordinatorChat: Codable, Identifiable, Hashable, Sendable {
 public struct ChatSettings: Codable, Hashable, Sendable {
     /// The team whose coordinator is the default contact. Nil means the first team.
     public var defaultTeamID: UUID?
+    /// Speech providers for talking to the coordinator. Nil picks them automatically.
+    public var voice: VoiceSettings?
 
-    public init(defaultTeamID: UUID? = nil) {
+    public init(defaultTeamID: UUID? = nil, voice: VoiceSettings? = nil) {
         self.defaultTeamID = defaultTeamID
+        self.voice = voice
     }
 }
 
