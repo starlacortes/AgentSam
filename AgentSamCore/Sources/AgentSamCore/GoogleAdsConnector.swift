@@ -16,8 +16,9 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
     public init() {}
 
     public func isConfigured(keyRing: KeyRing) -> Bool {
+        // Google sign-in is enough: API access is now granted to the Google Cloud project, and a
+        // developer token is only sent when one was saved (older setups still use one).
         !(keyRing.get(GoogleTokenProvider.refreshAccount(for: .googleads)) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !(keyRing.get(Self.developerTokenAccount) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     // MARK: Tool definitions
@@ -121,10 +122,7 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
     }
 
     private func apiContext(token: String, runtime: ConnectorRuntime) throws -> APIContext {
-        guard let developerToken = runtime.keyRing.get(Self.developerTokenAccount)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !developerToken.isEmpty else {
-            throw ConnectorError("Google Ads developer token is not configured.")
-        }
+        let developerToken = runtime.keyRing.get(Self.developerTokenAccount)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let loginCustomerID = runtime.keyRing.get(Self.customerIdAccount)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return APIContext(token: token, developerToken: developerToken, loginCustomerID: loginCustomerID)
     }
@@ -132,8 +130,10 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
     private func headers(_ context: APIContext) -> [String: String] {
         var result: [String: String] = [
             "Authorization": "Bearer \(context.token)",
-            "developer-token": context.developerToken,
         ]
+        if !context.developerToken.isEmpty {
+            result["developer-token"] = context.developerToken
+        }
         if !context.loginCustomerID.isEmpty {
             result["login-customer-id"] = context.loginCustomerID
         }
