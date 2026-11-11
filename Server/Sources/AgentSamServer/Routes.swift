@@ -61,16 +61,10 @@ func routes(_ app: Application, ctx: ServerContext) {
             }
             try ctx.keyRing.set(refreshToken, for: GoogleTokenProvider.refreshAccount(for: connectorID))
             ctx.keyRing.remove(GoogleTokenProvider.cacheAccount(for: connectorID))
-            if entry.clientKind == "app" {
-                let url = "agentsam-ios://connectors/\(connectorID.rawValue)?ok=1"
-                var headers = HTTPHeaders()
-                headers.replaceOrAdd(name: .location, value: url)
-                return Response(status: .seeOther, headers: headers, body: .init())
-            }
-            return oauthResultPage(
-                title: SrvL10n.tf("srv.connectorConnectedTitle", connectorID.displayName, lang: lang),
-                message: SrvL10n.tf("srv.connectorConnectedMessage", connectorID.displayName, lang: lang)
-            )
+            // Back to the web app's Connectors page, which shows the new connection.
+            var headers = HTTPHeaders()
+            headers.replaceOrAdd(name: .location, value: "/connectors?connected=\(connectorID.rawValue)")
+            return Response(status: .seeOther, headers: headers, body: .init())
         } catch {
             return oauthResultPage(title: SrvL10n.t("srv.connectionFailed", lang: lang), message: error.localizedDescription)
         }
@@ -253,7 +247,7 @@ func routes(_ app: Application, ctx: ServerContext) {
 
     // MARK: Connectors
 
-    api.get("connectors") { req async throws -> Response in
+    adminAPI.get("connectors") { req async throws -> Response in
         var statuses: [ConnectorStatus] = []
         for connectorID in ConnectorID.allCases {
             statuses.append(await ctx.connectors.status(for: connectorID))
@@ -261,7 +255,7 @@ func routes(_ app: Application, ctx: ServerContext) {
         return try req.json(statuses)
     }
 
-    api.patch("connectors", ":id") { req async throws -> Response in
+    adminAPI.patch("connectors", ":id") { req async throws -> Response in
         let lang = SrvL10n.lang(for: req)
         guard let idString = req.parameters.get("id"), let connectorID = ConnectorID(rawValue: idString) else {
             throw Abort(.notFound, reason: SrvL10n.t("srv.unknownConnector", lang: lang))
@@ -274,7 +268,7 @@ func routes(_ app: Application, ctx: ServerContext) {
         return try req.json(await ctx.connectors.status(for: connectorID))
     }
 
-    api.post("connectors", ":id", "disconnect") { req async throws -> Response in
+    adminAPI.post("connectors", ":id", "disconnect") { req async throws -> Response in
         let lang = SrvL10n.lang(for: req)
         guard let idString = req.parameters.get("id"), let connectorID = ConnectorID(rawValue: idString) else {
             throw Abort(.notFound, reason: SrvL10n.t("srv.unknownConnector", lang: lang))
@@ -283,7 +277,7 @@ func routes(_ app: Application, ctx: ServerContext) {
         return try req.json(AckResult(ok: true, detail: SrvL10n.tf("srv.disconnected", connectorID.displayName, lang: lang)))
     }
 
-    api.post("connectors", ":id", "test") { req async throws -> Response in
+    adminAPI.post("connectors", ":id", "test") { req async throws -> Response in
         let lang = SrvL10n.lang(for: req)
         guard let idString = req.parameters.get("id"), let connectorID = ConnectorID(rawValue: idString) else {
             throw Abort(.notFound, reason: SrvL10n.t("srv.unknownConnector", lang: lang))
@@ -292,7 +286,7 @@ func routes(_ app: Application, ctx: ServerContext) {
         return try req.json(ConnectorTestResult(ok: result.ok, message: result.message))
     }
 
-    api.post("connectors", "cloudflare", "token") { req async throws -> Response in
+    adminAPI.post("connectors", "cloudflare", "token") { req async throws -> Response in
         let lang = SrvL10n.lang(for: req)
         let body = try req.decodeJSON(KeyBody.self)
         let token = body.key.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -307,20 +301,37 @@ func routes(_ app: Application, ctx: ServerContext) {
         return try req.json(AckResult(ok: true, detail: SrvL10n.t("srv.cloudflareStored", lang: lang)))
     }
 
-    api.post("connectors", "googleads", "credentials") { req async throws -> Response in
+    adminAPI.post("connectors", "web", "key") { req async throws -> Response in
+        let body = try req.decodeJSON(KeyBody.self)
+        let key = body.key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else {
+            throw Abort(.badRequest, reason: "Paste a Brave Search API key.")
+        }
+        let verified = await WebConnector.verifyBraveKey(key, session: ctx.connectors.session)
+        guard verified.ok else {
+            throw Abort(.badRequest, reason: verified.message)
+        }
+        try ctx.keyRing.set(key, for: WebConnector.braveKeyAccount)
+        return try req.json(AckResult(ok: true, detail: verified.message))
+    }
+
+    adminAPI.post("connectors", "googleads", "credentials") { req async throws -> Response in
         let lang = SrvL10n.lang(for: req)
         let body = try req.decodeJSON(GoogleAdsCredentialsBody.self)
         if let developerToken = body.developerToken?.trimmingCharacters(in: .whitespacesAndNewlines), !developerToken.isEmpty {
             try ctx.keyRing.set(developerToken, for: GoogleAdsConnector.developerTokenAccount)
         }
         if let customerId = body.customerId?.trimmingCharacters(in: .whitespacesAndNewlines), !customerId.isEmpty {
-            let normalized = customerId.replacingOccurrences(of: "customers/", with: "")
+            let normalized = customerId
+                .replacingOccurrences(of: "customers/", with: "")
+                .replacingOccurrences(of: "-", with: "")
+                .replacingOccurrences(of: " ", with: "")
             try ctx.keyRing.set(normalized, for: GoogleAdsConnector.customerIdAccount)
         }
         return try req.json(AckResult(ok: true, detail: SrvL10n.t("srv.adsStored", lang: lang)))
     }
 
-    api.post("connectors", ":id", "authorize") { req async throws -> Response in
+    adminAPI.post("connectors", ":id", "authorize") { req async throws -> Response in
         let lang = SrvL10n.lang(for: req)
         guard let idString = req.parameters.get("id"), let connectorID = ConnectorID(rawValue: idString) else {
             throw Abort(.notFound, reason: SrvL10n.t("srv.unknownConnector", lang: lang))

@@ -25,6 +25,7 @@ export function Layout() {
   ]
   const secondary: NavItem[] = [
     ...(isAdmin ? [{ to: '/settings', label: 'Providers' }] : []),
+    ...(isAdmin ? [{ to: '/connectors', label: 'Connectors' }] : []),
     ...(isAdmin ? [{ to: '/people', label: 'People' }] : []),
     { to: '/account', label: 'Account' },
   ]

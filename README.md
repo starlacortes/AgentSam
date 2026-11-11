@@ -69,6 +69,7 @@ GreenPT works as an OpenAI-compatible provider with base URL `https://api.greenp
 | `AGENTSAM_KEY_<PROVIDER>` | e.g. `AGENTSAM_KEY_PROVIDER_ANTHROPIC` — used when no file-backed key is saved for the provider | — |
 | `AGENTSAM_MALOON_URL` / `AGENTSAM_MALOON_TOKEN` | Optional Indigo snapshot URL and service token | disabled |
 | `AGENTSAM_GOOGLE_CLIENT_ID` / `AGENTSAM_GOOGLE_CLIENT_SECRET` | Google Cloud OAuth client for the Gmail/Google Ads connectors | connectors without Google OAuth |
+| `AGENTSAM_GOOGLE_ADS_API_VERSION` | Google Ads API version for the Ads connector | `v25` |
 | `AGENTSAM_PUBLIC_URL` | Public base URL used for Google OAuth redirects (e.g. `https://agentsam.example.com`) | derived from the request |
 | `AGENTSAM_WEB_DIR` | Folder holding the built web app (`Web/dist`) | `./Public` (`/app/Public` in Docker) |
 | `AGENTSAM_INSECURE_COOKIES` | Set only for local plain-HTTP development; drops the `Secure` cookie flag | unset |
@@ -131,32 +132,45 @@ GET    /api/invites  POST /api/invites  DELETE /api/invites/:id     (admin)
 
 All other `/api/*` routes require either `Authorization: Bearer <AGENTSAM_TOKEN>` (the WebSocket also accepts `?token=`) or a signed-in session cookie. Cookie-authenticated writes must send `X-AgentSam-Request: 1`. Provider changes, key storage, connection tests and mission deletion are admin-only. Client-visible API messages follow the request's `Accept-Language` header (`en` | `es`).
 
-## Connectors (optional)
+## Connectors
 
-Connectors give mission workers external tools on top of the sandboxed file tools. No connector means the engine behaves exactly as before. Write-capable actions are opt-in per connector and default to **off**.
+Connectors give mission agents tools beyond their own files. Set them up on the **Connectors** page (admins only). Anything that sends or changes something is off until you switch it on.
 
-| Connector | Worker tools | Write actions (opt-in) |
+| Connector | Agent tools | Off until you switch it on |
 |---|---|---|
 | **Gmail** | `gmail_search`, `gmail_read` | `gmail_draft`, `gmail_send` |
-| **Google Ads** | `googleads_accounts`, `googleads_campaigns`, `googleads_query` (raw GAQL SELECT) | none — read-only |
+| **Google Ads** | `googleads_accounts`, `googleads_campaigns`, `googleads_query` (GAQL SELECT) | none, read-only |
+| **Web** | `web_fetch` (public pages as text); `web_search` once a Brave Search key is saved | none |
 | **Cloudflare** | `cloudflare_zones`, `cloudflare_dns_list` | `cloudflare_dns_create/update/delete`, `cloudflare_purge_cache` |
 
-The web app has no connector screens yet, so connectors are set up through the API:
+Agents treat everything a connector returns as untrusted data. `web_fetch` refuses localhost, private networks, cloud metadata addresses and internal names, including after redirects.
+
+### Google (Gmail and Google Ads)
+
+1. In Google Cloud, create a project and enable the Gmail API and the Google Ads API.
+2. OAuth consent screen: External, and set it to **In production** (it can stay unverified for your own account). In Testing mode Google expires the sign-in every 7 days.
+3. Credentials: create a **Web application** client with these redirect URIs: `https://<your-host>/api/connectors/gmail/callback` and `https://<your-host>/api/connectors/googleads/callback`.
+4. In Railway, set `AGENTSAM_GOOGLE_CLIENT_ID`, `AGENTSAM_GOOGLE_CLIENT_SECRET` and `AGENTSAM_PUBLIC_URL=https://<your-host>`.
+5. On the Connectors page, choose **Connect with Google**. For Gmail, switch on drafts or sending first; if you switch them on later, connect again so Google grants the extra permission.
+6. Google Ads also needs a developer token (Ads API Center) and, if you use a manager account, its customer ID. The connector calls Ads API `v25`; set `AGENTSAM_GOOGLE_ADS_API_VERSION` when Google retires it.
+
+### Web search
+
+Get a key from the [Brave Search API](https://brave.com/search/api/) and save it on the Connectors page. Without a key, agents can still read pages with `web_fetch`.
+
+### API
 
 ```
 GET    /api/connectors                        (status for all connectors)
 PATCH  /api/connectors/:id                    { enabled, permissions }
 POST   /api/connectors/:id/test
 POST   /api/connectors/:id/disconnect
+POST   /api/connectors/web/key                { key }  (Brave Search, verified before storing)
 POST   /api/connectors/cloudflare/token       { key }  (verified before storing)
 POST   /api/connectors/googleads/credentials  { developerToken, customerId }
 POST   /api/connectors/:id/authorize          → { url } for the Google consent flow
-GET    /api/connectors/:id/callback           (Google's OAuth callback — not token-protected)
+GET    /api/connectors/:id/callback           (Google's OAuth callback; returns to /connectors)
 ```
-
-Google OAuth on the server needs a **Web application** client in Google Cloud, with `AGENTSAM_GOOGLE_CLIENT_ID`, `AGENTSAM_GOOGLE_CLIENT_SECRET`, and the redirect URI `https://<your-host>/api/connectors/gmail/callback` (and `.../googleads/callback`) registered as authorized redirect URIs. `AGENTSAM_PUBLIC_URL` pins the public base URL; otherwise it is derived from the request (including `X-Forwarded-Proto/Host`).
-
-
 
 ## Repository layout
 
@@ -169,7 +183,7 @@ AgentSamCore/            the engine (Swift package)
   Speech.swift             speech-to-text and text-to-speech providers
   KeyRing.swift            file + env key storage
   Tools.swift              sandboxed agent file tools
-  Connectors.swift, Google*, Gmail*, Cloudflare*   optional connectors
+  Connectors.swift, Gmail*, GoogleAds*, Web*, Cloudflare*   connectors (outside tools for agents)
   PromptBuilder.swift      every prompt in one place, output contracts
   MissionEngine.swift      the orchestrator: plan → parallel work → verify → report
   MissionStore.swift       file persistence, JSONL ledger, live event bus

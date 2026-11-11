@@ -188,3 +188,26 @@ export interface ProviderTestResult {
   ok: boolean
   message: string
 }
+
+export type ConnectorId = 'gmail' | 'googleads' | 'cloudflare' | 'web'
+
+export interface ConnectorPermissions {
+  sendEmail: boolean
+  createDraft: boolean
+  dnsWrite: boolean
+}
+
+export interface ConnectorStatus {
+  id: ConnectorId
+  name: string
+  detail: string
+  enabled: boolean
+  configured: boolean
+  permissions: ConnectorPermissions
+  oauthAvailable: boolean
+}
+
+export interface ConnectorTestResult {
+  ok: boolean
+  message: string
+}
