@@ -2,8 +2,7 @@ import Vapor
 import AgentSamCore
 import Foundation
 
-/// The curated team templates, served to the web app. Mirrors AppShared/TeamTemplateCatalog.swift
-/// (the native apps keep their own SwiftUI copy, which also carries cover colors as SwiftUI values).
+/// The curated team templates, served to the web app.
 struct ServerTeamTemplate: Codable, Sendable {
     var id: String
     var name: String

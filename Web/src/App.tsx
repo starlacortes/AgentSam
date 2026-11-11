@@ -3,6 +3,7 @@ import { useAuth } from './auth/AuthContext'
 import { Layout } from './components/Layout'
 import { Spinner } from './components/ui'
 import { AccountPage } from './pages/AccountPage'
+import { ConnectorsPage } from './pages/ConnectorsPage'
 import { CoordinatorPage } from './pages/CoordinatorPage'
 import { MissionPage } from './pages/MissionPage'
 import { MissionsPage } from './pages/MissionsPage'
@@ -50,6 +51,7 @@ export function App() {
             <Route path="welcome" element={<WelcomePage />} />
             {isAdmin ? <Route path="people" element={<PeoplePage />} /> : null}
             {isAdmin ? <Route path="settings" element={<SettingsPage />} /> : null}
+            {isAdmin ? <Route path="connectors" element={<ConnectorsPage />} /> : null}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

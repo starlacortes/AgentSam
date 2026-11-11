@@ -5,7 +5,8 @@ import FoundationNetworking
 
 public struct GoogleAdsConnector: ConnectorToolProvider {
     public static let apiBase = "https://googleads.googleapis.com"
-    public static let apiVersion = "v19"
+    /// Google retires each Ads API version about a year after release; override with AGENTSAM_GOOGLE_ADS_API_VERSION.
+    public static let apiVersion = ProcessInfo.processInfo.environment["AGENTSAM_GOOGLE_ADS_API_VERSION"].flatMap { $0.isEmpty ? nil : $0 } ?? "v25"
     public static let oauthScope = "https://www.googleapis.com/auth/adwords"
     public static let developerTokenAccount = "connector.googleads.developerToken"
     public static let customerIdAccount = "connector.googleads.customerId"

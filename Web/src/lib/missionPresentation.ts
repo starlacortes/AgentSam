@@ -1,4 +1,4 @@
-// Port of AppShared/MissionPresentation.swift: turns a mission's RunEvents into the
+// Turns a mission's RunEvents into the
 // task plan, agent stage states and team chatter the live view shows.
 import type { AgentProfile, AgentRole, Mission, RunEvent, Team } from '../api/types'
 
