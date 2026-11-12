@@ -40,6 +40,8 @@ struct SecurityHeadersMiddleware: AsyncMiddleware {
         "style-src 'self' 'unsafe-inline'",
         "img-src 'self' data:",
         "font-src 'self'",
+        // Spoken replies: MP3s from this server, and a tiny data: clip that unlocks audio on iOS.
+        "media-src 'self' data: blob:",
         "connect-src 'self'",
         "object-src 'none'",
         "base-uri 'none'",

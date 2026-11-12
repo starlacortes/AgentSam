@@ -77,3 +77,14 @@
 "maloon.workflow.customer-marketing.summary" = "Draft useful customer communications and service marketing from current business context.";
 "maloon.workflow.customer-marketing.behavior" = "Drafts only · nothing is published";
 "maloon.workflow.customer-marketing.objective" = "Using only the supplied business, service, quote, and job context, propose a small set of useful customer communications and marketing drafts. Ground service descriptions and prices in the snapshot, keep claims supportable, and identify the intended audience and channel for each draft. Do not publish, send, invent testimonials, or make guarantees that are not present in the source data.";
+
+/* Coordinator chat */
+"srv.chatNotFound" = "Chat not found";
+"srv.chatBusy" = "The coordinator is still answering your last message.";
+"srv.chatMessageLength" = "Messages must be between 1 and 8,000 characters.";
+"srv.voiceNoKey" = "The speech provider has no API key.";
+"srv.voiceUnknownProvider" = "Unknown provider.";
+"srv.voiceNoSTT" = "Voice input needs an OpenAI or Groq API key. Add one under Providers.";
+"srv.voiceEmpty" = "The recording was empty.";
+"srv.voiceNoLine" = "No such reply.";
+"srv.voiceNoTTS" = "No speech provider is set up, so the browser's own voice is used.";

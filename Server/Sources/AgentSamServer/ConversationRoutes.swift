@@ -42,6 +42,8 @@ struct ProposalApplication: Encodable {
 }
 
 func conversationRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
+    conversationVoiceRoutes(api, ctx: ctx)
+
     api.get("conversations") { req async throws -> Response in
         let owner = try req.requirePrincipal().conversationOwnerID
         return try req.json(await ctx.conversations.list(ownerID: owner))

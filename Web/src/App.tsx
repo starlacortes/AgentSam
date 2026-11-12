@@ -3,6 +3,7 @@ import { useAuth } from './auth/AuthContext'
 import { Layout } from './components/Layout'
 import { Spinner } from './components/ui'
 import { AccountPage } from './pages/AccountPage'
+import { ConnectorsPage } from './pages/ConnectorsPage'
 import { CoordinatorPage } from './pages/CoordinatorPage'
 import { MissionPage } from './pages/MissionPage'
 import { MissionsPage } from './pages/MissionsPage'
@@ -41,6 +42,7 @@ export function App() {
           <Route element={<Layout />}>
             <Route index element={<CoordinatorPage />} />
             <Route path="chats/:id" element={<CoordinatorPage />} />
+            <Route path="coordinator" element={<Navigate to="/" replace />} />
             <Route path="missions" element={<MissionsPage />} />
             <Route path="missions/new" element={<NewMissionPage />} />
             <Route path="missions/:id" element={<MissionPage />} />
@@ -52,6 +54,7 @@ export function App() {
             {isAdmin ? <Route path="people" element={<PeoplePage />} /> : null}
             {isAdmin ? <Route path="provisioning" element={<ProvisioningPage />} /> : null}
             {isAdmin ? <Route path="settings" element={<SettingsPage />} /> : null}
+            {isAdmin ? <Route path="connectors" element={<ConnectorsPage />} /> : null}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

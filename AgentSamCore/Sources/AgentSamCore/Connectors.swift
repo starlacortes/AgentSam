@@ -9,12 +9,14 @@ public enum ConnectorID: String, Codable, CaseIterable, Hashable, Sendable {
     case gmail
     case googleads
     case cloudflare
+    case web
 
     public var displayName: String {
         switch self {
         case .gmail: "Gmail"
         case .googleads: "Google Ads"
         case .cloudflare: "Cloudflare"
+        case .web: "Web"
         }
     }
 
@@ -23,6 +25,7 @@ public enum ConnectorID: String, Codable, CaseIterable, Hashable, Sendable {
         case .gmail: "Search, read, draft, and optionally send email through your Gmail account."
         case .googleads: "Run read-only GAQL queries against your Google Ads accounts."
         case .cloudflare: "Inspect Cloudflare zones and DNS, with optional write access."
+        case .web: "Read public web pages, and search the web with a Brave Search key."
         }
     }
 
@@ -30,6 +33,7 @@ public enum ConnectorID: String, Codable, CaseIterable, Hashable, Sendable {
     public var credentialAccounts: [String] {
         switch self {
         case .cloudflare: [CloudflareConnector.tokenAccount]
+        case .web: [WebConnector.braveKeyAccount]
         case .gmail: [GoogleTokenProvider.refreshAccount(for: self), GoogleTokenProvider.cacheAccount(for: self)]
         case .googleads: [
             GoogleTokenProvider.refreshAccount(for: self),
@@ -187,6 +191,7 @@ public struct ConnectorHub: Sendable {
         CloudflareConnector(),
         GmailConnector(),
         GoogleAdsConnector(),
+        WebConnector(),
     ]
 
     public init(store: MissionStore, keyRing: KeyRing, session: URLSession? = nil, google: GoogleOAuth) {
@@ -257,6 +262,7 @@ public struct ConnectorHub: Sendable {
         "gmail_search", "gmail_read",
         "googleads_accounts", "googleads_campaigns", "googleads_query",
         "cloudflare_zones", "cloudflare_dns_list",
+        "web_fetch", "web_search",
     ]
 
     public func toolDefs(scope: ToolScope? = nil, readOnly: Bool = false) async -> [APIToolDef] {
@@ -271,7 +277,11 @@ public struct ConnectorHub: Sendable {
                 permissions.createDraft = permissions.createDraft && scope.permissions.createDraft
                 permissions.dnsWrite = permissions.dnsWrite && scope.permissions.dnsWrite
             }
-            defs += provider.toolDefs(permissions: permissions).filter { !readOnly || Self.readOnlyToolNames.contains($0.function.name) }
+            if let web = provider as? WebConnector {
+                defs += web.toolDefs(keyRing: keyRing).filter { !readOnly || Self.readOnlyToolNames.contains($0.function.name) }
+            } else {
+                defs += provider.toolDefs(permissions: permissions).filter { !readOnly || Self.readOnlyToolNames.contains($0.function.name) }
+            }
         }
         return defs
     }
@@ -312,7 +322,8 @@ public struct ConnectorHub: Sendable {
             name: id.displayName,
             detail: id.detail,
             enabled: config.enabled,
-            configured: provider(for: id)?.isConfigured(keyRing: keyRing) ?? false,
+            // For the web connector, "configured" means web search has a key; fetching always works.
+            configured: id == .web ? WebConnector.hasSearchKey(keyRing) : (provider(for: id)?.isConfigured(keyRing: keyRing) ?? false),
             permissions: config.permissions,
             oauthAvailable: google.isConfigured
         )

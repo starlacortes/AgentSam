@@ -8,11 +8,12 @@ import { CoordinatorSidebar, type PanelName } from '../components/coordinator/Co
 import { ConversationMessages } from '../components/coordinator/ConversationMessages'
 import { Guide } from '../components/coordinator/Guide'
 import { Icon } from '../components/coordinator/Icon'
-import { VoiceMode } from '../components/coordinator/VoiceMode'
+import { VoiceMode, type VoiceReply } from '../components/coordinator/VoiceMode'
 import { WorkspacePanel } from '../components/coordinator/WorkspacePanels'
 import { ErrorBanner, Spinner } from '../components/ui'
 import { useI18n } from '../i18n'
 import { connectorLabel, shouldPoll } from '../lib/coordinator'
+import { transcribeConversation } from '../lib/voice'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 
 function mergeConversation(list: ConversationSummary[], conversation: Conversation): ConversationSummary[] {
@@ -151,19 +152,27 @@ export function CoordinatorPage() {
     } catch (err) { setError(errorMessage(err)) }
   }
 
-  const sendMessage = async (raw: string, waitForCompletion = false): Promise<string | null> => {
+  const ensureConversation = async (): Promise<Conversation> => {
+    if (conversation) return conversation
+    const current = await api<Conversation>('conversations', { method: 'POST', body: { projectName } })
+    replaceConversation(current)
+    navigate(`/chats/${current.id}`, { replace: true })
+    return current
+  }
+
+  const transcribeVoice = async (audio: Blob): Promise<string> => {
+    const current = await ensureConversation()
+    return transcribeConversation(current.id, audio, lang)
+  }
+
+  const sendMessage = async (raw: string, waitForCompletion = false): Promise<VoiceReply | null> => {
     const text = raw.trim()
     if (!text || sendLock.current || (conversation && shouldPoll(conversation))) return null
     sendLock.current = true
     setSending(true)
     setError(null)
     try {
-      let current = conversation
-      if (!current) {
-        current = await api<Conversation>('conversations', { method: 'POST', body: { projectName } })
-        replaceConversation(current)
-        navigate(`/chats/${current.id}`, { replace: true })
-      }
+      const current = await ensureConversation()
       const result = await api<Conversation>(`conversations/${current.id}/messages`, { method: 'POST', body: { text, language: lang } })
       if (!mounted.current) return null
       replaceConversation(result)
@@ -177,7 +186,7 @@ export function CoordinatorPage() {
         const answer = next.messages.at(-1)
         if (answer && answer.status !== 'running') {
           await refreshWorkspace()
-          return answer.status === 'complete' ? answer.text : null
+          return answer.status === 'complete' ? { text: answer.text, speechURL: `/api/conversations/${current.id}/messages/${answer.id}/speech?lang=${lang}` } : null
         }
       }
       setError(t('This response is taking longer than expected. Keep the chat open, or return to it later.'))
@@ -287,6 +296,6 @@ export function CoordinatorPage() {
     </main>
     {panel ? <WorkspacePanel panel={panel} teams={teams} connectors={connectors} memory={memory} onConnectors={setConnectors} onMemory={setMemory} onClose={() => setPanel(null)} onNewTeam={() => prompt(t('I need a team for '))} onRestartGuide={restartGuide} /> : null}
     {guide && (!guide.completed || searchParams.get('guide') === '1') ? <Guide onFinish={finishGuide} /> : null}
-    {voiceOpen ? <VoiceMode onSend={sendMessage} onClose={() => setVoiceOpen(false)} /> : null}
+    {voiceOpen ? <VoiceMode onSend={sendMessage} onTranscribe={transcribeVoice} onClose={() => setVoiceOpen(false)} /> : null}
   </div>
 }

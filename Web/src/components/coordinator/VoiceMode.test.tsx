@@ -18,12 +18,12 @@ describe('VoiceMode', () => {
   })
 
   it('keeps a keyboard fallback and sends to the real coordinator callback', async () => {
-    const onSend = vi.fn().mockResolvedValue('A **clear answer** from Ada.')
+    const onSend = vi.fn().mockResolvedValue({ text: 'A **clear answer** from Ada.' })
     const onClose = vi.fn()
     const synthesis = { speak: vi.fn(), cancel: vi.fn() }
     vi.stubGlobal('SpeechSynthesisUtterance', TestUtterance)
     Object.defineProperty(window, 'speechSynthesis', { value: synthesis, configurable: true })
-    render(<I18nProvider><VoiceMode onSend={onSend} onClose={onClose} /></I18nProvider>)
+    render(<I18nProvider><VoiceMode onSend={onSend} onTranscribe={vi.fn()} onClose={onClose} /></I18nProvider>)
     expect(screen.getByText(/Voice recognition isn’t supported here/)).toBeTruthy()
     fireEvent.change(screen.getByRole('textbox', { name: 'Message Ada with your keyboard' }), { target: { value: '  Hello Ada  ' } })
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
@@ -39,7 +39,7 @@ describe('VoiceMode', () => {
     const synthesis = { speak: vi.fn(), cancel: vi.fn() }
     vi.stubGlobal('SpeechSynthesisUtterance', TestUtterance)
     Object.defineProperty(window, 'speechSynthesis', { value: synthesis, configurable: true })
-    render(<I18nProvider><VoiceMode onSend={vi.fn().mockResolvedValue('Text response')} onClose={vi.fn()} /></I18nProvider>)
+    render(<I18nProvider><VoiceMode onSend={vi.fn().mockResolvedValue({ text: 'Text response' })} onTranscribe={vi.fn()} onClose={vi.fn()} /></I18nProvider>)
     fireEvent.click(screen.getByRole('button', { name: 'Mute Ada' }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Message Ada with your keyboard' }), { target: { value: 'Hello' } })
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))

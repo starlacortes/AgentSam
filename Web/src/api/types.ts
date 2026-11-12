@@ -83,8 +83,10 @@ export interface ConnectorPermissions {
   dnsWrite: boolean
 }
 
+export type ConnectorId = 'gmail' | 'googleads' | 'cloudflare' | 'web'
+
 export interface ConnectorStatus {
-  id: 'gmail' | 'googleads' | 'cloudflare'
+  id: ConnectorId
   name: string
   detail: string
   enabled: boolean
@@ -268,6 +270,11 @@ export interface TokenCreated {
 }
 
 export interface ProviderTestResult {
+  ok: boolean
+  message: string
+}
+
+export interface ConnectorTestResult {
   ok: boolean
   message: string
 }

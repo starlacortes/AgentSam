@@ -128,6 +128,24 @@ final class ConversationAPITests: XCTestCase {
         })
     }
 
+    func testConversationVoiceUsesPersistentConversationOwnership() async throws {
+        let conversation = try await createConversation()
+        try await app.test(.POST, "api/conversations/\(conversation.id.uuidString)/transcribe", beforeRequest: { req in
+            self.authorize(&req)
+            req.headers.contentType = HTTPMediaType(type: "audio", subType: "webm")
+            req.body = ByteBuffer(bytes: [1, 2, 3])
+        }, afterResponse: { res async in
+            XCTAssertEqual(res.status, .conflict, res.body.string)
+        })
+        try await app.test(.POST, "api/conversations/\(UUID().uuidString)/transcribe", beforeRequest: { req in
+            self.authorize(&req)
+            req.headers.contentType = HTTPMediaType(type: "audio", subType: "webm")
+            req.body = ByteBuffer(bytes: [1, 2, 3])
+        }, afterResponse: { res async in
+            XCTAssertEqual(res.status, .notFound)
+        })
+    }
+
     func testMemberCannotReadAnotherUsersConversationAndWritesNeedCSRF() async throws {
         var cookie = ""
         var adminID: UUID?

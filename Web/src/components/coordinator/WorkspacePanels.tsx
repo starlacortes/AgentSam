@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, errorMessage } from '../../api/client'
 import type { ConnectorPermissions, ConnectorStatus, Team, WorkspaceMemory } from '../../api/types'
+import type { VoiceInfo } from '../../api/chatTypes'
 import { useAuth } from '../../auth/AuthContext'
 import { useI18n } from '../../i18n'
 import { LanguageToggle } from '../Layout'
+import { VoiceSettingsPanel } from '../VoiceSettingsPanel'
 import { ErrorBanner } from '../ui'
 import { Drawer } from './Overlay'
 import { Icon } from './Icon'
@@ -24,6 +26,7 @@ function TeamsPanel({ teams, onNewTeam }: { teams: Team[]; onNewTeam: () => void
 
 function ConnectorCard({ connector, onChange }: { connector: ConnectorStatus; onChange: (connector: ConnectorStatus) => void }) {
   const { t } = useI18n()
+  const { isAdmin } = useAuth()
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -62,20 +65,20 @@ function ConnectorCard({ connector, onChange }: { connector: ConnectorStatus; on
       setMessage(t('Credentials saved.'))
     } catch (err) { setError(errorMessage(err)) } finally { setBusy(false) }
   }
-  return <article className="co-connector-card"><div className="co-connector-head"><span className={`co-connector-logo ${connector.id}`}>{connector.name[0]}</span><div><b>{connector.name}</b><small>{connector.configured ? t('Connected') : t('Not connected')}</small></div><Switch checked={connector.enabled} label={t('Enable {name}', { name: connector.name })} disabled={busy} onChange={() => void patch({ enabled: !connector.enabled })} /></div>
+  return <article className="co-connector-card"><div className="co-connector-head"><span className={`co-connector-logo ${connector.id}`}>{connector.name[0]}</span><div><b>{connector.name}</b><small>{connector.configured ? t('Connected') : t('Not connected')}</small></div><Switch checked={connector.enabled} label={t('Enable {name}', { name: connector.name })} disabled={busy || !isAdmin} onChange={() => void patch({ enabled: !connector.enabled })} /></div>
     <p className="co-connector-detail">{connector.detail}</p>
     {connector.id === 'gmail' ? <div className="co-permission-row"><div><b>{t('Read your inbox')}</b><small>{t('Ada can search and read messages in chat.')}</small></div><span className="co-chip">{t('Read only')}</span></div> : null}
-    {connector.id === 'gmail' ? <><div className="co-permission-row"><div><b>{t('Create drafts')}</b><small>{t('Allow team workers to prepare drafts, never auto-send.')}</small></div><Switch checked={connector.permissions.createDraft} label={t('Allow Gmail drafts')} disabled={busy} onChange={() => permission('createDraft', !connector.permissions.createDraft)} /></div><div className="co-permission-row"><div><b>{t('Send email')}</b><small>{t('Allow team workers to send when you explicitly request it.')}</small></div><Switch checked={connector.permissions.sendEmail} label={t('Allow Gmail sending')} disabled={busy} onChange={() => permission('sendEmail', !connector.permissions.sendEmail)} /></div></> : null}
-    {connector.id === 'cloudflare' ? <div className="co-permission-row"><div><b>{t('DNS writes')}</b><small>{t('Allow team workers to change DNS or purge cache.')}</small></div><Switch checked={connector.permissions.dnsWrite} label={t('Allow DNS writes')} disabled={busy} onChange={() => permission('dnsWrite', !connector.permissions.dnsWrite)} /></div> : null}
-    {google ? <button className="co-secondary-button co-full-button" disabled={busy || !connector.oauthAvailable} title={!connector.oauthAvailable ? t('Google OAuth needs to be configured on the server.') : undefined} onClick={() => void connect()}><Icon name="plug" size={13} />{connector.configured ? t('Reconnect {name}', { name: connector.name }) : t('Connect {name}', { name: connector.name })}</button> : null}
-    {google && !connector.oauthAvailable ? <p className="co-field-hint">{t('Google OAuth needs to be configured on the server.')}</p> : null}
-    {connector.id === 'cloudflare' ? <form className="co-credential-form" onSubmit={(event) => { event.preventDefault(); void saveCredentials() }}><label className="field"><span>{t('Cloudflare API token')}</span><input className="input" type="password" autoComplete="off" value={secret} onChange={(event) => setSecret(event.target.value)} placeholder={connector.configured ? t('Replace saved token') : t('Paste API token')} required /></label><button className="co-secondary-button" disabled={busy || !secret.trim()}>{t('Save token')}</button></form> : null}
-    {connector.id === 'googleads' ? <form className="co-credential-form" onSubmit={(event) => { event.preventDefault(); void saveCredentials() }}><label className="field"><span>{t('Developer token')}</span><input className="input" type="password" autoComplete="off" value={secret} onChange={(event) => setSecret(event.target.value)} placeholder={t('Optional if already saved')} /></label><label className="field"><span>{t('Customer ID')}</span><input className="input" value={customerID} onChange={(event) => setCustomerID(event.target.value)} placeholder="1234567890" /></label><button className="co-secondary-button" disabled={busy || (!secret.trim() && !customerID.trim())}>{t('Save credentials')}</button></form> : null}
-    <div className="co-connector-actions"><button className="co-text-button" disabled={busy || !connector.configured} onClick={() => void test()}>{busy ? t('Testing…') : t('Test connection')}</button>{connector.configured ? <button className="co-text-button danger" disabled={busy} onClick={() => {
+    {connector.id === 'gmail' ? <><div className="co-permission-row"><div><b>{t('Create drafts')}</b><small>{t('Allow team workers to prepare drafts, never auto-send.')}</small></div><Switch checked={connector.permissions.createDraft} label={t('Allow Gmail drafts')} disabled={busy || !isAdmin} onChange={() => permission('createDraft', !connector.permissions.createDraft)} /></div><div className="co-permission-row"><div><b>{t('Send email')}</b><small>{t('Allow team workers to send when you explicitly request it.')}</small></div><Switch checked={connector.permissions.sendEmail} label={t('Allow Gmail sending')} disabled={busy || !isAdmin} onChange={() => permission('sendEmail', !connector.permissions.sendEmail)} /></div></> : null}
+    {connector.id === 'cloudflare' ? <div className="co-permission-row"><div><b>{t('DNS writes')}</b><small>{t('Allow team workers to change DNS or purge cache.')}</small></div><Switch checked={connector.permissions.dnsWrite} label={t('Allow DNS writes')} disabled={busy || !isAdmin} onChange={() => permission('dnsWrite', !connector.permissions.dnsWrite)} /></div> : null}
+    {isAdmin && google ? <button className="co-secondary-button co-full-button" disabled={busy || !connector.oauthAvailable} title={!connector.oauthAvailable ? t('Google OAuth needs to be configured on the server.') : undefined} onClick={() => void connect()}><Icon name="plug" size={13} />{connector.configured ? t('Reconnect {name}', { name: connector.name }) : t('Connect {name}', { name: connector.name })}</button> : null}
+    {isAdmin && google && !connector.oauthAvailable ? <p className="co-field-hint">{t('Google OAuth needs to be configured on the server.')}</p> : null}
+    {isAdmin && connector.id === 'cloudflare' ? <form className="co-credential-form" onSubmit={(event) => { event.preventDefault(); void saveCredentials() }}><label className="field"><span>{t('Cloudflare API token')}</span><input className="input" type="password" autoComplete="off" value={secret} onChange={(event) => setSecret(event.target.value)} placeholder={connector.configured ? t('Replace saved token') : t('Paste API token')} required /></label><button className="co-secondary-button" disabled={busy || !secret.trim()}>{t('Save token')}</button></form> : null}
+    {isAdmin && connector.id === 'googleads' ? <form className="co-credential-form" onSubmit={(event) => { event.preventDefault(); void saveCredentials() }}><label className="field"><span>{t('Developer token')}</span><input className="input" type="password" autoComplete="off" value={secret} onChange={(event) => setSecret(event.target.value)} placeholder={t('Optional if already saved')} /></label><label className="field"><span>{t('Customer ID')}</span><input className="input" value={customerID} onChange={(event) => setCustomerID(event.target.value)} placeholder="1234567890" /></label><button className="co-secondary-button" disabled={busy || (!secret.trim() && !customerID.trim())}>{t('Save credentials')}</button></form> : null}
+    {isAdmin ? <div className="co-connector-actions"><button className="co-text-button" disabled={busy || !connector.configured} onClick={() => void test()}>{busy ? t('Testing…') : t('Test connection')}</button>{connector.configured ? <button className="co-text-button danger" disabled={busy} onClick={() => {
       if (!window.confirm(t('Disconnect {name}? Ada and your teams will lose access.', { name: connector.name }))) return
       setBusy(true)
       void api(`connectors/${connector.id}/disconnect`, { method: 'POST' }).then(async () => onChange(await api<ConnectorStatus>(`connectors/${connector.id}`))).catch((err) => setError(errorMessage(err))).finally(() => setBusy(false))
-    }}>{t('Disconnect')}</button> : null}</div>
+    }}>{t('Disconnect')}</button> : null}</div> : null}
     {message ? <p className="co-success" role="status">{message}</p> : null}<ErrorBanner message={error} />
   </article>
 }
@@ -95,7 +98,12 @@ function SettingsPanel({ onRestartGuide }: { onRestartGuide: () => Promise<void>
   const { isAdmin, signOut } = useAuth()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  return <section><div className="co-setting-card"><h3>{t('Your preferences')}</h3><div className="co-setting-row"><span>{t('Language')}</span><LanguageToggle /></div><Link className="co-setting-link" to="/account">{t('Account & app tokens')} →</Link>{isAdmin ? <><Link className="co-setting-link" to="/settings">{t('Model providers')} →</Link><Link className="co-setting-link" to="/people">{t('People & invitations')} →</Link></> : null}<Link className="co-setting-link" to="/missions">{t('Mission history & files')} →</Link></div>
+  const [voiceInfo, setVoiceInfo] = useState<VoiceInfo | null>(null)
+  useEffect(() => {
+    if (!isAdmin) return
+    void api<VoiceInfo>('voice').then(setVoiceInfo).catch((err) => setError(errorMessage(err)))
+  }, [isAdmin])
+  return <section><div className="co-setting-card"><h3>{t('Your preferences')}</h3><div className="co-setting-row"><span>{t('Language')}</span><LanguageToggle /></div><Link className="co-setting-link" to="/account">{t('Account & app tokens')} →</Link>{isAdmin ? <><Link className="co-setting-link" to="/settings">{t('Model providers')} →</Link><Link className="co-setting-link" to="/people">{t('People & invitations')} →</Link></> : null}<Link className="co-setting-link" to="/missions">{t('Mission history & files')} →</Link>{voiceInfo ? <VoiceSettingsPanel info={voiceInfo} onSaved={setVoiceInfo} onError={setError} /> : null}</div>
     <div className="co-guide-reset"><h3>{t('A quick guide, whenever you need it')}</h3><p>{t('Three short steps explain chat, teams, and connections. Restarting changes only the guide—not your chats, teams, providers, connections, or memory.')}</p><button className="co-secondary-button" disabled={busy} onClick={() => { setBusy(true); setError(null); void onRestartGuide().catch((err) => setError(errorMessage(err))).finally(() => setBusy(false)) }}><Icon name="memory" size={14} />{t('Restart the guide')}</button><ErrorBanner message={error} /></div>
     <button className="co-secondary-button co-signout" onClick={() => void signOut()}>{t('Sign out')}</button>
   </section>

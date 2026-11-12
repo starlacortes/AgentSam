@@ -69,6 +69,14 @@ public struct ProviderConfig: Codable, Identifiable, Hashable, Sendable {
             defaultModel: "anthropic/claude-sonnet-4.5"
         ),
         ProviderConfig(
+            id: "greenpt",
+            name: "GreenPT",
+            kind: .openAICompatible,
+            baseURL: "https://api.greenpt.ai/v1",
+            models: ["glm-5.3", "glm-5.3-flash", "deepseek-v4.1-flash", "kimi-k3"],
+            defaultModel: "glm-5.3"
+        ),
+        ProviderConfig(
             id: "ollama",
             name: "Ollama (local)",
             kind: .openAICompatible,

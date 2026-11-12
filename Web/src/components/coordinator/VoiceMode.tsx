@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useI18n } from '../../i18n'
+import { api } from '../../api/client'
+import type { VoiceInfo } from '../../api/chatTypes'
 import { voiceTranscript } from '../../lib/coordinator'
+import { canRecord, MIN_RECORDING_MS, Speaker, useRecorder } from '../../lib/voice'
 import { Icon } from './Icon'
 import { useDialogA11y } from './Overlay'
 
@@ -32,26 +35,68 @@ function speechRecognition(): RecognitionConstructor | null {
   return scope.SpeechRecognition ?? scope.webkitSpeechRecognition ?? null
 }
 
-export function VoiceMode({ onSend, onClose }: { onSend: (text: string, waitForCompletion: boolean) => Promise<string | null>; onClose: () => void }) {
+export interface VoiceReply {
+  text: string
+  speechURL?: string
+}
+
+export function VoiceMode({ onSend, onTranscribe, onClose }: { onSend: (text: string, waitForCompletion: boolean) => Promise<VoiceReply | null>; onTranscribe: (audio: Blob) => Promise<string>; onClose: () => void }) {
   const { t, lang } = useI18n()
   const [phase, setPhase] = useState<'idle' | 'listening' | 'thinking' | 'speaking'>('idle')
   const [transcript, setTranscript] = useState('')
   const [response, setResponse] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [muted, setMuted] = useState(false)
-  const [supported] = useState(() => speechRecognition() !== null)
-  const [speechOutput] = useState(() => 'speechSynthesis' in window)
+  const [voiceInfo, setVoiceInfo] = useState<VoiceInfo | null>(null)
+  const [browserRecognition] = useState(() => speechRecognition() !== null)
+  const serverListening = Boolean(voiceInfo?.setup.stt && canRecord())
+  const supported = serverListening || browserRecognition
+  const speechOutput = Boolean(voiceInfo?.setup.tts) || 'speechSynthesis' in window
   const root = useRef<HTMLDivElement>(null)
   const recognition = useRef<Recognition | null>(null)
+  const speaker = useRef<Speaker | null>(null)
   const heard = useRef('')
   const submitOnEnd = useRef(false)
   const sending = useRef(false)
   const mute = useRef(false)
   const active = useRef(true)
   const submission = useRef<(text: string) => Promise<void>>(async () => {})
+  if (!speaker.current) {
+    speaker.current = new Speaker(lang === 'es' ? 'es-ES' : 'en-US')
+    speaker.current.onChange = (speaking) => {
+      if (active.current) setPhase(speaking ? 'speaking' : 'idle')
+    }
+  }
+  const recorder = useRecorder((audio, duration) => {
+    if (!active.current || !submitOnEnd.current) return
+    submitOnEnd.current = false
+    if (duration < MIN_RECORDING_MS || audio.size === 0) {
+      setPhase('idle')
+      return
+    }
+    setPhase('thinking')
+    void onTranscribe(audio).then((text) => {
+      if (!active.current) return
+      if (text.trim()) {
+        setTranscript(text)
+        void submission.current(text)
+      } else {
+        setPhase('idle')
+        setError(t('I couldn’t hear that. Check microphone access, or type your message instead.'))
+      }
+    }).catch((reason: unknown) => {
+      if (!active.current) return
+      setPhase('idle')
+      setError(reason instanceof Error ? reason.message : t('I couldn’t hear that. Check microphone access, or type your message instead.'))
+    })
+  }, (message) => {
+    setPhase('idle')
+    setError(t(message))
+  })
 
   const stopListening = (discard: boolean) => {
     submitOnEnd.current = !discard
+    recorder.stop()
     const current = recognition.current
     recognition.current = null
     if (!current) {
@@ -70,7 +115,7 @@ export function VoiceMode({ onSend, onClose }: { onSend: (text: string, waitForC
   }
 
   const stopSpeaking = () => {
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel()
+    speaker.current?.stop()
     setPhase((value) => value === 'speaking' ? 'idle' : value)
   }
 
@@ -83,6 +128,9 @@ export function VoiceMode({ onSend, onClose }: { onSend: (text: string, waitForC
 
   useEffect(() => {
     active.current = true
+    void api<VoiceInfo>('voice').then((info) => {
+      if (active.current) setVoiceInfo(info)
+    }).catch(() => undefined)
     return () => {
       active.current = false
       submitOnEnd.current = false
@@ -94,21 +142,19 @@ export function VoiceMode({ onSend, onClose }: { onSend: (text: string, waitForC
         current.onerror = null
         current.abort()
       }
-      if ('speechSynthesis' in window) window.speechSynthesis.cancel()
+      speaker.current?.stop()
     }
   }, [])
 
-  const speak = (text: string) => {
+  const speak = (reply: VoiceReply) => {
     if (mute.current || !speechOutput) {
       setPhase('idle')
       return
     }
-    const utterance = new SpeechSynthesisUtterance(voiceTranscript(text) || t('Your response is ready in the chat.'))
-    utterance.lang = lang === 'es' ? 'es-ES' : 'en-US'
-    utterance.onend = () => { if (active.current) setPhase('idle') }
-    utterance.onerror = () => { if (active.current) setPhase('idle') }
-    setPhase('speaking')
-    window.speechSynthesis.speak(utterance)
+    speaker.current?.enqueue(
+      voiceTranscript(reply.text) || t('Your response is ready in the chat.'),
+      voiceInfo?.setup.tts ? reply.speechURL : undefined,
+    )
   }
 
   const submit = async (raw: string) => {
@@ -124,12 +170,12 @@ export function VoiceMode({ onSend, onClose }: { onSend: (text: string, waitForC
     try {
       const answer = await onSend(text, true)
       if (!active.current) return
-      if (!answer?.trim()) {
+      if (!answer?.text.trim()) {
         setPhase('idle')
         setError(t('Ada couldn’t complete that response. Return to chat for details, or try again.'))
         return
       }
-      setResponse(answer)
+      setResponse(answer.text)
       speak(answer)
     } catch {
       if (active.current) {
@@ -144,21 +190,28 @@ export function VoiceMode({ onSend, onClose }: { onSend: (text: string, waitForC
 
   const listen = () => {
     if (phase === 'listening') {
-      const current = recognition.current
-      if (current) current.stop()
+      if (serverListening) recorder.stop()
+      else recognition.current?.stop()
       return
     }
     if (sending.current) return
     stopSpeaking()
+    speaker.current?.unlock()
+    setError(null)
+    setResponse('')
+    setTranscript('')
+    if (serverListening) {
+      submitOnEnd.current = true
+      setPhase('listening')
+      void recorder.start()
+      return
+    }
     const Constructor = speechRecognition()
     if (!Constructor) {
       setError(t('Voice recognition isn’t available in this browser. You can still type to Ada here.'))
       return
     }
-    setError(null)
-    setResponse('')
     heard.current = ''
-    setTranscript('')
     submitOnEnd.current = true
     const next = new Constructor()
     next.continuous = false
@@ -210,7 +263,7 @@ export function VoiceMode({ onSend, onClose }: { onSend: (text: string, waitForC
     <header className="co-voice-head"><span className="co-brand-mark">A</span><div><b id="co-voice-title">{t('Voice with Ada')}</b><small>{t('One conversation, brought to life')}</small></div><button className="co-icon-button" aria-label={t('Return to chat')} onClick={close}><Icon name="close" /></button></header>
     <main className="co-voice-stage">
       <span className="co-kicker">{label}</span>
-      <button className={`co-voice-orb ${phase}`} onClick={listen} disabled={phase === 'thinking' || phase === 'speaking'} aria-label={phase === 'listening' ? t('Finish speaking') : t('Start listening')}><span>A</span><i /><i /><i /></button>
+      <button className={`co-voice-orb ${phase}`} style={{ ['--level' as string]: recorder.level }} onClick={listen} disabled={phase === 'thinking' || phase === 'speaking' || recorder.state === 'starting'} aria-label={phase === 'listening' ? t('Finish speaking') : t('Start listening')}><span>A</span><i /><i /><i /></button>
       <h1>{phase === 'listening' ? t('I’m listening') : phase === 'thinking' ? t('Finding your answer') : phase === 'speaking' ? t('Here’s what I found') : t('What can I help with?')}</h1>
       <p className="co-voice-transcript">{transcript || (phase === 'listening' ? t('Speak naturally. I’ll send your message when you finish.') : t('Start listening, or use the keyboard below.'))}</p>
       {response ? <div className="co-voice-response"><b>Ada</b><p>{response}</p></div> : null}
