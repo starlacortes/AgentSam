@@ -7,6 +7,7 @@ import { useAuth } from '../auth/AuthContext'
 import type { ProviderStatus } from '../api/types'
 import { formatCost, StatusChip } from '../components/mission'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
+import { useI18n } from '../i18n'
 
 const FILTERS: (MissionStatus | 'all')[] = ['all', 'running', 'completed', 'failed', 'stopped']
 
@@ -16,9 +17,10 @@ export function MissionsPage() {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>('all')
   const { isAdmin } = useAuth()
+  const { t } = useI18n()
   const [needsKeys, setNeedsKeys] = useState(false)
   const liveCount = missions?.filter((m) => m.status === 'running' || m.status === 'queued').length ?? 0
-  useDocumentTitle(liveCount > 0 ? `● ${liveCount} running · Missions` : 'Missions')
+  useDocumentTitle(liveCount > 0 ? t('● {count} running · Missions', { count: liveCount }) : t('Missions'))
 
   useEffect(() => {
     if (!isAdmin) return
@@ -68,19 +70,19 @@ export function MissionsPage() {
     <>
       <div className="page-head">
         <div>
-          <div className="kicker">Missions</div>
-          <h1>What your teams are working on</h1>
+          <div className="kicker">{t('Missions')}</div>
+          <h1>{t('What your teams are working on')}</h1>
         </div>
         <Link className="btn" to="/missions/new">
-          New mission
+          {t('New mission')}
         </Link>
       </div>
       <ErrorBanner message={error} />
       {needsKeys ? (
         <div className="notice row" style={{ marginBottom: 16 }}>
-          <span style={{ flex: 1 }}>No provider has an API key yet, so missions can’t run.</span>
+          <span style={{ flex: 1 }}>{t('No provider has an API key yet, so missions can’t run.')}</span>
           <Link className="btn small" to="/welcome">
-            Finish setup
+            {t('Finish setup')}
           </Link>
         </div>
       ) : null}
@@ -88,15 +90,15 @@ export function MissionsPage() {
         <input
           className="input"
           style={{ flex: '1 1 260px' }}
-          placeholder="Search objectives and teams"
+          placeholder={t('Search objectives and teams')}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          aria-label="Search missions"
+          aria-label={t('Search missions')}
         />
-        <div className="row" role="group" aria-label="Filter by status">
+        <div className="row" role="group" aria-label={t('Filter by status')}>
           {FILTERS.map((f) => (
             <button key={f} className={filter === f ? 'pill active' : 'pill'} onClick={() => setFilter(f)}>
-              {f}
+              {t(f)}
             </button>
           ))}
         </div>
@@ -109,13 +111,13 @@ export function MissionsPage() {
         <div className="card empty">
           {missions.length === 0 ? (
             <>
-              <p style={{ marginBottom: 14 }}>No missions yet. Give a team its first objective.</p>
+              <p style={{ marginBottom: 14 }}>{t('No missions yet. Give a team its first objective.')}</p>
               <Link className="btn" to="/missions/new">
-                Launch a mission
+                {t('Launch a mission')}
               </Link>
             </>
           ) : (
-            <p>No missions match.</p>
+            <p>{t('No missions match.')}</p>
           )}
         </div>
       ) : (
@@ -127,13 +129,13 @@ export function MissionsPage() {
                 <div className="row dim mono" style={{ fontSize: 11.5, gap: 12 }}>
                   <span>{m.teamName}</span>
                   <span>{formatDate(m.createdAt)}</span>
-                  {m.launchedBy ? <span>by {m.launchedBy}</span> : null}
+                  {m.launchedBy ? <span>{t('by {name}', { name: m.launchedBy })}</span> : null}
                 </div>
               </div>
               <div className="mission-row-side">
                 <StatusChip status={m.status} />
                 <span className="dim mono" style={{ fontSize: 11 }}>
-                  {m.status === 'running' ? phaseLabel[m.phase] : formatCost(m.totalCostUSD)}
+                  {m.status === 'running' ? t(phaseLabel[m.phase]) : formatCost(m.totalCostUSD)}
                 </span>
               </div>
             </Link>

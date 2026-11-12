@@ -5,9 +5,11 @@ import { api, errorMessage } from '../api/client'
 import type { Team, TemplateCatalog } from '../api/types'
 import { Avatar } from '../components/mission'
 import { ErrorBanner, Spinner } from '../components/ui'
+import { useI18n } from '../i18n'
 
 export function TemplatesPage() {
-  useDocumentTitle('Templates')
+  const { t } = useI18n()
+  useDocumentTitle(t('Templates'))
   const navigate = useNavigate()
   const [catalog, setCatalog] = useState<TemplateCatalog | null>(null)
   const [open, setOpen] = useState<string | null>(null)
@@ -36,9 +38,9 @@ export function TemplatesPage() {
     <>
       <div className="page-head">
         <div>
-          <div className="kicker">Templates</div>
-          <h1>Hire a team in one click.</h1>
-          <p className="lede">Each squad comes with a coordinator, specialists and a verifier. You can tune every agent afterwards.</p>
+          <div className="kicker">{t('Templates')}</div>
+          <h1>{t('Hire a team in one click.')}</h1>
+          <p className="lede">{t('Each squad comes with a coordinator, specialists and a verifier. You can tune every agent afterwards.')}</p>
         </div>
       </div>
       <ErrorBanner message={error} />
@@ -52,7 +54,7 @@ export function TemplatesPage() {
                 className="template-cover"
                 style={{ background: `linear-gradient(135deg, ${template.coverColors[0] ?? '#0f2e20'}, ${template.coverColors[1] ?? '#0a1b14'})` }}
               >
-                {template.lowCost ? <span className="chip gold template-badge">low cost</span> : null}
+                {template.lowCost ? <span className="chip gold template-badge">{t('low cost')}</span> : null}
                 <div className="avatar-stack">
                   {agents.map((a) => (
                     <Avatar key={a.id} name={a.name} role={a.role} size={38} />
@@ -77,20 +79,20 @@ export function TemplatesPage() {
                       <li key={a.id}>
                         <b>{a.name}</b> <span className="dim">· {a.title}</span>
                         <div className="dim mono" style={{ fontSize: 11 }}>
-                          {a.role} · {a.providerID} / {a.model || 'no model'}
+                          {t(a.role)} · {a.providerID} / {a.model || t('no model')}
                         </div>
                       </li>
                     ))}
-                    <li className="dim">Try: “{template.example}”</li>
+                    <li className="dim">{t('Try: “{example}”', { example: template.example })}</li>
                   </ul>
                 ) : null}
                 <div className="row">
                   <button className="pill" onClick={() => setOpen(open === template.id ? null : template.id)}>
-                    {open === template.id ? 'Hide squad' : 'Meet the squad'}
+                    {open === template.id ? t('Hide squad') : t('Meet the squad')}
                   </button>
                   <span className="spacer" />
                   <button className="btn small" disabled={busy !== null} onClick={() => void hire(template.id)}>
-                    {busy === template.id ? 'Hiring…' : 'Hire team'}
+                    {busy === template.id ? t('Hiring…') : t('Hire team')}
                   </button>
                 </div>
               </div>

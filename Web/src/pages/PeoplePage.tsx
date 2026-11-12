@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { api, errorMessage } from '../api/client'
 import type { InviteCreated, PublicInvite, PublicUser, UserRole } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { ErrorBanner, formatDate, Spinner } from '../components/ui'
+import { useI18n } from '../i18n'
 
 export function PeoplePage() {
-  useDocumentTitle('People')
+  const { t } = useI18n()
+  useDocumentTitle(t('People'))
   const { me } = useAuth()
   const [users, setUsers] = useState<PublicUser[] | null>(null)
   const [invites, setInvites] = useState<PublicInvite[]>([])
@@ -60,16 +63,17 @@ export function PeoplePage() {
     <>
       <div className="page-head">
         <div>
-          <div className="kicker">People</div>
-          <h1>Who can use this server</h1>
-          <p className="lede">Everyone shares the same teams and missions. Admins also manage people and provider keys.</p>
+          <div className="kicker">{t('People')}</div>
+          <h1>{t('Who can use this server')}</h1>
+          <p className="lede">{t('Everyone shares the same teams and missions. Admins also manage people and provider keys.')}</p>
         </div>
+        <Link className="btn ghost" to="/provisioning">{t('Provision accounts in bulk →')}</Link>
       </div>
 
       <ErrorBanner message={error} />
 
       <form className="card stack" onSubmit={invite}>
-        <h2>Invite someone</h2>
+        <h2>{t('Invite someone')}</h2>
         <div className="row">
           <input
             className="input"
@@ -79,25 +83,25 @@ export function PeoplePage() {
             required
             value={inviteEmail}
             onChange={(e) => setInviteEmail(e.target.value)}
-            aria-label="Email to invite"
+            aria-label={t('Email to invite')}
           />
-          <select className="select" style={{ width: 140 }} value={inviteRole} onChange={(e) => setInviteRole(e.target.value as UserRole)} aria-label="Role">
-            <option value="member">Member</option>
-            <option value="admin">Admin</option>
+          <select className="select" style={{ width: 140 }} value={inviteRole} onChange={(e) => setInviteRole(e.target.value as UserRole)} aria-label={t('Role')}>
+            <option value="member">{t('Member')}</option>
+            <option value="admin">{t('Admin')}</option>
           </select>
           <button className="btn" type="submit">
-            Create invite link
+            {t('Create invite link')}
           </button>
         </div>
         {newLink ? (
           <div className="notice stack" style={{ gap: 8 }}>
-            <span>Send this link to them. It works once and expires in 7 days. It won’t be shown again.</span>
+            <span>{t('Send this link to them. It works once and expires in 7 days. It won’t be shown again.')}</span>
             <div className="row">
               <code className="mono" style={{ wordBreak: 'break-all', flex: 1 }}>
                 {newLink}
               </code>
               <button type="button" className="btn small ghost" onClick={() => void copyLink()}>
-                {copied ? 'Copied' : 'Copy'}
+                {copied ? t('Copied') : t('Copy')}
               </button>
             </div>
           </div>
@@ -105,7 +109,7 @@ export function PeoplePage() {
       </form>
 
       <div className="card">
-        <h2 style={{ marginBottom: 12 }}>Members</h2>
+        <h2 style={{ marginBottom: 12 }}>{t('Members')}</h2>
         {!users ? (
           <Spinner />
         ) : (
@@ -113,10 +117,10 @@ export function PeoplePage() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Name</th>
-                  <th>Email</th>
-                  <th>Role</th>
-                  <th>Last sign-in</th>
+                  <th>{t('Name')}</th>
+                  <th>{t('Email')}</th>
+                  <th>{t('Role')}</th>
+                  <th>{t('Last sign-in')}</th>
                   <th />
                 </tr>
               </thead>
@@ -126,8 +130,8 @@ export function PeoplePage() {
                   return (
                     <tr key={user.id}>
                       <td>
-                        {user.name} {isMe ? <span className="chip">you</span> : null}{' '}
-                        {user.disabled ? <span className="chip danger">disabled</span> : null}
+                        {user.name} {isMe ? <span className="chip">{t('you')}</span> : null}{' '}
+                        {user.disabled ? <span className="chip danger">{t('disabled')}</span> : null}
                       </td>
                       <td className="muted">{user.email}</td>
                       <td>
@@ -135,11 +139,11 @@ export function PeoplePage() {
                           className="select"
                           style={{ width: 120, padding: '6px 10px' }}
                           value={user.role}
-                          aria-label={`Role for ${user.name}`}
+                          aria-label={t('Role for {name}', { name: user.name })}
                           onChange={(e) => void run(() => api(`users/${user.id}`, { method: 'PATCH', body: { role: e.target.value } }))}
                         >
-                          <option value="member">Member</option>
-                          <option value="admin">Admin</option>
+                          <option value="member">{t('Member')}</option>
+                          <option value="admin">{t('Admin')}</option>
                         </select>
                       </td>
                       <td className="dim">{formatDate(user.lastLoginAt)}</td>
@@ -150,17 +154,17 @@ export function PeoplePage() {
                               className="btn small ghost"
                               onClick={() => void run(() => api(`users/${user.id}`, { method: 'PATCH', body: { disabled: !user.disabled } }))}
                             >
-                              {user.disabled ? 'Enable' : 'Disable'}
+                              {user.disabled ? t('Enable') : t('Disable')}
                             </button>
                             <button
                               className="btn small danger"
                               onClick={() => {
-                                if (window.confirm(`Remove ${user.name}? They’ll be signed out immediately.`)) {
+                                if (window.confirm(t('Remove {name}? They’ll be signed out immediately.', { name: user.name }))) {
                                   void run(() => api(`users/${user.id}`, { method: 'DELETE' }))
                                 }
                               }}
                             >
-                              Remove
+                              {t('Remove')}
                             </button>
                           </div>
                         )}
@@ -176,14 +180,14 @@ export function PeoplePage() {
 
       {invites.length > 0 ? (
         <div className="card">
-          <h2 style={{ marginBottom: 12 }}>Pending invites</h2>
+          <h2 style={{ marginBottom: 12 }}>{t('Pending invites')}</h2>
           <div className="table-wrap">
             <table className="table">
               <thead>
                 <tr>
-                  <th>Email</th>
-                  <th>Role</th>
-                  <th>Expires</th>
+                  <th>{t('Email')}</th>
+                  <th>{t('Role')}</th>
+                  <th>{t('Expires')}</th>
                   <th />
                 </tr>
               </thead>
@@ -191,11 +195,11 @@ export function PeoplePage() {
                 {invites.map((inv) => (
                   <tr key={inv.id}>
                     <td>{inv.email}</td>
-                    <td>{inv.role}</td>
+                    <td>{t(inv.role)}</td>
                     <td className="dim">{formatDate(inv.expiresAt)}</td>
                     <td style={{ textAlign: 'right' }}>
                       <button className="btn small ghost" onClick={() => void run(() => api(`invites/${inv.id}`, { method: 'DELETE' }))}>
-                        Revoke
+                        {t('Revoke')}
                       </button>
                     </td>
                   </tr>

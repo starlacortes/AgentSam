@@ -30,6 +30,9 @@ enum ServerConfigurationError: LocalizedError {
 struct ServerContext: Sendable {
     let store: MissionStore
     let engine: MissionEngine
+    let conversations: ConversationStore
+    let memory: WorkspaceMemoryStore
+    let conversationEngine: ConversationEngine
     let keyRing: CompositeKeyRing
     let token: String
     let dataDir: URL
@@ -39,6 +42,8 @@ struct ServerContext: Sendable {
     let accounts: AccountStore
     let sessions: SessionStore
     let throttle: LoginThrottle
+    let provisioning: ProvisioningStore
+    let provisioningRunner: ProvisioningRunner
     /// Compared against when an email isn't found, so failed logins take the same time either way.
     let dummyPasswordHash: String
 
@@ -58,6 +63,16 @@ struct ServerContext: Sendable {
             connectors: connectors,
             config: MissionEngine.Config(maxParallel: 4, maxSteps: 14, verifyWithAgent: true)
         )
+        let conversations = ConversationStore(root: store.root)
+        let memory = WorkspaceMemoryStore(root: store.root)
+        let conversationEngine = ConversationEngine(
+            store: store,
+            conversations: conversations,
+            memory: memory,
+            keyRing: keyRing,
+            connectors: connectors,
+            missions: engine
+        )
 
         var token = (Environment.get("AGENTSAM_TOKEN") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         if token.isEmpty {
@@ -71,18 +86,31 @@ struct ServerContext: Sendable {
             print(" Set AGENTSAM_TOKEN to pin a token for the iPhone app.")
             print("=================================================================")
         }
+        let accounts = AccountStore(dataDir: store.root)
+        let provisioning = ProvisioningStore(
+            dataDir: store.root,
+            secrets: keyRing,
+            maxBatchSize: Environment.get("AGENTSAM_PROVISIONING_MAX_BATCH").flatMap(Int.init) ?? 50,
+            dailyLimit: Environment.get("AGENTSAM_PROVISIONING_DAILY_LIMIT").flatMap(Int.init) ?? 200
+        )
+        let provisioningRunner = ProvisioningRunner(store: provisioning, accounts: accounts)
         return ServerContext(
             store: store,
             engine: engine,
+            conversations: conversations,
+            memory: memory,
+            conversationEngine: conversationEngine,
             keyRing: keyRing,
             token: token,
             dataDir: store.root,
             maloon: MaloonIntegration(),
             connectors: connectors,
             oauthStates: OAuthStateStore(),
-            accounts: AccountStore(dataDir: store.root),
+            accounts: accounts,
             sessions: SessionStore(dataDir: store.root, lifetime: AuthConfig.sessionLifetime),
             throttle: LoginThrottle(),
+            provisioning: provisioning,
+            provisioningRunner: provisioningRunner,
             dummyPasswordHash: (try? Bcrypt.hash(Secrets.randomToken())) ?? ""
         )
     }
@@ -102,6 +130,7 @@ struct ServerContext: Sendable {
     }
 
     func reconcileInterruptedMissions() async {
+        try? await conversations.reconcileInterrupted()
         for var mission in await store.listMissions(limit: 100_000) where mission.status == .queued || mission.status == .running {
             mission.status = .stopped
             mission.phase = .done
@@ -114,6 +143,8 @@ struct ServerContext: Sendable {
     }
 
     func shutdown() async {
+        await conversationEngine.shutdown()
+        await provisioningRunner.shutdown()
         for missionID in await engine.activeMissionIDs {
             await engine.stop(missionID: missionID)
         }
@@ -140,6 +171,7 @@ struct ServerContext: Sendable {
             emoji: input.emoji ?? "🛡️",
             goal: input.goal ?? "",
             agents: input.agents ?? [],
+            toolScope: id == nil ? .readOnly : await store.team(id: teamID)?.toolScope,
             createdAt: createdAt,
             updatedAt: Date()
         )

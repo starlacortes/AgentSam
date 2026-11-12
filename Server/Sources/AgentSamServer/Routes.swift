@@ -6,6 +6,7 @@ public func configure(_ app: Application) async throws {
     let ctx = try ServerContext.make()
     await ctx.seedIfEmpty()
     await ctx.reconcileInterruptedMissions()
+    await ctx.provisioningRunner.start()
     await app.storage.setWithAsyncShutdown(ServerContextKey.self, to: ctx) { context in
         await context.shutdown()
     }
@@ -80,7 +81,9 @@ func routes(_ app: Application, ctx: ServerContext) {
     let adminAPI = api.grouped(RequireAdminMiddleware())
 
     authRoutes(app, ctx: ctx, authed: api)
+    provisioningRoutes(app, ctx: ctx, admin: adminAPI)
     templateRoutes(api, ctx: ctx)
+    conversationRoutes(api, ctx: ctx)
 
     api.get("info") { req async throws -> Response in
         let teams = await ctx.store.loadTeams()
@@ -258,6 +261,13 @@ func routes(_ app: Application, ctx: ServerContext) {
             statuses.append(await ctx.connectors.status(for: connectorID))
         }
         return try req.json(statuses)
+    }
+
+    api.get("connectors", ":id") { req async throws -> Response in
+        guard let idString = req.parameters.get("id"), let connectorID = ConnectorID(rawValue: idString) else {
+            throw Abort(.notFound, reason: SrvL10n.t("srv.unknownConnector", lang: SrvL10n.lang(for: req)))
+        }
+        return try req.json(await ctx.connectors.status(for: connectorID))
     }
 
     api.patch("connectors", ":id") { req async throws -> Response in

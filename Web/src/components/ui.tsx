@@ -1,4 +1,5 @@
 import type { InputHTMLAttributes, ReactNode } from 'react'
+import { dateLocale, useI18n } from '../i18n'
 
 export function Logo() {
   return (
@@ -30,13 +31,14 @@ export function ErrorBanner({ message }: { message: string | null }) {
   )
 }
 
-export function Spinner({ label = 'Loading' }: { label?: string }) {
-  return <span className="spin" role="status" aria-label={label} />
+export function Spinner({ label }: { label?: string }) {
+  const { t } = useI18n()
+  return <span className="spin" role="status" aria-label={label ?? t('Loading')} />
 }
 
 export function formatDate(iso?: string): string {
   if (!iso) return '—'
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return '—'
-  return date.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+  return date.toLocaleString(dateLocale(), { dateStyle: 'medium', timeStyle: 'short' })
 }

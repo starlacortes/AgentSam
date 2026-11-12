@@ -3,9 +3,11 @@ import { api, errorMessage } from '../api/client'
 import type { Me } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { ErrorBanner, Field, Logo } from '../components/ui'
+import { useI18n } from '../i18n'
 
 export function LoginPage() {
   const { signedIn } = useAuth()
+  const { t } = useI18n()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -29,14 +31,14 @@ export function LoginPage() {
       <form className="card auth-card stack" onSubmit={submit}>
         <Logo />
         <div>
-          <div className="kicker">Welcome back</div>
-          <h1>Sign in</h1>
-          <p className="lede">Your agent team is waiting.</p>
+          <div className="kicker">{t('Welcome back')}</div>
+          <h1>{t('Sign in')}</h1>
+          <p className="lede">{t('Your agent team is waiting.')}</p>
         </div>
         <ErrorBanner message={error} />
-        <Field label="Email" type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} />
+        <Field label={t('Email')} type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} />
         <Field
-          label="Password"
+          label={t('Password')}
           type="password"
           autoComplete="current-password"
           required
@@ -44,9 +46,9 @@ export function LoginPage() {
           onChange={(e) => setPassword(e.target.value)}
         />
         <button className="btn" type="submit" disabled={busy}>
-          {busy ? 'Signing in…' : 'Sign in'}
+          {busy ? t('Signing in…') : t('Sign in')}
         </button>
-        <p className="hint">No account? Ask an admin for an invite link.</p>
+        <p className="hint">{t('No account? Ask an admin for an invite link.')}</p>
       </form>
     </div>
   )

@@ -84,13 +84,17 @@ public struct FileKeyRing: KeyRing {
         return (try? JSONDecoder().decode([String: String].self, from: data)) ?? [:]
     }
 
-    private func saveAll(_ keys: [String: String]) {
+    private func saveAll(_ keys: [String: String]) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        if let data = try? encoder.encode(keys) {
-            try? data.write(to: url, options: [.atomic, .completeFileProtection])
-            try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
-        }
+        let data = try encoder.encode(keys)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        #if os(iOS)
+        try data.write(to: url, options: [.atomic, .completeFileProtection])
+        #else
+        try data.write(to: url, options: .atomic)
+        #endif
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
     public func get(_ account: String) -> String? {
@@ -104,7 +108,7 @@ public struct FileKeyRing: KeyRing {
         defer { lock.unlock() }
         var all = loadAll()
         all[account] = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        saveAll(all)
+        try saveAll(all)
     }
 
     public func remove(_ account: String) {
@@ -112,7 +116,7 @@ public struct FileKeyRing: KeyRing {
         defer { lock.unlock() }
         var all = loadAll()
         all[account] = nil
-        saveAll(all)
+        try? saveAll(all)
     }
 }
 

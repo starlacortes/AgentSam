@@ -253,29 +253,54 @@ public struct ConnectorHub: Sendable {
         Self.providers.contains { $0.owns(toolName) }
     }
 
-    public func toolDefs() async -> [APIToolDef] {
+    public static let readOnlyToolNames: Set<String> = [
+        "gmail_search", "gmail_read",
+        "googleads_accounts", "googleads_campaigns", "googleads_query",
+        "cloudflare_zones", "cloudflare_dns_list",
+    ]
+
+    public func toolDefs(scope: ToolScope? = nil, readOnly: Bool = false) async -> [APIToolDef] {
         var defs: [APIToolDef] = []
         for provider in Self.providers {
             let config = await config(for: provider.id)
             guard config.enabled, provider.isConfigured(keyRing: keyRing) else { continue }
-            defs += provider.toolDefs(permissions: config.permissions)
+            if let scope, !scope.connectorIDs.contains(provider.id) { continue }
+            var permissions = config.permissions
+            if let scope {
+                permissions.sendEmail = permissions.sendEmail && scope.permissions.sendEmail
+                permissions.createDraft = permissions.createDraft && scope.permissions.createDraft
+                permissions.dnsWrite = permissions.dnsWrite && scope.permissions.dnsWrite
+            }
+            defs += provider.toolDefs(permissions: permissions).filter { !readOnly || Self.readOnlyToolNames.contains($0.function.name) }
         }
         return defs
     }
 
-    public func run(call: APIToolCall) async -> ToolOutcome {
+    public func run(call: APIToolCall, scope: ToolScope? = nil, readOnly: Bool = false) async -> ToolOutcome {
         guard let provider = Self.providers.first(where: { $0.owns(call.function.name) }) else {
             return ToolOutcome(resultText: "Unknown tool: \(call.function.name).")
         }
+        guard !readOnly || Self.readOnlyToolNames.contains(call.function.name) else {
+            return ToolOutcome(resultText: "Ada only has read-only connector access in this conversation.")
+        }
+        if let scope, !scope.connectorIDs.contains(provider.id) {
+            return ToolOutcome(resultText: "This team does not have access to \(provider.id.displayName).")
+        }
         let config = await config(for: provider.id)
         guard config.enabled else {
-            return ToolOutcome(resultText: "The \(provider.id.displayName) connector is disabled. Enable it in Settings.")
+            return ToolOutcome(resultText: "The \(provider.id.displayName) connector is disabled. Enable it in Connections.")
         }
         guard provider.isConfigured(keyRing: keyRing) else {
-            return ToolOutcome(resultText: "The \(provider.id.displayName) connector is not connected. Connect it in Settings.")
+            return ToolOutcome(resultText: "The \(provider.id.displayName) connector is not connected. Connect it in Connections.")
+        }
+        var permissions = config.permissions
+        if let scope {
+            permissions.sendEmail = permissions.sendEmail && scope.permissions.sendEmail
+            permissions.createDraft = permissions.createDraft && scope.permissions.createDraft
+            permissions.dnsWrite = permissions.dnsWrite && scope.permissions.dnsWrite
         }
         let args = AgentTools.arguments(of: call)
-        return await provider.run(call.function.name, args: args, permissions: config.permissions, runtime: runtime)
+        return await provider.run(call.function.name, args: args, permissions: permissions, runtime: runtime)
     }
 
     // MARK: Status & tests

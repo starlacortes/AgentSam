@@ -20,8 +20,10 @@ public enum PromptBuilder {
         return t("prompt.language", mission: mission)
     }
 
-    private static func houseRules(for mission: Mission) -> String {
-        t("prompt.houseRules", mission: mission)
+    private static func houseRules(for mission: Mission, canFinish: Bool = true) -> String {
+        let rules = t("prompt.houseRules", mission: mission)
+        guard canFinish else { return rules.replacingOccurrences(of: t("prompt.finishRule", mission: mission), with: "") }
+        return rules
     }
 
     public static func coordinatorSystem(team: Team, mission: Mission) -> String {
@@ -34,7 +36,7 @@ public enum PromptBuilder {
         return String(
             format: CoreL10n.t("prompt.coordinatorSystem", lang: lang),
             name, team.name, systemPrompt, roster,
-            houseRules(for: mission), languageBlock(for: mission)
+            houseRules(for: mission, canFinish: false), languageBlock(for: mission)
         )
     }
 

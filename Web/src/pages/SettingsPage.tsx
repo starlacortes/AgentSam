@@ -3,12 +3,14 @@ import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { api, errorMessage } from '../api/client'
 import type { Ack, ProviderConfig, ProviderStatus, ProviderTestResult } from '../api/types'
 import { ErrorBanner, Spinner } from '../components/ui'
+import { useI18n } from '../i18n'
 
 const BLANK: ProviderConfig = { id: '', name: '', kind: 'openAICompatible', baseURL: 'https://', models: [], defaultModel: '' }
 
 /** Admin only: provider configs and the API keys stored on the server. Keys are write-only from here. */
 export function SettingsPage() {
-  useDocumentTitle('Providers')
+  const { t } = useI18n()
+  useDocumentTitle(t('Providers'))
   const [providers, setProviders] = useState<ProviderStatus[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
@@ -29,14 +31,12 @@ export function SettingsPage() {
     <>
       <div className="page-head">
         <div>
-          <div className="kicker">Server settings</div>
-          <h1>Model providers</h1>
-          <p className="lede">
-            Keys are stored on the server and shared by every mission. They can be replaced or removed here, but never read back.
-          </p>
+          <div className="kicker">{t('Server settings')}</div>
+          <h1>{t('Model providers')}</h1>
+          <p className="lede">{t('Keys are stored on the server and shared by every mission. They can be replaced or removed here, but never read back.')}</p>
         </div>
         <button className="btn ghost" onClick={() => setAdding(true)} disabled={adding}>
-          Add provider
+          {t('Add provider')}
         </button>
       </div>
       <ErrorBanner message={error} />
@@ -67,6 +67,7 @@ export function ProviderCard({
   onSaved: () => void
   onCancel?: () => void
 }) {
+  const { t } = useI18n()
   const [config, setConfig] = useState<ProviderConfig>(status.provider)
   const [modelsText, setModelsText] = useState(status.provider.models.join(', '))
   const [editing, setEditing] = useState(isNew)
@@ -96,7 +97,7 @@ export function ProviderCard({
       })
       setEditing(false)
       onSaved()
-      return { ok: true, message: 'Provider saved.' }
+      return { ok: true, message: t('Provider saved.') }
     })
 
   const saveKey = () =>
@@ -105,50 +106,55 @@ export function ProviderCard({
       setKey('')
       onSaved()
       const test = await api<ProviderTestResult>(`providers/${status.provider.id}/test`, { method: 'POST' })
-      return { ok: test.ok, message: test.ok ? `${ack.detail ?? 'Key saved'}. ${test.message}` : `Key saved, but the test failed: ${test.message}` }
+      return {
+        ok: test.ok,
+        message: test.ok
+          ? `${ack.detail ?? t('Key saved')}. ${test.message}`
+          : t('Key saved, but the test failed: {message}', { message: test.message }),
+      }
     })
 
   return (
     <div className="card stack">
       <div className="row">
         <div style={{ flex: 1, minWidth: 0 }}>
-          <h2>{isNew ? 'New provider' : config.name}</h2>
+          <h2>{isNew ? t('New provider') : config.name}</h2>
           {!isNew ? (
             <div className="dim mono" style={{ fontSize: 11, overflowWrap: 'anywhere' }}>
               {config.id} · {config.kind === 'anthropic' ? 'Anthropic API' : 'OpenAI-compatible'} · {config.baseURL}
             </div>
           ) : null}
         </div>
-        {!isNew ? <span className={status.hasKey ? 'chip em' : 'chip'}>{status.hasKey ? 'key saved' : 'no key'}</span> : null}
+        {!isNew ? <span className={status.hasKey ? 'chip em' : 'chip'}>{status.hasKey ? t('key saved') : t('no key')}</span> : null}
       </div>
 
       {editing ? (
         <div className="grid-3">
           <label className="field">
-            <span>Id</span>
+            <span>{t('Id')}</span>
             <input className="input" disabled={!isNew} value={config.id} onChange={(e) => setConfig({ ...config, id: e.target.value.toLowerCase() })} placeholder="my-provider" />
           </label>
           <label className="field">
-            <span>Name</span>
+            <span>{t('Name')}</span>
             <input className="input" value={config.name} onChange={(e) => setConfig({ ...config, name: e.target.value })} />
           </label>
           <label className="field">
-            <span>API style</span>
+            <span>{t('API style')}</span>
             <select className="select" value={config.kind} onChange={(e) => setConfig({ ...config, kind: e.target.value as ProviderConfig['kind'] })}>
               <option value="openAICompatible">OpenAI-compatible</option>
               <option value="anthropic">Anthropic</option>
             </select>
           </label>
           <label className="field" style={{ gridColumn: 'span 2' }}>
-            <span>Base URL</span>
+            <span>{t('Base URL')}</span>
             <input className="input" value={config.baseURL} onChange={(e) => setConfig({ ...config, baseURL: e.target.value })} />
           </label>
           <label className="field">
-            <span>Default model</span>
+            <span>{t('Default model')}</span>
             <input className="input" value={config.defaultModel ?? ''} onChange={(e) => setConfig({ ...config, defaultModel: e.target.value })} />
           </label>
           <label className="field" style={{ gridColumn: '1 / -1' }}>
-            <span>Models (comma separated)</span>
+            <span>{t('Models (comma separated)')}</span>
             <input className="input" value={modelsText} onChange={(e) => setModelsText(e.target.value)} />
           </label>
         </div>
@@ -169,13 +175,13 @@ export function ProviderCard({
             style={{ flex: '1 1 260px' }}
             type="password"
             autoComplete="off"
-            placeholder={status.hasKey ? 'Paste a new key to replace the saved one' : 'Paste API key'}
+            placeholder={status.hasKey ? t('Paste a new key to replace the saved one') : t('Paste API key')}
             value={key}
             onChange={(e) => setKey(e.target.value)}
-            aria-label={`API key for ${config.name}`}
+            aria-label={t('API key for {name}', { name: config.name })}
           />
           <button className="btn small" disabled={!key.trim() || busy !== null} onClick={() => void saveKey()}>
-            {busy === 'key' ? 'Saving…' : 'Save and test key'}
+            {busy === 'key' ? t('Saving…') : t('Save and test key')}
           </button>
           {status.hasKey ? (
             <button
@@ -185,7 +191,7 @@ export function ProviderCard({
                 void run('test', async () => api<ProviderTestResult>(`providers/${status.provider.id}/test`, { method: 'POST' }))
               }
             >
-              {busy === 'test' ? 'Testing…' : 'Test connection'}
+              {busy === 'test' ? t('Testing…') : t('Test connection')}
             </button>
           ) : null}
         </div>
@@ -197,7 +203,7 @@ export function ProviderCard({
         {editing ? (
           <>
             <button className="btn small" disabled={busy !== null} onClick={() => void saveConfig()}>
-              Save provider
+              {t('Save provider')}
             </button>
             <button
               className="btn small ghost"
@@ -208,12 +214,12 @@ export function ProviderCard({
                 onCancel?.()
               }}
             >
-              Cancel
+              {t('Cancel')}
             </button>
           </>
         ) : (
           <button className="pill" onClick={() => setEditing(true)}>
-            Edit models and URL
+            {t('Edit models and URL')}
           </button>
         )}
         <span className="spacer" />
@@ -221,23 +227,23 @@ export function ProviderCard({
           <button
             className="pill"
             onClick={() => {
-              if (window.confirm(`Remove the saved ${config.name} key? Agents using it will stop working.`)) {
+              if (window.confirm(t('Remove the saved {name} key? Agents using it will stop working.', { name: config.name }))) {
                 void run('remove', async () => {
                   await api(`providers/${status.provider.id}/key`, { method: 'DELETE' })
                   onSaved()
-                  return { ok: true, message: 'Key removed.' }
+                  return { ok: true, message: t('Key removed.') }
                 })
               }
             }}
           >
-            Remove key
+            {t('Remove key')}
           </button>
         ) : null}
         {!isNew ? (
           <button
             className="pill"
             onClick={() => {
-              if (window.confirm(`Delete the ${config.name} provider and its key?`)) {
+              if (window.confirm(t('Delete the {name} provider and its key?', { name: config.name }))) {
                 void run('delete', async () => {
                   await api(`providers/${status.provider.id}`, { method: 'DELETE' })
                   onSaved()
@@ -245,7 +251,7 @@ export function ProviderCard({
               }
             }}
           >
-            Delete provider
+            {t('Delete provider')}
           </button>
         ) : null}
       </div>

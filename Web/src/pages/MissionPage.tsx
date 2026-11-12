@@ -11,6 +11,7 @@ import { presentMission, type ChatterItem } from '../lib/missionPresentation'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { useLiveMission, type LiveConnection } from '../lib/useLiveMission'
 import { makeZip } from '../lib/zip'
+import { translate, useI18n } from '../i18n'
 
 type Tab = 'plan' | 'chatter' | 'files' | 'activity'
 
@@ -26,16 +27,17 @@ const statusTitle: Record<MissionStatus, string> = {
 }
 
 /** A short objective for the browser tab. */
-export function missionTabTitle(mission: Pick<Mission, 'status' | 'objective'>): string {
+export function missionTabTitle(mission: Pick<Mission, 'status' | 'objective'>, t: typeof translate = (key) => key): string {
   const objective = mission.objective.trim().replace(/\s+/g, ' ')
   const short = objective.length > 48 ? `${objective.slice(0, 47)}…` : objective
-  return `${statusTitle[mission.status]} · ${short}`
+  return `${t(statusTitle[mission.status])} · ${short}`
 }
 
 export function MissionPage() {
   const { id = '' } = useParams()
   const navigate = useNavigate()
   const { isAdmin } = useAuth()
+  const { t } = useI18n()
   const { detail, events, error, connection, running, reload } = useLiveMission(id)
   const [team, setTeam] = useState<Team | undefined>()
   const [tab, setTab] = useState<Tab>('plan')
@@ -45,7 +47,7 @@ export function MissionPage() {
   const openedReport = useRef(false)
 
   const mission = detail?.mission
-  useDocumentTitle(mission ? missionTabTitle(mission) : null)
+  useDocumentTitle(mission ? missionTabTitle(mission, t) : null)
 
   useEffect(() => {
     if (!mission?.teamID) return
@@ -71,7 +73,7 @@ export function MissionPage() {
   }, [mission, running, hasReport])
 
   async function stop() {
-    if (!window.confirm('Stop this mission? Agents stop where they are, and it can’t be resumed.')) return
+    if (!window.confirm(t('Stop this mission? Agents stop where they are, and it can’t be resumed.'))) return
     setActionError(null)
     try {
       await api(`missions/${id}/stop`, { method: 'POST' })
@@ -96,7 +98,7 @@ export function MissionPage() {
   }
 
   async function remove() {
-    if (!window.confirm('Delete this mission and all its files? This can’t be undone.')) return
+    if (!window.confirm(t('Delete this mission and all its files? This can’t be undone.'))) return
     try {
       await api(`missions/${id}`, { method: 'DELETE' })
       navigate('/')
@@ -118,42 +120,42 @@ export function MissionPage() {
       <div className="page-head">
         <div style={{ minWidth: 0, flex: 1 }}>
           <div className="kicker">
-            <Link to="/">Missions</Link> · {mission?.teamName}
+            <Link to="/">{t('Missions')}</Link> · {mission?.teamName}
           </div>
           <h1 className="mission-title">{mission?.objective}</h1>
           <div className="row" style={{ marginTop: 8 }}>
             {mission ? <StatusChip status={mission.status} /> : null}
-            {mission && running ? <span className="chip">{phaseLabel[mission.phase]}</span> : null}
+            {mission && running ? <span className="chip">{t(phaseLabel[mission.phase])}</span> : null}
             {running ? <ConnectionChip connection={connection} /> : null}
             <span className="chip">{formatCost(mission?.totalCostUSD ?? 0)}</span>
             <span className="chip">
-              {formatTokens(mission?.totalInputTokens ?? 0)} in · {formatTokens(mission?.totalOutputTokens ?? 0)} out
+              {t('{input} in · {output} out', { input: formatTokens(mission?.totalInputTokens ?? 0), output: formatTokens(mission?.totalOutputTokens ?? 0) })}
             </span>
             <span className="dim mono" style={{ fontSize: 11 }}>
               {formatDate(mission?.createdAt)}
-              {mission?.launchedBy ? ` · by ${mission.launchedBy}` : ''}
+              {mission?.launchedBy ? ` · ${t('by {name}', { name: mission.launchedBy })}` : ''}
             </span>
           </div>
         </div>
         <div className="row">
           {running ? (
             <button className="btn danger" onClick={() => void stop()}>
-              Stop
+              {t('Stop')}
             </button>
           ) : null}
           {finished ? (
             <>
               <Link className="btn ghost" to={followUp}>
-                Follow up
+                {t('Follow up')}
               </Link>
               <button className="btn ghost" disabled={busy} onClick={() => void runAgain()}>
-                {busy ? 'Launching…' : 'Run again'}
+                {busy ? t('Launching…') : t('Run again')}
               </button>
             </>
           ) : null}
           {isAdmin && finished ? (
             <button className="btn ghost danger-text" onClick={() => void remove()}>
-              Delete
+              {t('Delete')}
             </button>
           ) : null}
         </div>
@@ -166,10 +168,10 @@ export function MissionPage() {
       </div>
 
       <div className="tabs" role="tablist">
-        {(['plan', 'chatter', 'files', 'activity'] as Tab[]).map((t) => (
-          <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? 'pill active' : 'pill'} onClick={() => setTab(t)}>
-            {t}
-            {t === 'files' && deliverables.length ? ` (${deliverables.length})` : ''}
+        {(['plan', 'chatter', 'files', 'activity'] as Tab[]).map((name) => (
+          <button key={name} role="tab" aria-selected={tab === name} className={tab === name ? 'pill active' : 'pill'} onClick={() => setTab(name)}>
+            {t(name)}
+            {name === 'files' && deliverables.length ? ` (${deliverables.length})` : ''}
           </button>
         ))}
       </div>
@@ -177,7 +179,7 @@ export function MissionPage() {
       <div className="card">
         {tab === 'plan' ? (
           presentation.tasks.length === 0 ? (
-            <p className="muted">{running ? 'The coordinator is planning…' : 'No plan was recorded.'}</p>
+            <p className="muted">{running ? t('The coordinator is planning…') : t('No plan was recorded.')}</p>
           ) : (
             <ol className="task-list">
               {presentation.tasks.map((task) => (
@@ -190,7 +192,7 @@ export function MissionPage() {
                       {task.deliverable ? ` → ${task.deliverable}` : ''}
                     </div>
                   </div>
-                  <span className={`chip task-${task.state}`}>{task.state}</span>
+                  <span className={`chip task-${task.state}`}>{t(task.state)}</span>
                 </li>
               ))}
             </ol>
@@ -208,18 +210,20 @@ export function MissionPage() {
 }
 
 function ConnectionChip({ connection }: { connection: LiveConnection }) {
+  const { t } = useI18n()
   switch (connection) {
     case 'live':
-      return <span className="chip em">● Live</span>
+      return <span className="chip em">{t('● Live')}</span>
     case 'reconnecting':
-      return <span className="chip gold">Reconnecting…</span>
+      return <span className="chip gold">{t('Reconnecting…')}</span>
     default:
-      return <span className="chip">Connecting…</span>
+      return <span className="chip">{t('Connecting…')}</span>
   }
 }
 
 /** Team chatter that follows new messages, unless you've scrolled up to read. */
 function Chatter({ items }: { items: ChatterItem[] }) {
+  const { t } = useI18n()
   const box = useRef<HTMLDivElement>(null)
   const pinned = useRef(true)
 
@@ -228,7 +232,7 @@ function Chatter({ items }: { items: ChatterItem[] }) {
     if (el && pinned.current) el.scrollTop = el.scrollHeight
   }, [items.length])
 
-  if (items.length === 0) return <p className="muted">Nothing said yet.</p>
+  if (items.length === 0) return <p className="muted">{t('Nothing said yet.')}</p>
   return (
     <div
       className="chatter"
@@ -241,7 +245,7 @@ function Chatter({ items }: { items: ChatterItem[] }) {
       {items.map((item) => (
         <div key={item.seq} className={`chat ${item.system ? 'system' : ''} ${item.failed ? 'failed' : ''} role-${item.role ?? 'none'}`}>
           <div className="chat-head mono">
-            {item.system ? 'mission' : item.agentName}
+            {item.system ? t('mission') : item.agentName}
             <span className="dim"> · {new Date(item.timestamp).toLocaleTimeString()}</span>
           </div>
           <div className="chat-text">{item.text}</div>
@@ -253,6 +257,7 @@ function Chatter({ items }: { items: ChatterItem[] }) {
 
 /** The raw event log, newest {ACTIVITY_PAGE} first shown, so long missions stay fast. */
 function Activity({ events }: { events: { seq: number; kind: string; agentName?: string; text?: string }[] }) {
+  const { t } = useI18n()
   const [limit, setLimit] = useState(ACTIVITY_PAGE)
   const shown = events.length > limit ? events.slice(events.length - limit) : events
   const hidden = events.length - shown.length
@@ -260,7 +265,7 @@ function Activity({ events }: { events: { seq: number; kind: string; agentName?:
     <div className="activity mono">
       {hidden > 0 ? (
         <button className="btn small ghost" style={{ alignSelf: 'center', marginBottom: 6 }} onClick={() => setLimit((l) => l + ACTIVITY_PAGE)}>
-          Show {Math.min(hidden, ACTIVITY_PAGE)} earlier events ({hidden} hidden)
+          {t('Show {count} earlier events ({hidden} hidden)', { count: Math.min(hidden, ACTIVITY_PAGE), hidden })}
         </button>
       ) : null}
       {shown.map((e) => (
@@ -275,6 +280,7 @@ function Activity({ events }: { events: { seq: number; kind: string; agentName?:
 }
 
 function Files({ missionID, names, selected, onSelect }: { missionID: string; names: string[]; selected: string | null; onSelect: (name: string) => void }) {
+  const { t } = useI18n()
   const [content, setContent] = useState<Record<string, string>>({})
   const [error, setError] = useState<string | null>(null)
   const [zipping, setZipping] = useState(false)
@@ -289,7 +295,7 @@ function Files({ missionID, names, selected, onSelect }: { missionID: string; na
       .catch((err) => setError(errorMessage(err)))
   }, [current, missionID, content])
 
-  if (names.length === 0) return <p className="muted">No files yet. Agents write their deliverables here.</p>
+  if (names.length === 0) return <p className="muted">{t('No files yet. Agents write their deliverables here.')}</p>
 
   async function downloadAll() {
     setZipping(true)
@@ -316,7 +322,7 @@ function Files({ missionID, names, selected, onSelect }: { missionID: string; na
         ))}
         {names.length > 1 ? (
           <button className="btn small ghost" style={{ marginTop: 8 }} disabled={zipping} onClick={() => void downloadAll()}>
-            {zipping ? 'Zipping…' : 'Download all'}
+            {zipping ? t('Zipping…') : t('Download all')}
           </button>
         ) : null}
       </div>
@@ -326,10 +332,10 @@ function Files({ missionID, names, selected, onSelect }: { missionID: string; na
           <>
             <div className="row" style={{ justifyContent: 'flex-end', marginBottom: 8 }}>
               <button className="btn small ghost" onClick={() => void navigator.clipboard.writeText(text)}>
-                Copy
+                {t('Copy')}
               </button>
               <button className="btn small ghost" onClick={() => saveFile(current, text, mimeType(current))}>
-                Download
+                {t('Download')}
               </button>
             </div>
             {fileKind(current) === 'markdown' ? <Markdown source={text} /> : <pre className="file-text mono">{displayText(current, text)}</pre>}

@@ -5,6 +5,7 @@ import { api, errorMessage } from '../api/client'
 import type { AgentProfile, AgentRole, ProviderStatus, Team } from '../api/types'
 import { Avatar } from '../components/mission'
 import { ErrorBanner, Spinner } from '../components/ui'
+import { useI18n } from '../i18n'
 
 type Draft = Pick<Team, 'name' | 'emoji' | 'goal' | 'agents'>
 
@@ -40,12 +41,13 @@ export function TeamEditPage() {
   const { id } = useParams()
   const isNew = id === 'new' || !id
   const navigate = useNavigate()
+  const { t } = useI18n()
   const [providers, setProviders] = useState<ProviderStatus[]>([])
   const [draft, setDraft] = useState<Draft | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
   const [busy, setBusy] = useState(false)
-  useDocumentTitle(isNew ? 'New team' : draft?.name || 'Team')
+  useDocumentTitle(isNew ? t('New team') : draft?.name || t('Team'))
 
   useEffect(() => {
     void (async () => {
@@ -93,7 +95,7 @@ export function TeamEditPage() {
   }
 
   async function remove() {
-    if (!window.confirm(`Delete ${draft!.name}? Past missions stay, but the team can’t run new ones.`)) return
+    if (!window.confirm(t('Delete {name}? Past missions stay, but the team can’t run new ones.', { name: draft!.name }))) return
     try {
       await api(`teams/${id}`, { method: 'DELETE' })
       navigate('/teams')
@@ -107,18 +109,18 @@ export function TeamEditPage() {
       <div className="page-head">
         <div>
           <div className="kicker">
-            <Link to="/teams">Teams</Link>
+            <Link to="/teams">{t('Teams')}</Link>
           </div>
-          <h1>{isNew ? 'New team' : draft.name || 'Team'}</h1>
+          <h1>{isNew ? t('New team') : draft.name || t('Team')}</h1>
         </div>
         <div className="row">
           {!isNew ? (
             <Link className="btn ghost" to={`/missions/new?team=${id}`}>
-              Launch a mission
+              {t('Launch a mission')}
             </Link>
           ) : null}
           <button className="btn" type="submit" disabled={busy}>
-            {busy ? 'Saving…' : saved ? 'Saved' : 'Save team'}
+            {busy ? t('Saving…') : saved ? t('Saved') : t('Save team')}
           </button>
         </div>
       </div>
@@ -126,7 +128,7 @@ export function TeamEditPage() {
       {warnings.length > 0 ? (
         <div className="error" style={{ marginBottom: 14 }}>
           {warnings.map((w) => (
-            <div key={w}>{w}</div>
+            <div key={w}>{t(w)}</div>
           ))}
         </div>
       ) : null}
@@ -134,17 +136,17 @@ export function TeamEditPage() {
       <div className="card stack">
         <div className="row" style={{ alignItems: 'flex-end' }}>
           <label className="field" style={{ width: 90 }}>
-            <span>Emoji</span>
+            <span>{t('Emoji')}</span>
             <input className="input" maxLength={4} value={draft.emoji} onChange={(e) => update({ emoji: e.target.value })} />
           </label>
           <label className="field" style={{ flex: 1, minWidth: 200 }}>
-            <span>Team name</span>
+            <span>{t('Team name')}</span>
             <input className="input" required maxLength={80} value={draft.name} onChange={(e) => update({ name: e.target.value })} />
           </label>
         </div>
         <label className="field">
-          <span>Goal</span>
-          <input className="input" value={draft.goal} onChange={(e) => update({ goal: e.target.value })} placeholder="What this team is for" />
+          <span>{t('Goal')}</span>
+          <input className="input" value={draft.goal} onChange={(e) => update({ goal: e.target.value })} placeholder={t('What this team is for')} />
         </label>
       </div>
 
@@ -156,34 +158,34 @@ export function TeamEditPage() {
             <div className="row">
               <Avatar name={agent.name || '?'} role={agent.role} size={44} />
               <div style={{ flex: 1 }}>
-                <b style={{ color: 'var(--bright)' }}>{agent.name || 'Unnamed agent'}</b>
+                <b style={{ color: 'var(--bright)' }}>{agent.name || t('Unnamed agent')}</b>
                 <div className="dim mono" style={{ fontSize: 11 }}>
-                  {agent.role}
+                  {t(agent.role)}
                 </div>
               </div>
               <button type="button" className="btn small danger" onClick={() => update({ agents: draft.agents.filter((_, i) => i !== index) })}>
-                Remove
+                {t('Remove')}
               </button>
             </div>
             <div className="grid-3">
               <label className="field">
-                <span>Name</span>
+                <span>{t('Name')}</span>
                 <input className="input" value={agent.name} onChange={(e) => updateAgent(index, { name: e.target.value })} />
               </label>
               <label className="field">
-                <span>Title</span>
+                <span>{t('Title')}</span>
                 <input className="input" value={agent.title} onChange={(e) => updateAgent(index, { title: e.target.value })} />
               </label>
               <label className="field">
-                <span>Role</span>
+                <span>{t('Role')}</span>
                 <select className="select" value={agent.role} onChange={(e) => updateAgent(index, { role: e.target.value as AgentRole })}>
-                  <option value="coordinator">Coordinator</option>
-                  <option value="worker">Worker</option>
-                  <option value="verifier">Verifier</option>
+                  <option value="coordinator">{t('Coordinator')}</option>
+                  <option value="worker">{t('Worker')}</option>
+                  <option value="verifier">{t('Verifier')}</option>
                 </select>
               </label>
               <label className="field">
-                <span>Provider</span>
+                <span>{t('Provider')}</span>
                 <select
                   className="select"
                   value={agent.providerID}
@@ -192,19 +194,19 @@ export function TeamEditPage() {
                     updateAgent(index, { providerID: e.target.value, model: next?.defaultModel ?? next?.models[0] ?? '' })
                   }}
                 >
-                  {!provider ? <option value={agent.providerID}>{agent.providerID || 'Choose…'}</option> : null}
+                  {!provider ? <option value={agent.providerID}>{agent.providerID || t('Choose…')}</option> : null}
                   {providers.map((p) => (
                     <option key={p.provider.id} value={p.provider.id}>
                       {p.provider.name}
-                      {p.hasKey ? '' : ' (no key)'}
+                      {p.hasKey ? '' : ` ${t('(no key)')}`}
                     </option>
                   ))}
                 </select>
               </label>
               <label className="field">
-                <span>Model</span>
+                <span>{t('Model')}</span>
                 <select className="select" value={agent.model} onChange={(e) => updateAgent(index, { model: e.target.value })}>
-                  {!models.includes(agent.model) ? <option value={agent.model}>{agent.model || 'Choose…'}</option> : null}
+                  {!models.includes(agent.model) ? <option value={agent.model}>{agent.model || t('Choose…')}</option> : null}
                   {models.map((m) => (
                     <option key={m} value={m}>
                       {m}
@@ -213,21 +215,21 @@ export function TeamEditPage() {
                 </select>
               </label>
               <label className="field">
-                <span>Temperature</span>
+                <span>{t('Temperature')}</span>
                 <input
                   className="input"
                   type="number"
                   min={0}
                   max={2}
                   step={0.1}
-                  placeholder="default"
+                  placeholder={t('default')}
                   value={agent.temperature ?? ''}
                   onChange={(e) => updateAgent(index, { temperature: e.target.value === '' ? undefined : Number(e.target.value) })}
                 />
               </label>
             </div>
             <label className="field">
-              <span>System prompt</span>
+              <span>{t('System prompt')}</span>
               <textarea className="textarea" value={agent.systemPrompt} onChange={(e) => updateAgent(index, { systemPrompt: e.target.value })} />
             </label>
           </div>
@@ -236,17 +238,17 @@ export function TeamEditPage() {
 
       <div className="row" style={{ marginTop: 16 }}>
         <button type="button" className="btn ghost" onClick={() => update({ agents: [...draft.agents, newAgent('worker', providers)] })}>
-          Add worker
+          {t('Add worker')}
         </button>
         {!draft.agents.some((a) => a.role === 'verifier') ? (
           <button type="button" className="btn ghost" onClick={() => update({ agents: [...draft.agents, newAgent('verifier', providers)] })}>
-            Add verifier
+            {t('Add verifier')}
           </button>
         ) : null}
         <span className="spacer" />
         {!isNew ? (
           <button type="button" className="btn danger" onClick={() => void remove()}>
-            Delete team
+            {t('Delete team')}
           </button>
         ) : null}
       </div>

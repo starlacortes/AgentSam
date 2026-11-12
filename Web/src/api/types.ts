@@ -67,8 +67,91 @@ export interface Team {
   emoji: string
   goal: string
   agents: AgentProfile[]
+  toolScope?: ToolScope
   createdAt: string
   updatedAt: string
+}
+
+export interface ToolScope {
+  connectorIDs: string[]
+  permissions: ConnectorPermissions
+}
+
+export interface ConnectorPermissions {
+  sendEmail: boolean
+  createDraft: boolean
+  dnsWrite: boolean
+}
+
+export interface ConnectorStatus {
+  id: 'gmail' | 'googleads' | 'cloudflare'
+  name: string
+  detail: string
+  enabled: boolean
+  configured: boolean
+  permissions: ConnectorPermissions
+  oauthAvailable: boolean
+}
+
+export interface AgentActivity {
+  id: string
+  agentID: string
+  agentName: string
+  summary: string
+  state: 'idle' | 'working' | 'done' | 'failed' | string
+  updatedAt: string
+  teamID?: string
+  teamName?: string
+}
+
+export interface TeamProposal {
+  id: string
+  baseTeamID?: string
+  team: Team
+  rationale: string
+  toolScope: ToolScope
+  status: 'pending' | 'applied' | 'dismissed'
+  createdAt: string
+}
+
+export interface ConversationMessage {
+  id: string
+  role: 'user' | 'assistant'
+  text: string
+  createdAt: string
+  status: 'running' | 'complete' | 'failed'
+  missionIDs: string[]
+  teamIDs: string[]
+  proposal?: TeamProposal
+  activity: AgentActivity[]
+}
+
+export interface ConversationSummary {
+  id: string
+  title: string
+  projectName: string
+  updatedAt: string
+  running: boolean
+}
+
+export interface Conversation extends ConversationSummary {
+  ownerID: string
+  createdAt: string
+  messages: ConversationMessage[]
+}
+
+export interface WorkspaceMemory {
+  enabled: boolean
+  markdown: string
+  sources: { conversationID: string; userMessageID: string; assistantMessageID: string; timestamp: string }[]
+  updatedAt?: string
+  compactionCount: number
+  pendingEntries: number
+}
+
+export interface GuideState {
+  completed: boolean
+  resetAt?: string
 }
 
 export interface Mission {
@@ -187,4 +270,44 @@ export interface TokenCreated {
 export interface ProviderTestResult {
   ok: boolean
   message: string
+}
+
+// MARK: Bulk account provisioning
+
+export type BatchStatus = 'queued' | 'running' | 'paused' | 'done' | 'cancelled'
+export type ProvisioningItemState = 'pending' | 'creating' | 'done' | 'failed' | 'cancelled'
+export type ProvisioningDelivery = 'inviteLinks' | 'directPasswords'
+
+export interface BatchSpec {
+  count: number
+  role: UserRole
+  domains: string[]
+  delivery: ProvisioningDelivery
+  paceSeconds: [number, number]
+  expiresInDays?: number
+}
+
+export interface ProvisioningItem {
+  id: string
+  state: ProvisioningItemState
+  email?: string
+  userID?: string
+  attemptCount: number
+  lastError?: string
+  completedAt?: string
+  secret?: string
+  secretAcknowledged: boolean
+}
+
+export interface PublicBatch {
+  id: string
+  createdBy?: string
+  createdAt: string
+  spec: BatchSpec
+  status: BatchStatus
+  items: ProvisioningItem[]
+}
+
+export interface BatchDetail {
+  batch: PublicBatch
 }

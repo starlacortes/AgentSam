@@ -1,6 +1,8 @@
 // Thin fetch wrapper for the AgentSam server. Same origin only: the session cookie is HttpOnly,
 // so the token never touches JavaScript.
 
+import { currentLanguage, translate } from '../i18n'
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -24,6 +26,8 @@ export async function api<T>(path: string, options: { method?: Method; body?: un
   const { method = 'GET', body } = options
   const headers: Record<string, string> = {
     Accept: 'application/json',
+    // Server-generated messages (errors, notices) come back in the selected UI language.
+    'Accept-Language': currentLanguage(),
     // Required by the server for cookie-authenticated writes (CSRF protection).
     'X-AgentSam-Request': '1',
   }
@@ -56,5 +60,5 @@ export async function api<T>(path: string, options: { method?: Method; body?: un
 export function errorMessage(error: unknown): string {
   if (error instanceof ApiError) return error.message
   if (error instanceof Error) return error.message
-  return 'Something went wrong'
+  return translate('Something went wrong')
 }

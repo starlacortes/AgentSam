@@ -208,6 +208,7 @@ public struct Team: Codable, Identifiable, Hashable, Sendable {
     public var emoji: String
     public var goal: String
     public var agents: [AgentProfile]
+    public var toolScope: ToolScope?
     public var createdAt: Date
     public var updatedAt: Date
 
@@ -217,6 +218,7 @@ public struct Team: Codable, Identifiable, Hashable, Sendable {
         emoji: String = "🛡️",
         goal: String = "",
         agents: [AgentProfile] = [],
+        toolScope: ToolScope? = nil,
         createdAt: Date = Date(),
         updatedAt: Date = Date()
     ) {
@@ -225,6 +227,7 @@ public struct Team: Codable, Identifiable, Hashable, Sendable {
         self.emoji = emoji
         self.goal = goal
         self.agents = agents
+        self.toolScope = toolScope
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }

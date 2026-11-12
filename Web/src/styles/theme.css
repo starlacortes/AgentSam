@@ -318,6 +318,8 @@ main.page { width: 100%; max-width: 1160px; margin: 0 auto; padding: 28px 20px 8
 
 /* ---------- sign out + phone navigation ---------- */
 .signout { padding: 7px 10px; }
+.lang-toggle { display: flex; gap: 4px; }
+.lang-toggle .pill { padding: 7px 10px; }
 .tabbar { display: none; }
 .sheet, .sheet-backdrop { display: none; }
 

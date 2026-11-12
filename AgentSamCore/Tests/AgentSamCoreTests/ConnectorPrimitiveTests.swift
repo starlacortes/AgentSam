@@ -40,6 +40,16 @@ final class ConnectorPrimitiveTests: XCTestCase {
         XCTAssertTrue(mime.hasSuffix("\r\n\r\nBody"))
     }
 
+    func testFileKeyRingPersistsAndReadsBackValues() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("agentsam-keyring-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let keys = FileKeyRing(url: directory.appendingPathComponent("nested/keys.json"))
+        try keys.set("dummy-test-key", for: "provider.test")
+        XCTAssertEqual(keys.get("provider.test"), "dummy-test-key")
+        let reloaded = FileKeyRing(url: directory.appendingPathComponent("nested/keys.json"))
+        XCTAssertEqual(reloaded.get("provider.test"), "dummy-test-key")
+    }
+
     func testConnectorConfigRoundTrip() throws {
         let config = ConnectorConfig(id: .gmail, enabled: false, permissions: ConnectorPermissions(sendEmail: true, createDraft: false, dnsWrite: false))
         let data = try JSONEncoder().encode(config)

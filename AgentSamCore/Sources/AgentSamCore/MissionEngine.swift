@@ -328,7 +328,7 @@ public actor MissionEngine {
         var handoff = l10n("engine.taskFinished", mission: mission)
         var deliverables: [String] = []
         await store.appendEvent(mission.id, kind: .taskStarted, agent: agent, text: task.goal)
-        let connectorDefs = await connectors?.toolDefs() ?? []
+        let connectorDefs = await connectors?.toolDefs(scope: team.toolScope) ?? []
         let externalToolNames = connectorDefs.map(\.function.name)
         let tools = AgentTools.workerTools + connectorDefs
 
@@ -357,7 +357,7 @@ public actor MissionEngine {
                 for call in calls {
                     let outcome: ToolOutcome
                     if let connectors, connectors.owns(call.function.name) {
-                        outcome = await connectors.run(call: call)
+                        outcome = await connectors.run(call: call, scope: team.toolScope)
                     } else {
                         outcome = AgentTools.run(call: call, workspace: workspace)
                     }

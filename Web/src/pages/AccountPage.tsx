@@ -5,9 +5,11 @@ import type { Ack } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { ErrorBanner, Field } from '../components/ui'
 import { AppTokens } from './AppTokens'
+import { useI18n } from '../i18n'
 
 export function AccountPage() {
-  useDocumentTitle('Account')
+  const { t } = useI18n()
+  useDocumentTitle(t('Account'))
   const { me, signOut } = useAuth()
   const [form, setForm] = useState({ currentPassword: '', newPassword: '', confirm: '' })
   const [error, setError] = useState<string | null>(null)
@@ -19,7 +21,7 @@ export function AccountPage() {
     setError(null)
     setNotice(null)
     if (form.newPassword !== form.confirm) {
-      setError('New passwords don’t match')
+      setError(t('New passwords don’t match'))
       return
     }
     setBusy(true)
@@ -28,7 +30,7 @@ export function AccountPage() {
         method: 'POST',
         body: { currentPassword: form.currentPassword, newPassword: form.newPassword },
       })
-      setNotice(ack.detail ?? 'Password changed.')
+      setNotice(ack.detail ?? t('Password changed.'))
       setForm({ currentPassword: '', newPassword: '', confirm: '' })
     } catch (err) {
       setError(errorMessage(err))
@@ -41,24 +43,24 @@ export function AccountPage() {
     <>
       <div className="page-head">
         <div>
-          <div className="kicker">Account</div>
+          <div className="kicker">{t('Account')}</div>
           <h1>{me?.name}</h1>
           <p className="lede">
-            {me?.user?.email ?? 'Signed in with the server token'} · {me?.role}
+            {me?.user?.email ?? t('Signed in with the server token')} · {me?.role ? t(me.role) : ''}
           </p>
         </div>
         <button className="btn ghost" onClick={() => void signOut()}>
-          Sign out
+          {t('Sign out')}
         </button>
       </div>
 
       {me?.via === 'session' ? (
         <form className="card stack" style={{ maxWidth: 480 }} onSubmit={changePassword}>
-          <h2>Change password</h2>
+          <h2>{t('Change password')}</h2>
           <ErrorBanner message={error} />
           {notice ? <div className="notice">{notice}</div> : null}
           <Field
-            label="Current password"
+            label={t('Current password')}
             type="password"
             autoComplete="current-password"
             required
@@ -66,17 +68,17 @@ export function AccountPage() {
             onChange={(e) => setForm({ ...form, currentPassword: e.target.value })}
           />
           <Field
-            label="New password"
+            label={t('New password')}
             type="password"
             autoComplete="new-password"
             minLength={12}
             required
             value={form.newPassword}
             onChange={(e) => setForm({ ...form, newPassword: e.target.value })}
-            hint="At least 12 characters. Your other sessions will be signed out."
+            hint={t('At least 12 characters. Your other sessions will be signed out.')}
           />
           <Field
-            label="Confirm new password"
+            label={t('Confirm new password')}
             type="password"
             autoComplete="new-password"
             required
@@ -85,7 +87,7 @@ export function AccountPage() {
           />
           <div>
             <button className="btn" type="submit" disabled={busy}>
-              {busy ? 'Saving…' : 'Change password'}
+              {busy ? t('Saving…') : t('Change password')}
             </button>
           </div>
         </form>

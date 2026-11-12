@@ -1,0 +1,638 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>AgentSam — Ada coordinator concept</title>
+<style>
+:root{
+  --bg:#0a100d;--sidebar:#0b120e;--panel:#0e1712;--panel2:#121d17;--raised:#16221b;--deep:#080e0b;
+  --ink:#edf4ee;--ink2:#d8e4da;--mut:#94a99a;--dim:#64796b;--line:rgba(157,194,165,.13);--line2:rgba(157,194,165,.23);
+  --em:#55dca3;--em2:#8ae8bc;--embg:rgba(85,220,163,.1);--gold:#d2b474;--teal:#6bcfc0;--danger:#eb8b80;
+  --display:"Avenir Next","Helvetica Neue",Helvetica,Arial,sans-serif;
+  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",system-ui,sans-serif;
+  --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+  --shadow:0 24px 80px rgba(0,0,0,.46);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{font-family:var(--sans);font-size:14px;line-height:1.5;color:var(--ink2);background:var(--bg);overflow:hidden}
+button,input,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+button:disabled{cursor:default;opacity:.48}
+::selection{background:rgba(85,220,163,.25);color:var(--ink)}
+:focus-visible{outline:2px solid rgba(85,220,163,.72);outline-offset:3px}
+.icon{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.icon.small{width:14px;height:14px}
+.icon.large{width:22px;height:22px}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.app{height:100dvh;display:grid;grid-template-columns:264px minmax(0,1fr)}
+
+/* Sidebar */
+.sidebar{min-height:0;display:flex;flex-direction:column;background:var(--sidebar);border-right:1px solid var(--line);z-index:45}
+.brand{display:flex;align-items:center;gap:10px;height:66px;padding:0 18px;flex:none}
+.brand-mark{width:31px;height:31px;display:grid;place-items:center;border:1px solid rgba(210,180,116,.4);border-radius:9px;color:var(--gold);font-family:var(--display);font-weight:750;font-size:16px;background:linear-gradient(145deg,#173422,#0c2117);box-shadow:inset 0 1px rgba(255,255,255,.05)}
+.brand-name{font-family:var(--display);font-size:17px;font-weight:700;color:var(--ink);letter-spacing:-.02em}
+.brand-badge{margin-left:auto;font-family:var(--mono);font-size:8px;letter-spacing:.13em;color:var(--dim);text-transform:uppercase}
+.sidebar-top{padding:0 12px 12px}
+.new-chat{width:100%;display:flex;align-items:center;justify-content:center;gap:8px;padding:10px 14px;border:1px solid rgba(85,220,163,.35);border-radius:10px;background:linear-gradient(180deg,#1c7452,#185f44);color:#f3fff8;font-weight:650;box-shadow:0 8px 20px rgba(15,80,53,.18)}
+.new-chat:hover{filter:brightness(1.08)}
+.search{display:flex;align-items:center;gap:8px;margin-top:10px;padding:0 10px;border:1px solid var(--line);border-radius:9px;color:var(--dim);background:rgba(8,14,11,.42)}
+.search input{width:100%;min-width:0;padding:8px 0;border:0;outline:0;background:transparent;font-size:12.5px;color:var(--ink2)}
+.search input::placeholder{color:var(--dim)}
+.key{font-family:var(--mono);font-size:9px;border:1px solid var(--line);border-radius:4px;padding:0 4px;white-space:nowrap}
+.side-scroll{min-height:0;overflow-y:auto;padding:2px 9px 14px;scrollbar-width:thin;scrollbar-color:var(--line2) transparent}
+.side-section{margin-top:17px}
+.side-label{display:flex;align-items:center;justify-content:space-between;padding:0 9px 7px;color:var(--dim);font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.15em;text-transform:uppercase}
+.side-label button{display:grid;place-items:center;width:22px;height:22px;border:0;border-radius:6px;background:transparent;color:var(--dim)}
+.side-label button:hover{background:var(--embg);color:var(--em)}
+.side-item,.chat-link,.project-row{width:100%;border:0;background:transparent;text-align:left;color:var(--mut);border-radius:8px;transition:.15s}
+.side-item{display:flex;align-items:center;gap:10px;padding:9px 10px;font-size:13px}
+.side-item:hover,.chat-link:hover,.project-row:hover{background:rgba(157,194,165,.055);color:var(--ink2)}
+.project-row{display:flex;align-items:center;gap:9px;padding:8px 10px;font-weight:570;font-size:12.8px}
+.project-row .count{margin-left:auto;color:var(--dim);font-family:var(--mono);font-size:9px}
+.project-row .chevron{transition:transform .2s}
+.project-row.open .chevron{transform:rotate(90deg)}
+.project-chats{position:relative;margin:2px 0 5px 18px;padding-left:13px}
+.project-chats:before{content:"";position:absolute;left:0;top:2px;bottom:2px;width:1px;background:var(--line)}
+.chat-link{display:block;padding:7px 9px;font-size:12.2px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chat-link.active{color:var(--em2);background:var(--embg)}
+.chat-link.active:before{content:"";display:inline-block;width:4px;height:4px;margin:0 7px 2px 0;border-radius:50%;background:var(--em)}
+.sidebar-foot{flex:none;border-top:1px solid var(--line);padding:8px 9px 10px}
+.profile{display:flex;align-items:center;gap:10px;width:100%;margin-top:5px;padding:9px 10px;border:0;border-radius:9px;background:transparent;text-align:left}
+.profile:hover{background:rgba(157,194,165,.06)}
+.profile-avatar{width:29px;height:29px;display:grid;place-items:center;border-radius:50%;background:#27382d;color:var(--ink);font-size:11px;font-weight:700}
+.profile-copy{min-width:0;flex:1}
+.profile-copy b{display:block;color:var(--ink2);font-size:12px;font-weight:600}
+.profile-copy span{display:block;color:var(--dim);font-size:10px;margin-top:1px}
+.online-dot{width:6px;height:6px;border-radius:50%;background:var(--em);box-shadow:0 0 0 3px rgba(85,220,163,.08)}
+
+/* Main chat */
+.main{min-width:0;min-height:0;display:flex;flex-direction:column;background:radial-gradient(800px 420px at 60% -20%,rgba(85,220,163,.045),transparent 70%),var(--bg)}
+.chat-header{height:66px;flex:none;display:flex;align-items:center;gap:12px;padding:0 22px;border-bottom:1px solid var(--line);background:rgba(10,16,13,.76);backdrop-filter:blur(16px);z-index:20}
+.chat-heading{min-width:0;flex:1}
+.chat-eyebrow{font-family:var(--mono);font-size:8.5px;letter-spacing:.17em;color:var(--dim);text-transform:uppercase}
+.chat-title{margin-top:2px;color:var(--ink);font-size:14.5px;font-weight:630;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.header-actions{display:flex;align-items:center;gap:7px}
+.header-button{display:inline-flex;align-items:center;gap:7px;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:transparent;color:var(--mut);font-size:11.5px}
+.header-button:hover{color:var(--ink);border-color:var(--line2);background:rgba(157,194,165,.04)}
+.header-button .online-dot{width:5px;height:5px}
+.menu-button{display:none!important}
+.chat-body{flex:1;min-height:0;display:flex;flex-direction:column}
+
+/* Agent work area: one third of the chat body on desktop */
+.workroom{position:relative;flex:0 0 33%;min-height:210px;max-height:340px;overflow:hidden;border-bottom:1px solid var(--line);background:radial-gradient(700px 240px at 48% 10%,rgba(85,220,163,.055),transparent 75%),rgba(9,16,12,.5);transition:flex-basis .25s,min-height .25s}
+.workroom:before{content:"";position:absolute;inset:0;pointer-events:none;background-image:radial-gradient(rgba(157,194,165,.09) .7px,transparent .8px);background-size:24px 24px;mask-image:linear-gradient(to bottom,black,transparent 95%)}
+.workroom-head{position:relative;z-index:3;height:45px;display:flex;align-items:center;gap:8px;padding:0 22px;max-width:1120px;margin:0 auto}
+.workroom-title{display:flex;align-items:center;gap:8px;min-width:0}
+.workroom-title b{color:var(--ink);font-size:12px;font-weight:650}
+.workroom-title span{color:var(--dim);font-size:10.5px;white-space:nowrap}
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--em);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(85,220,163,.28)}50%{box-shadow:0 0 0 5px rgba(85,220,163,0)}}
+.workroom-meta{margin-left:auto;display:flex;align-items:center;gap:8px}
+.mini-chip{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:6px;padding:3px 7px;color:var(--mut);background:rgba(14,23,18,.7);font-family:var(--mono);font-size:8.5px;white-space:nowrap}
+.mini-chip.connected{color:var(--em2);border-color:rgba(85,220,163,.22)}
+.icon-button{display:inline-grid;place-items:center;width:30px;height:30px;border:0;border-radius:7px;background:transparent;color:var(--dim)}
+.icon-button:hover{background:rgba(157,194,165,.07);color:var(--ink)}
+.collapse-button .icon{transition:transform .2s}
+.workroom.collapsed{flex-basis:45px;min-height:45px}
+.workroom.collapsed .collapse-button .icon{transform:rotate(180deg)}
+.workroom.collapsed .agent-graph,.workroom.collapsed .mobile-summary{display:none}
+.agent-graph{position:relative;z-index:2;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:24px;max-width:1040px;height:calc(100% - 45px);margin:0 auto;padding:12px 34px 14px}
+.graph-line{position:absolute;left:12.5%;right:12.5%;top:34px;height:1px;background:linear-gradient(90deg,rgba(85,220,163,.5),rgba(107,207,192,.3),rgba(210,180,116,.35));z-index:-1}
+.graph-line:after{content:"";position:absolute;top:-1px;width:36px;height:3px;border-radius:99px;background:linear-gradient(90deg,transparent,var(--em2),transparent);animation:travel 4s linear infinite}
+@keyframes travel{from{left:0}to{left:calc(100% - 36px)}}
+.agent-node{min-width:0;display:grid;grid-template-columns:44px minmax(0,1fr);column-gap:9px;align-content:start;align-items:center}
+.agent-avatar{position:relative;width:44px;height:44px;display:grid;place-items:center;border-radius:50%;border:1px solid var(--agent-border,rgba(85,220,163,.42));color:var(--agent,var(--em));background:radial-gradient(circle at 35% 20%,var(--agent-bg,rgba(85,220,163,.14)),transparent 75%),var(--panel2);font-family:var(--display);font-weight:750;font-size:16px;box-shadow:0 6px 16px rgba(0,0,0,.3)}
+.agent-node[data-agent="scout"]{--agent:var(--teal);--agent-border:rgba(107,207,192,.4);--agent-bg:rgba(107,207,192,.12)}
+.agent-node[data-agent="quill"]{--agent:#e0c58e;--agent-border:rgba(224,197,142,.4);--agent-bg:rgba(224,197,142,.11)}
+.agent-node[data-agent="judge"]{--agent:var(--gold);--agent-border:rgba(210,180,116,.42);--agent-bg:rgba(210,180,116,.11)}
+.agent-status-dot{position:absolute;right:-1px;bottom:0;width:10px;height:10px;border:2px solid var(--bg);border-radius:50%;background:var(--dim)}
+.agent-node.working .agent-avatar{box-shadow:0 0 0 4px rgba(85,220,163,.07),0 0 24px rgba(85,220,163,.14)}
+.agent-node.working .agent-status-dot{background:var(--em);animation:pulse 1.7s infinite}
+.agent-node.done .agent-status-dot{background:var(--gold)}
+.agent-name{display:block;color:var(--ink2);font-size:11.5px;font-weight:650;line-height:1.2}
+.agent-role{display:block;margin-top:3px;color:var(--dim);font-family:var(--mono);font-size:8px;letter-spacing:.06em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.agent-thought{position:relative;grid-column:1/-1;margin-top:11px;padding:8px 10px;border:1px solid var(--line);border-radius:4px 11px 11px 11px;background:rgba(18,29,23,.82);box-shadow:0 8px 20px rgba(0,0,0,.14);color:var(--mut);font-size:10.8px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.agent-node.working .agent-thought{color:var(--ink2);border-color:rgba(85,220,163,.23)}
+.mobile-summary{display:none}
+.workroom.direct{flex-basis:53px;min-height:53px}
+.workroom.direct .workroom-head,.workroom.direct .mobile-summary{display:none}
+.direct-strip{position:relative;z-index:2;height:53px;display:flex;align-items:center;justify-content:center;gap:9px;color:var(--mut);font-size:11.5px}
+.direct-strip .icon{color:var(--em)}
+.direct-strip b{color:var(--ink2);font-weight:600}
+.direct-strip button{border:0;background:transparent;color:var(--em2);font-size:11px;margin-left:7px}
+.direct-strip button:hover{text-decoration:underline}
+
+/* Messages */
+.messages{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--line2) transparent}
+.message-inner{width:100%;max-width:830px;margin:0 auto;padding:24px 28px 30px;display:flex;flex-direction:column;gap:24px}
+.user-message{display:flex;justify-content:flex-end}
+.user-bubble{max-width:78%;padding:11px 15px;border:1px solid rgba(157,194,165,.17);border-radius:15px 15px 4px 15px;background:#17241c;color:var(--ink);font-size:13.5px;line-height:1.55;overflow-wrap:anywhere}
+.ada-message{display:grid;grid-template-columns:32px minmax(0,1fr);gap:12px;align-items:start}
+.ada-avatar{width:32px;height:32px;display:grid;place-items:center;border:1px solid rgba(85,220,163,.38);border-radius:50%;background:radial-gradient(circle at 35% 20%,rgba(85,220,163,.17),transparent 75%),var(--panel);color:var(--em2);font-family:var(--display);font-size:12px;font-weight:750}
+.ada-content{min-width:0}
+.ada-name{display:flex;align-items:center;gap:8px;height:29px;margin-bottom:5px;color:var(--ink);font-size:12px;font-weight:680}
+.ada-name span{color:var(--dim);font-family:var(--mono);font-size:8.5px;font-weight:400;letter-spacing:.06em;text-transform:uppercase}
+.response{color:var(--ink2);font-size:13.5px;line-height:1.68;overflow-wrap:anywhere}
+.response>*+*{margin-top:10px}
+.response h2,.response h3{font-family:var(--display);color:var(--ink);font-weight:650;letter-spacing:-.015em}
+.response h2{font-size:20px}.response h3{font-size:16px}
+.response strong{color:var(--ink);font-weight:650}
+.response ul{padding-left:19px}
+.response li+li{margin-top:5px}
+.response .caveat{padding:9px 12px;border-left:2px solid var(--gold);background:rgba(210,180,116,.055);color:var(--mut);font-size:12.5px}
+.source-row{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:14px}
+.source-chip{display:inline-flex;align-items:center;gap:5px;padding:4px 8px;border:1px solid var(--line);border-radius:6px;color:var(--mut);background:rgba(157,194,165,.035);font-family:var(--mono);font-size:9px}
+.source-chip:hover{border-color:var(--line2);color:var(--ink2)}
+.artifact{display:flex;align-items:center;gap:11px;width:100%;margin-top:15px;padding:11px 12px;border:1px solid var(--line2);border-radius:10px;background:var(--panel);text-align:left;color:var(--ink2)}
+.artifact:hover{border-color:rgba(85,220,163,.32);background:var(--panel2)}
+.artifact-icon{width:32px;height:32px;display:grid;place-items:center;border-radius:8px;background:var(--embg);color:var(--em)}
+.artifact-copy{min-width:0;flex:1}
+.artifact-copy b{display:block;font-size:12px;font-weight:620}
+.artifact-copy span{display:block;margin-top:2px;color:var(--dim);font-family:var(--mono);font-size:8.5px}
+.message-actions{display:flex;gap:2px;margin-top:8px}
+.message-actions button{display:inline-flex;align-items:center;gap:5px;border:0;border-radius:6px;background:transparent;color:var(--dim);padding:5px 7px;font-size:10px}
+.message-actions button:hover{background:rgba(157,194,165,.05);color:var(--ink2)}
+.typing{display:inline-flex;gap:4px;align-items:center;height:28px}
+.typing i{width:5px;height:5px;border-radius:50%;background:var(--mut);animation:typing 1.2s infinite}
+.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
+@keyframes typing{0%,60%,100%{transform:translateY(0);opacity:.45}30%{transform:translateY(-4px);opacity:1}}
+
+/* Empty state */
+.empty-chat{margin:auto;text-align:center;padding:30px 0;max-width:650px}
+.empty-orb{width:54px;height:54px;margin:0 auto 17px;display:grid;place-items:center;border:1px solid rgba(85,220,163,.35);border-radius:50%;background:radial-gradient(circle at 35% 25%,rgba(85,220,163,.19),transparent 70%),var(--panel);color:var(--em2);font-family:var(--display);font-size:20px;font-weight:700;box-shadow:0 0 45px rgba(85,220,163,.08)}
+.empty-chat h1{font-family:var(--display);font-size:27px;font-weight:630;letter-spacing:-.03em;color:var(--ink)}
+.empty-chat>p{max-width:460px;margin:8px auto 22px;color:var(--mut);font-size:13.5px}
+.starters{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:left}
+.starter{min-height:112px;padding:13px;border:1px solid var(--line);border-radius:12px;background:rgba(14,23,18,.62);color:var(--mut)}
+.starter:hover{transform:translateY(-2px);border-color:var(--line2);background:var(--panel2)}
+.starter .icon{color:var(--em);margin-bottom:10px}
+.starter b{display:block;color:var(--ink2);font-size:12px;font-weight:620}
+.starter span{display:block;margin-top:5px;font-size:10.5px;line-height:1.45;color:var(--dim)}
+
+/* Team proposal */
+.team-proposal{margin-top:14px;border:1px solid var(--line2);border-radius:13px;background:var(--panel);overflow:hidden}
+.proposal-head{display:flex;align-items:center;gap:10px;padding:13px 14px;border-bottom:1px solid var(--line)}
+.proposal-head b{color:var(--ink);font-size:13px}.proposal-head span{color:var(--dim);font-size:10px;margin-left:auto}
+.proposal-agent{display:grid;grid-template-columns:28px minmax(0,1fr) auto;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line)}
+.proposal-agent:last-of-type{border-bottom:0}
+.tiny-avatar{width:27px;height:27px;display:grid;place-items:center;border:1px solid var(--line2);border-radius:50%;color:var(--em2);font-size:10px;font-weight:700;background:var(--panel2)}
+.proposal-agent b{display:block;color:var(--ink2);font-size:11.5px}.proposal-agent p{color:var(--dim);font-size:10.5px;margin-top:1px}
+.permission{color:var(--mut);font-family:var(--mono);font-size:8.5px;border:1px solid var(--line);border-radius:5px;padding:3px 6px;white-space:nowrap}
+.proposal-note{display:flex;gap:7px;padding:10px 14px;background:rgba(210,180,116,.04);color:var(--mut);font-size:10.5px}
+.proposal-note .icon{color:var(--gold)}
+.proposal-actions{display:flex;gap:8px;padding:12px 14px;border-top:1px solid var(--line)}
+.primary-button,.secondary-button{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:8px 13px;border-radius:8px;font-size:11.5px;font-weight:630}
+.primary-button{border:1px solid rgba(85,220,163,.4);background:#1b704f;color:#f1fff7}
+.primary-button:hover{background:#20835c}
+.secondary-button{border:1px solid var(--line2);background:transparent;color:var(--mut)}
+.secondary-button:hover{color:var(--ink);border-color:rgba(157,194,165,.35)}
+
+/* Composer */
+.composer-wrap{flex:none;padding:8px 22px 12px;background:linear-gradient(to top,var(--bg) 80%,transparent)}
+.composer{max-width:830px;margin:0 auto;border:1px solid var(--line2);border-radius:14px;background:#111b15;box-shadow:0 12px 36px rgba(0,0,0,.22);overflow:hidden}
+.composer:focus-within{border-color:rgba(85,220,163,.4);box-shadow:0 0 0 3px rgba(85,220,163,.055),0 12px 36px rgba(0,0,0,.22)}
+.context-row{display:flex;gap:6px;padding:9px 11px 0;overflow-x:auto}
+.context-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid rgba(85,220,163,.2);border-radius:6px;background:rgba(85,220,163,.055);color:var(--em2);font-family:var(--mono);font-size:8.5px;white-space:nowrap}
+.context-chip span{color:var(--dim)}
+.prompt-input{display:block;width:100%;min-height:50px;max-height:130px;padding:13px 15px 6px;border:0;outline:0;background:transparent;resize:none;color:var(--ink);font-size:13.5px;line-height:1.5}
+.prompt-input::placeholder{color:var(--dim)}
+.composer-toolbar{display:flex;align-items:center;gap:4px;padding:5px 8px 8px}
+.tool-button{display:inline-flex;align-items:center;gap:6px;padding:6px 8px;border:0;border-radius:7px;background:transparent;color:var(--dim);font-size:10.5px}
+.tool-button:hover{background:rgba(157,194,165,.055);color:var(--ink2)}
+.composer-toolbar .spacer{flex:1}
+.enter-hint{margin-right:8px;color:var(--dim);font-family:var(--mono);font-size:8px}
+.send-button{display:grid;place-items:center;width:32px;height:32px;border:1px solid rgba(85,220,163,.35);border-radius:9px;background:var(--em);color:#082417}
+.send-button:hover{background:var(--em2)}
+.send-button:disabled{background:#26372d;color:var(--dim);border-color:var(--line)}
+.composer-note{max-width:830px;margin:7px auto 0;display:flex;justify-content:space-between;gap:12px;color:var(--dim);font-size:9.5px}
+.composer-note .prototype{font-family:var(--mono);font-size:8px;letter-spacing:.04em}
+
+/* Drawers */
+.drawer-scrim{position:fixed;inset:0;z-index:70;background:rgba(2,7,4,.55);backdrop-filter:blur(3px);animation:fade .18s}
+.drawer{position:fixed;z-index:71;top:0;right:0;bottom:0;width:min(430px,94vw);display:flex;flex-direction:column;background:#0e1712;border-left:1px solid var(--line2);box-shadow:var(--shadow);animation:slideIn .22s ease-out}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+@keyframes slideIn{from{transform:translateX(30px);opacity:.4}to{transform:none;opacity:1}}
+.drawer-head{display:flex;align-items:flex-start;gap:14px;padding:22px 20px 17px;border-bottom:1px solid var(--line)}
+.drawer-heading{flex:1;min-width:0}
+.drawer-kicker{font-family:var(--mono);font-size:8.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--em)}
+.drawer-head h2{margin-top:4px;font-family:var(--display);font-size:22px;font-weight:630;letter-spacing:-.025em;color:var(--ink)}
+.drawer-head p{margin-top:5px;color:var(--mut);font-size:11.5px;line-height:1.5}
+.drawer-body{min-height:0;overflow-y:auto;padding:17px 20px 28px}
+.drawer-section+.drawer-section{margin-top:22px;padding-top:20px;border-top:1px solid var(--line)}
+.drawer-section-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;color:var(--dim);font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase}
+.team-card,.connector-card,.setting-card{padding:13px;border:1px solid var(--line);border-radius:11px;background:var(--panel2)}
+.team-card+.team-card,.connector-card+.connector-card,.setting-card+.setting-card{margin-top:9px}
+.team-card-head,.connector-head{display:flex;align-items:center;gap:10px}
+.team-card-head b,.connector-head b{color:var(--ink);font-size:12.5px}.team-card-head span,.connector-head span{display:block;color:var(--dim);font-size:10px;margin-top:2px}
+.team-card>p{margin:10px 0;color:var(--mut);font-size:11px;line-height:1.5}
+.team-card-actions{display:flex;justify-content:flex-end}
+.text-button{padding:3px 0;border:0;background:transparent;color:var(--em2);font-size:10.5px}
+.text-button:hover{text-decoration:underline}
+.avatar-stack{display:flex;padding-left:7px}
+.avatar-stack .tiny-avatar{margin-left:-7px;border:2px solid var(--panel2)}
+.connector-logo{width:33px;height:33px;display:grid;place-items:center;border:1px solid var(--line2);border-radius:9px;background:var(--panel);color:var(--ink);font-weight:700;font-size:12px}
+.connector-logo.gmail{color:#e8988d}.connector-logo.ads{color:#8dbcf0}.connector-logo.cloud{color:#e7b87c}
+.switch{position:relative;width:34px;height:20px;margin-left:auto;border:1px solid var(--line2);border-radius:99px;background:#26342b;transition:.18s;flex:none}
+.switch:after{content:"";position:absolute;top:3px;left:3px;width:12px;height:12px;border-radius:50%;background:var(--mut);transition:.18s}
+.switch[aria-checked="true"]{background:#1d694b;border-color:rgba(85,220,163,.4)}
+.switch[aria-checked="true"]:after{left:17px;background:var(--em2)}
+.connector-detail{margin:11px 0 0;padding-top:10px;border-top:1px solid var(--line);color:var(--mut);font-size:10.5px;line-height:1.55}
+.permission-list{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
+.permission-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line)}
+.permission-row:first-child{border-top:0}.permission-row>div{flex:1}.permission-row b{display:block;color:var(--ink2);font-size:11px}.permission-row span{display:block;color:var(--dim);font-size:9.5px;margin-top:2px}
+.safety-note{display:flex;gap:9px;margin-top:12px;padding:10px;border:1px solid rgba(210,180,116,.18);border-radius:9px;background:rgba(210,180,116,.045);color:var(--mut);font-size:10.5px}
+.safety-note .icon{color:var(--gold)}
+.memory-meta{display:flex;align-items:center;gap:7px;margin-bottom:12px;color:var(--dim);font-family:var(--mono);font-size:8.5px}
+.memory-doc{padding:15px;border:1px solid var(--line);border-radius:10px;background:#0a120d;color:var(--mut);font-family:var(--mono);font-size:10px;line-height:1.65;white-space:pre-wrap}
+.memory-doc b{color:var(--em2);font-weight:550}.memory-doc strong{color:var(--ink2);font-weight:550}
+.memory-actions{display:flex;gap:8px;margin-top:11px}
+.guide-reset{padding:14px;border:1px solid var(--line);border-radius:11px;background:var(--panel2)}
+.guide-reset h3{font-size:13px;color:var(--ink)}.guide-reset p{margin:5px 0 12px;color:var(--mut);font-size:11px}
+.article h3{margin:18px 0 7px;color:var(--ink);font-size:15px}.article h3:first-child{margin-top:0}.article p,.article li{color:var(--mut);font-size:11.5px;line-height:1.65}.article ul{padding-left:17px}.article .article-status{color:var(--em2);font-family:var(--mono);font-size:9px}
+
+/* Guide */
+.modal-overlay{position:fixed;inset:0;z-index:90;display:grid;place-items:center;padding:20px;background:rgba(2,7,4,.72);backdrop-filter:blur(8px);animation:fade .18s}
+.guide{width:min(720px,96vw);max-height:92dvh;overflow:auto;border:1px solid var(--line2);border-radius:18px;background:var(--panel);box-shadow:var(--shadow)}
+.guide-top{display:flex;align-items:center;padding:16px 20px;border-bottom:1px solid var(--line)}
+.guide-top .brand-mark{width:27px;height:27px;font-size:13px}.guide-top b{margin-left:9px;color:var(--ink);font-size:12px}.guide-top .icon-button{margin-left:auto}
+.guide-content{display:grid;grid-template-columns:1fr 1fr;min-height:330px}
+.guide-copy{padding:34px 28px;display:flex;flex-direction:column;justify-content:center}
+.guide-step{font-family:var(--mono);font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--em)}
+.guide-copy h1{margin-top:9px;font-family:var(--display);font-size:27px;line-height:1.15;letter-spacing:-.035em;color:var(--ink)}
+.guide-copy p{margin-top:13px;color:var(--mut);font-size:12.5px;line-height:1.65}
+.guide-visual{display:grid;place-items:center;padding:25px;border-left:1px solid var(--line);background:radial-gradient(circle at 50% 30%,rgba(85,220,163,.08),transparent 65%),var(--deep)}
+.guide-demo{width:100%;padding:14px;border:1px solid var(--line);border-radius:12px;background:var(--panel2)}
+.demo-input{display:flex;align-items:center;gap:8px;padding:11px;border:1px solid var(--line2);border-radius:9px;color:var(--dim);font-size:10px}.demo-input .send-button{width:24px;height:24px;margin-left:auto;border-radius:7px}
+.demo-reply{display:flex;gap:8px;margin-top:15px;color:var(--mut);font-size:10.5px}.demo-reply .ada-avatar{width:25px;height:25px;font-size:9px;flex:none}
+.demo-team{display:flex;align-items:center;justify-content:space-between;gap:5px}.demo-person{text-align:center;color:var(--mut);font-size:8px}.demo-person .agent-avatar{width:38px;height:38px;margin:0 auto 7px;font-size:13px}.demo-thought{margin-top:15px;padding:9px;border-left:2px solid var(--em);background:rgba(85,220,163,.05);color:var(--mut);font-size:10px}
+.demo-list{display:flex;flex-direction:column;gap:12px}.demo-list-row{display:flex;align-items:center;gap:9px;color:var(--ink2);font-size:10.5px}.demo-list-row .icon{color:var(--em)}
+.guide-foot{display:flex;align-items:center;gap:12px;padding:15px 20px;border-top:1px solid var(--line)}
+.guide-dots{display:flex;gap:5px}.guide-dot{width:5px;height:5px;border-radius:50%;background:var(--line2)}.guide-dot.active{width:17px;border-radius:99px;background:var(--em)}
+.guide-foot .secondary-button{margin-left:auto}
+
+/* Full-screen voice */
+.voice-screen{position:fixed;inset:0;z-index:100;display:flex;flex-direction:column;background:radial-gradient(900px 600px at 50% 45%,rgba(32,117,79,.13),transparent 70%),#080e0b}
+.voice-header{height:66px;flex:none;display:flex;align-items:center;padding:0 24px;border-bottom:1px solid var(--line)}
+.voice-header .brand-mark{margin-right:10px}.voice-header b{color:var(--ink);font-size:13px}.voice-header span{margin-left:9px;color:var(--dim);font-size:11px}.voice-header .icon-button{margin-left:auto}
+.voice-main{position:relative;flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;overflow-y:auto}
+.voice-status{color:var(--ink);font-family:var(--display);font-size:18px;font-weight:570;letter-spacing:-.01em}
+.voice-hint{margin-top:5px;color:var(--dim);font-size:10.5px}
+.voice-orb{position:relative;width:210px;height:210px;margin:35px 0 28px;border:0;border-radius:50%;background:transparent;isolation:isolate}
+.voice-orb:before,.voice-orb:after{content:"";position:absolute;inset:8px;border-radius:47% 53% 58% 42%/48% 42% 58% 52%;background:conic-gradient(from 40deg,#0d5c40,#56dba2,#b5e9c9,#267e65,#0d5c40);filter:blur(1px);animation:orbFlow 9s linear infinite,orbMorph 6s ease-in-out infinite alternate;box-shadow:0 0 70px rgba(85,220,163,.2),inset 0 0 45px rgba(255,255,255,.1)}
+.voice-orb:after{inset:23px;background:radial-gradient(circle at 34% 28%,rgba(222,255,237,.55),transparent 23%),radial-gradient(circle at 60% 65%,#2a9b71,#0c3f2c 70%);animation-direction:reverse;animation-duration:7s,5s;filter:blur(2px);opacity:.86}
+.orb-ring{position:absolute;inset:-5px;border:1px solid rgba(85,220,163,.2);border-radius:50%;animation:ring 3.4s ease-out infinite}
+.orb-ring:nth-child(2){animation-delay:1.7s}
+@keyframes orbFlow{to{transform:rotate(360deg)}}
+@keyframes orbMorph{0%{border-radius:47% 53% 58% 42%/48% 42% 58% 52%}50%{border-radius:58% 42% 45% 55%/42% 58% 44% 56%}100%{border-radius:42% 58% 52% 48%/55% 45% 55% 45%}}
+@keyframes ring{0%{transform:scale(.86);opacity:0}30%{opacity:.55}100%{transform:scale(1.28);opacity:0}}
+.voice-orb.speaking:before{animation-duration:3s,2.5s}.voice-orb.speaking:after{animation-duration:2.5s,2s}
+.voice-transcript{width:min(590px,92vw);text-align:center;color:var(--mut);font-size:12px;line-height:1.65}
+.voice-transcript b{display:block;margin-bottom:5px;color:var(--em2);font-family:var(--mono);font-size:8.5px;letter-spacing:.13em;text-transform:uppercase}
+.voice-transcript p+p{margin-top:8px}.voice-transcript .voice-user{color:var(--dim);font-size:10.5px}
+.voice-controls{flex:none;display:flex;align-items:center;justify-content:center;gap:12px;padding:16px 20px calc(22px + env(safe-area-inset-bottom))}
+.voice-control{display:flex;align-items:center;gap:7px;padding:9px 13px;border:1px solid var(--line2);border-radius:10px;background:var(--panel);color:var(--mut);font-size:11px}
+.voice-control:hover{color:var(--ink);border-color:rgba(157,194,165,.35)}.voice-control.end{border-color:rgba(235,139,128,.3);color:var(--danger)}
+.voice-keyboard{width:min(590px,92vw);display:flex;gap:8px;margin-top:17px}.voice-keyboard input{flex:1;min-width:0;padding:10px 12px;border:1px solid var(--line2);border-radius:9px;background:var(--panel);outline:0;font-size:12px}.voice-keyboard input:focus{border-color:var(--em)}
+
+.toast{position:fixed;z-index:130;left:50%;bottom:24px;transform:translate(-50%,12px);max-width:min(440px,90vw);padding:10px 15px;border:1px solid rgba(85,220,163,.32);border-radius:10px;background:#17281e;color:var(--ink);box-shadow:var(--shadow);font-size:11.5px;opacity:0;pointer-events:none;transition:.22s}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+.nav-scrim{display:none}
+
+@media(max-width:980px){
+  .app{grid-template-columns:230px minmax(0,1fr)}
+  .agent-graph{gap:12px;padding-left:20px;padding-right:20px}
+  .agent-node{grid-template-columns:38px minmax(0,1fr);column-gap:7px}.agent-avatar{width:38px;height:38px;font-size:14px}.graph-line{top:31px}
+  .agent-thought{font-size:10px;padding:7px 8px}.mini-chip.tool-visibility{display:none}
+  .message-inner{padding-left:22px;padding-right:22px}
+}
+@media(max-width:720px){
+  .app{display:block}
+  .sidebar{position:fixed;inset:0 auto 0 0;width:min(280px,86vw);transform:translateX(-102%);transition:transform .22s;box-shadow:var(--shadow)}
+  .sidebar.open{transform:none}
+  .nav-scrim{display:block;position:fixed;inset:0;z-index:44;background:rgba(2,7,4,.62);backdrop-filter:blur(2px)}
+  .main{height:100dvh}
+  .chat-header{height:57px;padding:0 12px;gap:8px}.menu-button{display:inline-grid!important}.chat-eyebrow{font-size:7.5px}.chat-title{font-size:13px;max-width:46vw}
+  .header-button{padding:7px}.header-button .button-label{display:none}.header-button.memory .online-dot{display:none}.header-actions{gap:3px}
+  .workroom{flex-basis:19%;min-height:118px;max-height:142px}
+  .workroom-head{height:34px;padding:0 13px}.workroom-title b{font-size:10.5px}.workroom-title span{font-size:8.5px}.workroom-meta{gap:2px}.workroom-meta .mini-chip{display:none}.collapse-button{width:25px;height:25px}
+  .workroom.collapsed{flex-basis:34px;min-height:34px}
+  .agent-graph{height:calc(100% - 34px);display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:8px 30px 0}
+  .agent-node{display:block;width:42px;flex:none;text-align:center}.agent-avatar{width:32px;height:32px;margin:0 auto;font-size:11px}.agent-name{margin-top:4px;font-size:8.5px}.agent-role,.agent-thought{display:none}.agent-status-dot{width:8px;height:8px}.graph-line{top:24px;left:11%;right:11%}
+  .mobile-summary{position:absolute;display:flex;align-items:center;gap:6px;left:18px;right:18px;bottom:7px;color:var(--mut);font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.mobile-summary .live-dot{width:4px;height:4px;flex:none}.mobile-summary span{overflow:hidden;text-overflow:ellipsis}
+  .workroom.direct,.direct-strip{flex-basis:43px;min-height:43px}.direct-strip{height:43px;padding:0 12px;font-size:10px}.direct-strip button{display:none}
+  .message-inner{padding:17px 15px 22px;gap:19px}.user-bubble{max-width:88%;font-size:12.5px}.ada-message{grid-template-columns:28px minmax(0,1fr);gap:9px}.ada-avatar{width:28px;height:28px;font-size:10px}.response{font-size:12.5px;line-height:1.62}.ada-name{height:25px}
+  .empty-chat{padding:12px 0}.empty-chat h1{font-size:24px}.empty-chat>p{font-size:12px;margin-bottom:17px}.starters{grid-template-columns:1fr;gap:7px}.starter{min-height:0;padding:11px;display:grid;grid-template-columns:22px 1fr;column-gap:8px}.starter .icon{grid-row:1/3;margin:1px 0 0}.starter span{margin-top:2px}
+  .composer-wrap{padding:6px 10px calc(8px + env(safe-area-inset-bottom))}.prompt-input{min-height:43px;padding:10px 12px 4px;font-size:12.5px}.composer-note{justify-content:center;font-size:8.5px}.composer-note .prototype,.enter-hint{display:none}.context-row{padding-top:7px}.tool-button{font-size:9.5px}
+  .drawer{width:min(410px,96vw)}.drawer-head{padding:18px 17px 14px}.drawer-body{padding:15px 17px 24px}
+  .modal-overlay{padding:10px}.guide{max-height:96dvh}.guide-content{grid-template-columns:1fr;min-height:0}.guide-copy{padding:25px 23px 18px}.guide-copy h1{font-size:25px}.guide-visual{border-left:0;border-top:1px solid var(--line);padding:19px 23px}.guide-foot{padding:13px 16px}
+  .voice-header{height:57px;padding:0 15px}.voice-header span{display:none}.voice-orb{width:160px;height:160px;margin:28px 0 24px}.voice-status{font-size:17px}.voice-main{justify-content:center}.voice-controls{gap:7px;padding-left:10px;padding-right:10px}.voice-control{padding:9px 10px;font-size:10px}.voice-transcript{font-size:11px}
+  .proposal-agent{grid-template-columns:27px minmax(0,1fr)}.proposal-agent .permission{display:none}
+}
+@media(max-height:690px) and (min-width:721px){.workroom{min-height:178px}.agent-thought{-webkit-line-clamp:2}.agent-graph{padding-top:6px}.voice-orb{width:150px;height:150px;margin:20px 0}}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation-duration:.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;transition-duration:.01ms!important}}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M20 15a3 3 0 0 1-3 3H9l-5 3v-6a3 3 0 0 1-1-2V7a3 3 0 0 1 3-3h11a3 3 0 0 1 3 3z"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 20v-2a5 5 0 0 1 5-5h2a5 5 0 0 1 5 5v2M16 5a3 3 0 0 1 0 6M17 13a5 5 0 0 1 4 5v2"/></symbol>
+  <symbol id="i-plug" viewBox="0 0 24 24"><path d="m8 12 8-8M14 3l7 7M6 10l8 8M3 15l6 6M10 14l-5 5a3 3 0 0 1-4-4l5-5"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3V2.8h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1z"/></symbol>
+  <symbol id="i-memory" viewBox="0 0 24 24"><path d="M5 4h12a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2zM5 4v14M9 8h6M9 12h6M9 16h4"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+  <symbol id="i-collapse" viewBox="0 0 24 24"><path d="m6 15 6-6 6 6"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6zM14 3v5h4M9 13h6M9 17h5"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V4H4v12h4"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="m12 3 1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 4 6v5c0 5 3.4 8.5 8 10 4.6-1.5 8-5 8-10V6zM8 12l2.5 2.5L16 9"/></symbol>
+  <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h.01M11 10h.01M15 10h.01M18 10h.01M7 14h.01M11 14h.01M15 14h.01M18 14h.01M8 16h8"/></symbol>
+  <symbol id="i-paperclip" viewBox="0 0 24 24"><path d="m20 11-8 8a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8"/></symbol>
+</svg>
+
+<div class="app">
+  <aside class="sidebar" id="sidebar" aria-label="Workspace sidebar">
+    <div class="brand"><span class="brand-mark">A</span><span class="brand-name">AgentSam</span><span class="brand-badge">Concept</span></div>
+    <div class="sidebar-top">
+      <button class="new-chat" data-action="new-chat"><svg class="icon small"><use href="#i-plus"/></svg>New chat</button>
+      <label class="search"><svg class="icon small"><use href="#i-search"/></svg><input id="chat-search" aria-label="Search chats" placeholder="Search chats"><span class="key">⌘K</span></label>
+    </div>
+    <div class="side-scroll">
+      <section class="side-section">
+        <div class="side-label">Projects<button aria-label="New project" data-action="new-project"><svg class="icon small"><use href="#i-plus"/></svg></button></div>
+        <button class="project-row open"><svg class="icon small chevron"><use href="#i-chevron"/></svg><span>Acme launch</span><span class="count">2</span></button>
+        <div class="project-chats">
+          <button class="chat-link active" data-view="team">Launch readiness</button>
+          <button class="chat-link" data-view="team">Partner follow-ups</button>
+        </div>
+        <button class="project-row"><svg class="icon small"><use href="#i-folder"/></svg><span>Personal</span><span class="count">1</span></button>
+        <div class="project-chats">
+          <button class="chat-link" data-view="direct">A quicker weeknight dinner</button>
+        </div>
+        <button class="project-row"><svg class="icon small"><use href="#i-folder"/></svg><span>Customer discovery</span><span class="count">1</span></button>
+        <div class="project-chats">
+          <button class="chat-link" data-view="builder">Design a feedback team</button>
+        </div>
+      </section>
+      <section class="side-section">
+        <div class="side-label">Active teams</div>
+        <button class="side-item" data-drawer="teams"><svg class="icon small"><use href="#i-users"/></svg>Research Crew<span class="count" style="margin-left:auto;font-family:var(--mono);font-size:9px;color:var(--dim)">3</span></button>
+        <button class="side-item" data-drawer="teams"><svg class="icon small"><use href="#i-users"/></svg>Content Studio<span class="count" style="margin-left:auto;font-family:var(--mono);font-size:9px;color:var(--dim)">3</span></button>
+      </section>
+    </div>
+    <div class="sidebar-foot">
+      <button class="side-item" data-drawer="teams"><svg class="icon small"><use href="#i-users"/></svg>Teams</button>
+      <button class="side-item" data-drawer="connections"><svg class="icon small"><use href="#i-plug"/></svg>Connections</button>
+      <button class="side-item" data-drawer="settings"><svg class="icon small"><use href="#i-settings"/></svg>Settings &amp; guide</button>
+      <button class="profile" data-drawer="memory"><span class="profile-avatar">S</span><span class="profile-copy"><b>Starla</b><span id="profile-memory">Workspace memory on</span></span><span class="online-dot"></span></button>
+    </div>
+  </aside>
+  <div class="nav-scrim" id="nav-scrim" hidden></div>
+
+  <main class="main">
+    <header class="chat-header">
+      <button class="icon-button menu-button" id="menu-button" aria-label="Open sidebar"><svg class="icon"><use href="#i-menu"/></svg></button>
+      <div class="chat-heading"><div class="chat-eyebrow" id="chat-project">Acme launch</div><div class="chat-title" id="chat-title">Launch readiness</div></div>
+      <div class="header-actions">
+        <button class="header-button memory" data-drawer="memory"><svg class="icon small"><use href="#i-memory"/></svg><span class="button-label" id="memory-label">Memory on</span><span class="online-dot"></span></button>
+        <button class="header-button" data-action="voice"><svg class="icon small"><use href="#i-mic"/></svg><span class="button-label">Voice</span></button>
+      </div>
+    </header>
+
+    <div class="chat-body">
+      <section class="workroom" id="workroom" aria-label="Team activity">
+        <div class="workroom-head">
+          <div class="workroom-title"><span class="live-dot"></span><b id="workroom-team">Research Crew</b><span id="workroom-subtitle">Ada + 3 specialists</span></div>
+          <div class="workroom-meta"><span class="mini-chip connected tool-visibility"><svg class="icon small" style="width:11px;height:11px"><use href="#i-plug"/></svg>Gmail</span><span class="mini-chip" id="workroom-progress">4 of 4 complete</span><button class="icon-button collapse-button" id="collapse-workroom" aria-label="Collapse team activity" aria-expanded="true"><svg class="icon small"><use href="#i-collapse"/></svg></button></div>
+        </div>
+        <div class="agent-graph" id="agent-graph">
+          <div class="graph-line"></div>
+          <div class="agent-node done" data-agent="ada"><div class="agent-avatar">A<span class="agent-status-dot"></span></div><div><span class="agent-name">Ada</span><span class="agent-role">Coordinator</span></div><div class="agent-thought">This needs inbox research and a second pair of eyes. I’ll bring in Research Crew.</div></div>
+          <div class="agent-node done" data-agent="scout"><div class="agent-avatar">S<span class="agent-status-dot"></span></div><div><span class="agent-name">Scout</span><span class="agent-role">Research</span></div><div class="agent-thought">I found 12 relevant threads; three contain launch-blocking decisions.</div></div>
+          <div class="agent-node done" data-agent="quill"><div class="agent-avatar">Q<span class="agent-status-dot"></span></div><div><span class="agent-name">Quill</span><span class="agent-role">Writer</span></div><div class="agent-thought">I kept this to one page: decisions, risks, and next steps.</div></div>
+          <div class="agent-node done" data-agent="judge"><div class="agent-avatar">J<span class="agent-status-dot"></span></div><div><span class="agent-name">Judge</span><span class="agent-role">Verifier</span></div><div class="agent-thought">Dates and owners match the source emails. Two risks still need confirmation.</div></div>
+        </div>
+        <div class="mobile-summary" id="mobile-summary"><span class="live-dot"></span><span>Complete — research, draft, and verification summarized in Ada’s answer.</span></div>
+        <div class="direct-strip" id="direct-strip" hidden><svg class="icon small"><use href="#i-spark"/></svg><b id="direct-title">Ada answered directly</b><span id="direct-subtitle">No team needed</span><button data-action="ask-team">Ask a team instead</button></div>
+      </section>
+
+      <section class="messages" id="messages" aria-label="Conversation" aria-live="polite"><div class="message-inner" id="message-inner"></div></section>
+    </div>
+
+    <footer class="composer-wrap">
+      <div class="composer">
+        <div class="context-row" id="context-row"><button class="context-chip" data-drawer="connections"><svg class="icon small" style="width:11px;height:11px"><use href="#i-plug"/></svg>Gmail<span>search + read</span></button></div>
+        <textarea class="prompt-input" id="prompt" rows="1" aria-label="Message Ada" placeholder="Message Ada…"></textarea>
+        <div class="composer-toolbar"><button class="tool-button" id="attach-button" aria-label="Attach files"><svg class="icon small"><use href="#i-paperclip"/></svg></button><button class="tool-button" data-drawer="connections"><svg class="icon small"><use href="#i-plug"/></svg>Tools</button><span class="spacer"></span><span class="enter-hint">Enter to send · Shift + Enter for a new line</span><button class="send-button" id="send-button" aria-label="Send message" disabled><svg class="icon small"><use href="#i-arrow"/></svg></button></div>
+      </div>
+      <div class="composer-note"><span>Ada can answer directly or bring in a team.</span><span class="prototype">INTERACTIVE CONCEPT · NO LIVE DATA</span></div>
+    </footer>
+  </main>
+</div>
+
+<div class="drawer-scrim" id="drawer-scrim" hidden></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" hidden></aside>
+
+<div class="modal-overlay" id="guide-overlay" hidden>
+  <section class="guide" role="dialog" aria-modal="true" aria-labelledby="guide-title">
+    <div class="guide-top"><span class="brand-mark">A</span><b>A quick guide to AgentSam</b><button class="icon-button" data-action="close-guide" aria-label="Close guide"><svg class="icon"><use href="#i-close"/></svg></button></div>
+    <div class="guide-content"><div class="guide-copy" id="guide-copy"></div><div class="guide-visual" id="guide-visual"></div></div>
+    <div class="guide-foot"><div class="guide-dots" id="guide-dots"></div><button class="secondary-button" data-action="close-guide">Skip guide</button><button class="primary-button" id="guide-next">Next<svg class="icon small" style="transform:rotate(90deg)"><use href="#i-arrow"/></svg></button></div>
+  </section>
+</div>
+
+<section class="voice-screen" id="voice-screen" role="dialog" aria-modal="true" aria-label="Voice chat with Ada" hidden>
+  <header class="voice-header"><span class="brand-mark">A</span><b>Voice with Ada</b><span>Full-screen conversation</span><button class="icon-button" data-action="close-voice" aria-label="Close voice mode"><svg class="icon large"><use href="#i-close"/></svg></button></header>
+  <div class="voice-main">
+    <div class="voice-status" id="voice-status">Listening…</div><div class="voice-hint" id="voice-hint">Speak naturally. You can interrupt Ada at any time.</div>
+    <button class="voice-orb" id="voice-orb" aria-label="Switch between listening and Ada speaking"><span class="orb-ring"></span><span class="orb-ring"></span></button>
+    <div class="voice-transcript" id="voice-transcript"><p class="voice-user">You · “Give me the short version of the launch brief.”</p><b>Ada</b><p>The launch is on track for November 18. Partner approval and the migration guide are the two open items.</p></div>
+    <form class="voice-keyboard" id="voice-keyboard" hidden><input id="voice-text" aria-label="Type a message to Ada" placeholder="Type to Ada…"><button class="primary-button" type="submit">Send</button></form>
+  </div>
+  <div class="voice-controls"><button class="voice-control" id="mute-button"><svg class="icon small"><use href="#i-mic"/></svg><span>Mute</span></button><button class="voice-control" id="voice-keyboard-button"><svg class="icon small"><use href="#i-keyboard"/></svg>Keyboard</button><button class="voice-control end" data-action="close-voice"><svg class="icon small"><use href="#i-close"/></svg>End voice</button></div>
+</section>
+
+<div class="toast" id="toast" role="status"></div>
+
+<script>
+"use strict";
+const $=(selector,root=document)=>root.querySelector(selector);
+const $$=(selector,root=document)=>[...root.querySelectorAll(selector)];
+const icon=(id,cls="small")=>`<svg class="icon ${cls}" aria-hidden="true"><use href="#i-${id}"/></svg>`;
+const escapeHTML=value=>String(value).replace(/[&<>'"]/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[char]));
+const state={view:"team",teamCreated:false,memoryOn:true,guideStep:0,timers:[],muted:false};
+const defaultObjective="Review this week’s launch emails and turn them into a concise readiness brief with decisions, risks, and next steps.";
+
+function toast(message){const el=$("#toast");el.textContent=message;el.classList.add("show");clearTimeout(el._timer);el._timer=setTimeout(()=>el.classList.remove("show"),2500)}
+function clearTimers(){state.timers.forEach(clearTimeout);state.timers=[]}
+function later(fn,ms){state.timers.push(setTimeout(fn,ms))}
+function scrollMessages(){requestAnimationFrame(()=>{const box=$("#messages");box.scrollTop=box.scrollHeight})}
+function setActiveView(view){state.view=view;$$('[data-view]').forEach(button=>button.classList.toggle("active",button.dataset.view===view&&((view!=="team")||button.textContent.trim()==="Launch readiness")))}
+function setHeading(project,title){$("#chat-project").textContent=project;$("#chat-title").textContent=title}
+function setContext(visible){$("#context-row").hidden=!visible}
+function closeMobileNav(){$("#sidebar").classList.remove("open");$("#nav-scrim").hidden=true}
+function userMessage(text){return `<div class="user-message"><div class="user-bubble">${escapeHTML(text)}</div></div>`}
+function adaShell(content){return `<div class="ada-message"><div class="ada-avatar">A</div><div class="ada-content"><div class="ada-name">Ada <span>Coordinator</span></div>${content}</div></div>`}
+function messageActions(){return `<div class="message-actions"><button data-action="copy">${icon("copy")}Copy</button><button data-action="open-file">${icon("file")}Open brief</button></div>`}
+function finalBrief(custom=false){
+  if(custom)return `<div class="response"><h3>Here’s the first pass.</h3><p>I brought in <strong>Research Crew</strong> and consolidated their work into one answer. The detailed notes, sources, and verification are attached.</p><ul><li>Research is grounded in the available source material.</li><li>The draft separates established facts from open questions.</li><li>Verification flagged no unsupported claims in the final summary.</li></ul><div class="source-row"><span class="source-chip">3 work summaries</span><span class="source-chip">Verification passed</span></div></div><button class="artifact" data-action="open-file"><span class="artifact-icon">${icon("file")}</span><span class="artifact-copy"><b>research-brief.md</b><span>MARKDOWN · RESEARCH + VERIFIED SUMMARY</span></span>${icon("chevron")}</button>${messageActions()}`;
+  return `<div class="response"><h3>The launch is on track for November 18.</h3><p>I reviewed this week’s launch threads with Research Crew. Most decisions are settled, but <strong>two items still need an owner</strong>.</p><ul><li><strong>Partner approval:</strong> final co-marketing copy is still waiting on Northwind.</li><li><strong>Migration guide:</strong> engineering approved the outline; the final screenshots are due Friday.</li><li><strong>Pricing and rollout:</strong> confirmed in the latest product and operations threads.</li></ul><div class="caveat">I’d confirm Northwind’s approver today. That is the only dependency currently threatening the launch date.</div><div class="source-row"><button class="source-chip" data-drawer="connections">Gmail · 12 threads</button><span class="source-chip">Nov 8–11</span><span class="source-chip">Checked by Judge</span></div></div><button class="artifact" data-action="open-file"><span class="artifact-icon">${icon("file")}</span><span class="artifact-copy"><b>launch-readiness.md</b><span>MARKDOWN · 1 PAGE · 12 EMAIL SOURCES</span></span>${icon("chevron")}</button>${messageActions()}`;
+}
+function directAnswer(custom=false){
+  return custom?`<div class="response"><p>I can handle this directly—there’s no need to spend tokens on a team.</p><p>I’d start with the smallest useful step, check the result against what you want, and only bring in specialists if the work branches into research, drafting, or independent verification.</p></div>`:`<div class="response"><p>You don’t need a team for this. Try a <strong>15-minute lemon-chicken rice bowl</strong>:</p><ul><li>Sear bite-sized chicken with salt, pepper, and garlic.</li><li>Add cooked rice, frozen peas, and a handful of spinach.</li><li>Finish with lemon juice, olive oil, and whatever herbs you have.</li></ul><p>If you tell me what’s in your fridge, I can adapt it without launching any agents.</p></div>`;
+}
+function proposalContent(){
+  return `<div class="response"><p>I’d create a <strong>Customer Voice</strong> team with three focused specialists. I’ll stay outside the team to route work and give you one consolidated answer.</p></div><div class="team-proposal"><div class="proposal-head"><b>Customer Voice</b><span>${state.teamCreated?"CREATED":"PROPOSED BY ADA"}</span></div><div class="proposal-agent"><span class="tiny-avatar">M</span><div><b>Mina · Intake</b><p>Groups feedback by theme, urgency, and customer segment.</p></div><span class="permission">Files + Gmail</span></div><div class="proposal-agent"><span class="tiny-avatar">S</span><div><b>Scout · Research</b><p>Finds supporting conversations and preserves source links.</p></div><span class="permission">Read only</span></div><div class="proposal-agent"><span class="tiny-avatar">J</span><div><b>Judge · Verifier</b><p>Checks themes against evidence and flags small samples.</p></div><span class="permission">Read only</span></div><div class="proposal-note">${icon("shield")}Nothing runs or changes your existing teams until you approve.</div><div class="proposal-actions"><button class="secondary-button" data-action="revise-team">Revise with Ada</button><button class="primary-button" id="create-team" ${state.teamCreated?"disabled":""}>${icon(state.teamCreated?"check":"plus")}${state.teamCreated?"Team created":"Create team"}</button></div></div>`;
+}
+function setAgent(id,status,thought){const node=$(`[data-agent="${id}"]`);node.classList.remove("working","done");if(status)node.classList.add(status);if(thought)$(".agent-thought",node).textContent=thought}
+function resetWorkroom(){
+  const room=$("#workroom");room.hidden=false;room.classList.remove("direct","collapsed");$("#collapse-workroom").setAttribute("aria-expanded","true");$("#agent-graph").hidden=false;$("#direct-strip").hidden=true;
+  $("#workroom-team").textContent="Research Crew";$("#workroom-subtitle").textContent="Ada + 3 specialists";$("#workroom-progress").textContent="4 of 4 complete";
+  setAgent("ada","done","This needs inbox research and a second pair of eyes. I’ll bring in Research Crew.");setAgent("scout","done","I found 12 relevant threads; three contain launch-blocking decisions.");setAgent("quill","done","I kept this to one page: decisions, risks, and next steps.");setAgent("judge","done","Dates and owners match the source emails. Two risks still need confirmation.");
+  $("#mobile-summary span:last-child").textContent="Complete — research, draft, and verification summarized in Ada’s answer.";
+}
+function renderTeam(animate=false,objective=defaultObjective){
+  clearTimers();setActiveView("team");setHeading("Acme launch",objective===defaultObjective?"Launch readiness":"New research chat");setContext(true);resetWorkroom();
+  const custom=objective!==defaultObjective;
+  $("#message-inner").innerHTML=userMessage(objective)+(animate?adaShell(`<div class="typing" aria-label="Ada is working"><i></i><i></i><i></i></div>`):adaShell(finalBrief(custom)));
+  if(!animate){scrollMessages();return}
+  $("#workroom-progress").textContent="Routing request";$("#mobile-summary span:last-child").textContent="Ada is choosing the right approach…";
+  setAgent("ada","working","I’m checking whether this needs a team and which specialists fit.");setAgent("scout","", "Waiting for a research task.");setAgent("quill","","Waiting for source material.");setAgent("judge","","Waiting for a draft to check.");
+  later(()=>{setAgent("ada","done","Research Crew is the right fit. I’ve assigned research, drafting, and verification.");setAgent("scout","working","I’m searching the available sources for the strongest evidence.");$("#workroom-progress").textContent="1 of 4 working";$("#mobile-summary span:last-child").textContent="Scout is gathering evidence…"},650);
+  later(()=>{setAgent("scout","done","The strongest evidence is gathered, with sources preserved.");setAgent("quill","working","I’m turning the evidence into a concise, readable draft.");$("#workroom-progress").textContent="2 of 4 complete";$("#mobile-summary span:last-child").textContent="Quill is drafting the response…"},1700);
+  later(()=>{setAgent("quill","done","The draft is ready for an independent check.");setAgent("judge","working","I’m checking the important claims against the sources.");$("#workroom-progress").textContent="3 of 4 complete";$("#mobile-summary span:last-child").textContent="Judge is checking claims against sources…"},2800);
+  later(()=>{setAgent("judge","done","The summary matches the evidence; caveats are clearly marked.");setAgent("ada","working","I have what I need. I’m consolidating everything into one answer.");$("#mobile-summary span:last-child").textContent="Ada is preparing your single response…"},3700);
+  later(()=>{setAgent("ada","done","The work is complete. Here is your consolidated response.");$("#workroom-progress").textContent="4 of 4 complete";$("#mobile-summary span:last-child").textContent="Complete — open Ada’s answer below.";$("#message-inner").innerHTML=userMessage(objective)+adaShell(finalBrief(custom));scrollMessages()},4700);
+}
+function renderDirect(animate=false,question="What’s a quick dinner I can make with chicken, rice, and a few vegetables?"){
+  clearTimers();setActiveView("direct");setHeading("Personal","A quicker weeknight dinner");setContext(false);resetWorkroom();
+  const room=$("#workroom");room.classList.add("direct");$("#agent-graph").hidden=true;$("#direct-strip").hidden=false;$("#direct-title").textContent="Ada answered directly";$("#direct-subtitle").textContent="No team needed";
+  $("#message-inner").innerHTML=userMessage(question)+adaShell(animate?`<div class="typing"><i></i><i></i><i></i></div>`:directAnswer(question!=="What’s a quick dinner I can make with chicken, rice, and a few vegetables?"));
+  if(animate)later(()=>{$("#message-inner").innerHTML=userMessage(question)+adaShell(directAnswer(true));scrollMessages()},800);scrollMessages();
+}
+function renderBuilder(revising=false){
+  clearTimers();setActiveView("builder");setHeading("Customer discovery","Design a feedback team");setContext(false);resetWorkroom();$("#workroom").classList.add("direct");$("#agent-graph").hidden=true;$("#direct-strip").hidden=false;$("#direct-title").textContent=revising?"Ada drafted a revision":"Ada designed a team";$("#direct-subtitle").textContent="Review before applying";
+  const prompt=revising?"Update our research team so it can triage customer feedback every week.":"I need a team that triages customer feedback every week and tells me what needs attention.";
+  $("#message-inner").innerHTML=userMessage(prompt)+adaShell(proposalContent());scrollMessages();
+}
+function renderNewChat(){
+  clearTimers();setActiveView("new");setHeading("Workspace","New chat");setContext(false);$("#workroom").hidden=true;
+  $("#message-inner").innerHTML=`<div class="empty-chat"><div class="empty-orb">A</div><h1>How can I help?</h1><p>Ask a question, connect a tool, or describe the kind of team you need. Ada keeps the complexity behind one conversation.</p><div class="starters"><button class="starter" data-start="direct">${icon("chat")}<b>Ask Ada directly</b><span>Get a quick answer without launching a team.</span></button><button class="starter" data-start="team">${icon("users")}<b>Start a research task</b><span>Let Ada route work across Research Crew.</span></button><button class="starter" data-start="builder">${icon("spark")}<b>Describe a team</b><span>Tell Ada the outcome; review the proposed roster.</span></button></div></div>`;
+  $("#messages").scrollTop=0;closeMobileNav();$("#prompt").focus();
+}
+function submitPrompt(){
+  const input=$("#prompt"),text=input.value.trim();if(!text)return;input.value="";autoGrow();updateSend();
+  if(/\b(teams?|roster|agents?|revise|modify)\b/i.test(text))renderBuilder(/\b(revise|modify|update)\b/i.test(text));
+  else if(/\b(email|gmail|research|review|report|brief|launch|sources|feedback|analy[sz]e|plan)\b/i.test(text))renderTeam(true,text);
+  else renderDirect(true,text);
+}
+function autoGrow(){const input=$("#prompt");input.style.height="auto";input.style.height=Math.min(input.scrollHeight,130)+"px"}
+function updateSend(){$("#send-button").disabled=!$("#prompt").value.trim()}
+
+function drawerHeader(kicker,title,description){return `<div class="drawer-head"><div class="drawer-heading"><div class="drawer-kicker">${kicker}</div><h2 id="drawer-title">${title}</h2><p>${description}</p></div><button class="icon-button" data-action="close-drawer" aria-label="Close panel">${icon("close","")}</button></div>`}
+function teamCard(name,detail,agents,description){return `<div class="team-card"><div class="team-card-head"><div class="avatar-stack">${agents.map(a=>`<span class="tiny-avatar">${a[0]}</span>`).join("")}</div><div><b>${name}</b><span>${agents.length} specialists + Ada</span></div></div><p>${description}</p><div class="team-card-actions"><button class="text-button" data-action="modify-team" data-team="${name}">${detail} · Modify with Ada</button></div></div>`}
+function teamsPanel(){
+  return drawerHeader("Reusable specialists","Teams","Ada chooses the right roster for each request. You can also ask for one in plain language.")+`<div class="drawer-body"><button class="primary-button" style="width:100%;margin-bottom:15px" data-action="describe-team">${icon("plus")}Describe a new team</button><section class="drawer-section" style="margin-top:0;padding-top:0;border:0"><div class="drawer-section-title">Available to Ada</div>${teamCard("Research Crew","Research",["Scout","Quill","Judge"],"Source gathering, concise drafting, and independent verification.")}${teamCard("Content Studio","Creative",["Quill","Iris","Anchor"],"Campaign drafts, visual direction, and brand-voice editing.")}${state.teamCreated?teamCard("Customer Voice","Feedback",["Mina","Scout","Judge"],"Weekly feedback triage with themes, evidence, and sample-size checks."):""}</section><div class="safety-note">${icon("info")}Creating or changing a team produces a reviewable proposal first. Existing chats and teams are not silently overwritten.</div></div>`;
+}
+function switchButton(checked,label,disabled=false){return `<button class="switch" role="switch" aria-checked="${checked}" aria-label="${label}" ${disabled?"disabled":""}></button>`}
+function connectionsPanel(){
+  return drawerHeader("Tools in context","Connections","Connected tools are visible to Ada and included only when relevant to the conversation.")+`<div class="drawer-body"><section class="drawer-section" style="margin-top:0;padding-top:0;border:0"><div class="drawer-section-title">Available in this chat</div><div class="connector-card"><div class="connector-head"><span class="connector-logo gmail">M</span><div><b>Gmail</b><span>Connected · starla@example.com</span></div>${switchButton(true,"Gmail available to Ada")}</div><div class="permission-list"><span class="mini-chip connected">gmail_search</span><span class="mini-chip connected">gmail_read</span><span class="mini-chip">gmail_draft</span></div><p class="connector-detail">Ada and assigned specialists can find and read relevant threads. Source IDs stay attached to their work.</p><div style="margin-top:8px"><div class="permission-row"><div><b>Search &amp; read</b><span>Available to Ada and delegated teams</span></div>${switchButton(true,"Allow Gmail search and read")}</div><div class="permission-row"><div><b>Create drafts</b><span>Review every draft in Gmail</span></div>${switchButton(true,"Allow Gmail drafts")}</div><div class="permission-row"><div><b>Send email</b><span>Always requires explicit confirmation</span></div>${switchButton(false,"Allow Gmail send",true)}</div></div></div></section><section class="drawer-section"><div class="drawer-section-title">Other connections</div><div class="connector-card"><div class="connector-head"><span class="connector-logo ads">G</span><div><b>Google Ads</b><span>Not connected</span></div><button class="text-button" style="margin-left:auto" data-action="connect-demo">Connect</button></div></div><div class="connector-card"><div class="connector-head"><span class="connector-logo cloud">C</span><div><b>Cloudflare</b><span>Connected · Read only</span></div>${switchButton(false,"Cloudflare available to Ada")}</div></div></section><div class="safety-note">${icon("shield")}External content is untrusted data, never an instruction. Sending and publishing remain behind explicit permissions.</div></div>`;
+}
+function memoryPanel(){
+  return drawerHeader("Continuously compacted context","Ada memory","One workspace-wide memory helps Ada connect projects without putting every old chat into every prompt.")+`<div class="drawer-body"><div class="memory-meta"><span class="online-dot"></span>memory.md · updated just now · 18 conversations compacted</div><div class="memory-doc"><b>## Working preferences</b>\n<strong>Starla</strong> prefers concise answers, visible sources,\nand one final response instead of status chatter.\n\n<b>## Active projects</b>\n<strong>Acme launch:</strong> target Nov 18. Northwind\napproval and migration screenshots remain open.\n<strong>Customer discovery:</strong> weekly feedback triage.\n\n<b>## Teams &amp; tools</b>\nResearch Crew for cited briefs; Content Studio for\ncampaigns. Gmail is connected read/search + draft.\n\n<b>## Open loops</b>\nConfirm Northwind approver. Review Customer Voice\nproposal before the next weekly digest.</div><div class="memory-actions"><button class="secondary-button" data-action="memory-sources">View sources</button><button class="secondary-button" data-action="memory-export">Export .md</button></div><section class="drawer-section"><div class="permission-row"><div><b>Use workspace memory</b><span>Compacted context across projects and chats</span></div>${switchButton(state.memoryOn,"Use workspace memory")}</div><p style="margin-top:10px;color:var(--dim);font-size:10px;line-height:1.55">Memory is context, not a source of truth. Important claims should link back to the original chat or connector record. Compaction keeps the summary bounded as history grows.</p></section></div>`;
+}
+function settingsPanel(){
+  return drawerHeader("Workspace preferences","Settings & guide","Keep the learning layer separate from your actual work.")+`<div class="drawer-body"><div class="guide-reset"><h3>Quick guide</h3><p>Restart the three-step guide from the beginning. Your chats, teams, connections, and memory stay exactly as they are.</p><button class="primary-button" data-action="restart-guide">${icon("arrow")}Restart quick guide</button></div><section class="drawer-section"><div class="drawer-section-title">Interface</div><div class="setting-card"><div class="permission-row"><div><b>Team work summaries</b><span>Keep the live diagram above the conversation</span></div>${switchButton(true,"Show team work summaries")}</div><div class="permission-row"><div><b>Interface hints</b><span>Show occasional lightweight guidance</span></div>${switchButton(true,"Show interface hints")}</div></div></section><div class="safety-note">${icon("info")}“Restart” resets only the guide’s step and completion flag. It never reruns setup, duplicates a team, or deletes work.</div></div>`;
+}
+function artifactPanel(){
+  return drawerHeader("Deliverable","Launch readiness","Generated by Research Crew · consolidated into one final response by Ada.")+`<div class="drawer-body article"><span class="article-status">VERIFIED · 12 GMAIL SOURCES</span><h3>Executive summary</h3><p>The launch remains on track for November 18. Pricing and rollout are confirmed. Partner approval and final migration-guide assets are the remaining dependencies.</p><h3>Decisions</h3><ul><li>Pricing and packaging approved.</li><li>Phased rollout begins with existing customers.</li><li>Migration-guide structure approved by engineering.</li></ul><h3>Needs attention</h3><ul><li>Northwind has not named a final approver for co-marketing copy.</li><li>Final product screenshots are due Friday.</li></ul><h3>Recommended next step</h3><p>Confirm Northwind’s approver today and assign a single owner for the remaining screenshots.</p><div class="safety-note">${icon("file")}This mockup shows how an artifact opens without adding another tab to the main chat.</div></div>`;
+}
+function openDrawer(type){
+  const content={teams:teamsPanel,connections:connectionsPanel,memory:memoryPanel,settings:settingsPanel,artifact:artifactPanel}[type];if(!content)return;
+  $("#drawer").innerHTML=content();$("#drawer").dataset.type=type;$("#drawer").hidden=false;$("#drawer-scrim").hidden=false;closeMobileNav();$("[data-action='close-drawer']",$("#drawer")).focus();
+}
+function closeDrawer(){$("#drawer").hidden=true;$("#drawer-scrim").hidden=true}
+
+const guideSteps=[
+  {title:"Just talk to Ada.",body:"Ask a question or describe an outcome. Ada answers simple requests directly and brings in a team only when the extra work is useful.",visual:`<div class="guide-demo"><div class="demo-input">Message Ada…<span class="send-button">${icon("arrow")}</span></div><div class="demo-reply"><span class="ada-avatar">A</span><span>One request, one clear response. You never need to choose an agent before you begin.</span></div></div>`},
+  {title:"See the work, not the complexity.",body:"When a team helps, a compact diagram shows who is involved and short summaries of their work. Ada combines the result into a single chat response.",visual:`<div class="guide-demo"><div class="demo-team"><div class="demo-person"><div class="agent-avatar">A</div>Ada</div><div class="demo-person"><div class="agent-avatar">S</div>Scout</div><div class="demo-person"><div class="agent-avatar">Q</div>Quill</div><div class="demo-person"><div class="agent-avatar">J</div>Judge</div></div><div class="demo-thought">Short work summaries appear here while your conversation stays clean below.</div></div>`},
+  {title:"Make it yours.",body:"Describe a team and Ada will draft the roster for your review. Connect tools like Gmail, and let workspace memory carry useful context between projects. You can restart this guide anytime without resetting your work.",visual:`<div class="guide-demo"><div class="demo-list"><div class="demo-list-row">${icon("users")}Create and modify teams with Ada</div><div class="demo-list-row">${icon("plug")}Choose which connections Ada can use</div><div class="demo-list-row">${icon("memory")}Carry compacted context across chats</div><div class="demo-list-row">${icon("settings")}Restart the guide without losing work</div></div></div>`}
+];
+function renderGuide(){const step=guideSteps[state.guideStep];$("#guide-copy").innerHTML=`<div class="guide-step">${state.guideStep+1} of ${guideSteps.length} · Quick guide</div><h1 id="guide-title">${step.title}</h1><p>${step.body}</p>`;$("#guide-visual").innerHTML=step.visual;$("#guide-dots").innerHTML=guideSteps.map((_,i)=>`<span class="guide-dot ${i===state.guideStep?"active":""}"></span>`).join("");$("#guide-next").innerHTML=state.guideStep===guideSteps.length-1?`Start chatting ${icon("check")}`:`Next ${icon("arrow")}`}
+function openGuide(){closeDrawer();state.guideStep=0;renderGuide();$("#guide-overlay").hidden=false;$("#guide-next").focus()}
+function closeGuide(){$("#guide-overlay").hidden=true;toast("Guide closed — none of your workspace data changed.")}
+function openVoice(){$("#voice-screen").hidden=false;closeMobileNav();$("#voice-orb").focus()}
+function closeVoice(){$("#voice-screen").hidden=true;$("#voice-keyboard").hidden=true}
+
+$("#message-inner").addEventListener("click",event=>{
+  const start=event.target.closest("[data-start]");if(start){const type=start.dataset.start;if(type==="team")renderTeam(true);else if(type==="builder")renderBuilder();else renderDirect(true);return}
+  if(event.target.closest("#create-team")){state.teamCreated=true;$("#create-team").disabled=true;$("#create-team").innerHTML=`${icon("check")}Team created`;$(".proposal-head span").textContent="CREATED";toast("Customer Voice created — Ada can now route tasks to it.");return}
+  if(event.target.closest("[data-action='revise-team']")){$("#prompt").value="Use two reviewers instead of one, and keep everything read-only.";autoGrow();updateSend();$("#prompt").focus();return}
+  if(event.target.closest("[data-action='open-file']")){openDrawer("artifact");return}
+  if(event.target.closest("[data-action='copy']")){navigator.clipboard?.writeText("Launch readiness — on track for November 18. Partner approval and migration screenshots remain open.");toast("Ada’s response copied.");return}
+});
+
+document.addEventListener("click",event=>{
+  const view=event.target.closest("[data-view]");if(view){const type=view.dataset.view;if(type==="team")renderTeam();else if(type==="direct")renderDirect();else renderBuilder();closeMobileNav();return}
+  const drawer=event.target.closest("[data-drawer]");if(drawer){openDrawer(drawer.dataset.drawer);return}
+  const action=event.target.closest("[data-action]");if(!action)return;
+  switch(action.dataset.action){
+    case"new-chat":renderNewChat();break;
+    case"new-project":toast("Project creation is represented as a lightweight sidebar action.");break;
+    case"ask-team":renderTeam(true);break;
+    case"voice":openVoice();break;
+    case"close-voice":closeVoice();break;
+    case"close-guide":closeGuide();break;
+    case"restart-guide":openGuide();break;
+    case"close-drawer":closeDrawer();break;
+    case"describe-team":closeDrawer();renderBuilder();break;
+    case"modify-team":closeDrawer();renderBuilder(true);break;
+    case"connect-demo":toast("OAuth would open here in the production app.");break;
+    case"memory-sources":toast("Each memory item links back to its contributing chats.");break;
+    case"memory-export":toast("memory.md export is ready in the production flow.");break;
+  }
+});
+$("#drawer").addEventListener("click",event=>{
+  const control=event.target.closest(".switch");if(!control||control.disabled)return;
+  control.setAttribute("aria-checked",control.getAttribute("aria-checked")!=="true"?"true":"false");
+  if(control.getAttribute("aria-label")==="Use workspace memory"){
+    state.memoryOn=control.getAttribute("aria-checked")==="true";$("#memory-label").textContent=state.memoryOn?"Memory on":"Memory off";$("#profile-memory").textContent=state.memoryOn?"Workspace memory on":"Workspace memory off";toast(state.memoryOn?"Workspace memory enabled.":"Workspace memory paused; existing memory is retained.");
+  }
+});
+$("#guide-next").addEventListener("click",()=>{if(state.guideStep<guideSteps.length-1){state.guideStep++;renderGuide()}else closeGuide()});
+$("#collapse-workroom").addEventListener("click",()=>{const room=$("#workroom"),collapsed=room.classList.toggle("collapsed");$("#collapse-workroom").setAttribute("aria-expanded",String(!collapsed));$("#collapse-workroom").setAttribute("aria-label",collapsed?"Expand team activity":"Collapse team activity")});
+$("#menu-button").addEventListener("click",()=>{$("#sidebar").classList.add("open");$("#nav-scrim").hidden=false});
+$("#nav-scrim").addEventListener("click",closeMobileNav);
+$("#drawer-scrim").addEventListener("click",closeDrawer);
+$("#prompt").addEventListener("input",()=>{autoGrow();updateSend()});
+$("#prompt").addEventListener("keydown",event=>{if(event.key==="Enter"&&!event.shiftKey){event.preventDefault();submitPrompt()}});
+$("#send-button").addEventListener("click",submitPrompt);
+$("#attach-button").addEventListener("click",()=>toast("Attachments would appear as context chips above the composer."));
+$("#chat-search").addEventListener("input",event=>{const query=event.target.value.toLowerCase().trim();$$(".chat-link").forEach(link=>link.hidden=!!query&&!link.textContent.toLowerCase().includes(query))});
+document.addEventListener("keydown",event=>{
+  if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==="k"){event.preventDefault();$("#sidebar").classList.add("open");$("#nav-scrim").hidden=innerWidth>720;$("#chat-search").focus()}
+  if(event.key==="Escape"){if(!$("#voice-screen").hidden)closeVoice();else if(!$("#guide-overlay").hidden)closeGuide();else if(!$("#drawer").hidden)closeDrawer();else closeMobileNav()}
+});
+$("#voice-orb").addEventListener("click",()=>{const speaking=$("#voice-orb").classList.toggle("speaking");$("#voice-status").textContent=speaking?"Ada is speaking…":"Listening…";$("#voice-hint").textContent=speaking?"Tap the circle when you’re ready to respond.":"Speak naturally. You can interrupt Ada at any time."});
+$("#mute-button").addEventListener("click",()=>{state.muted=!state.muted;$("#mute-button span").textContent=state.muted?"Unmute":"Mute";$("#voice-status").textContent=state.muted?"Microphone muted":"Listening…"});
+$("#voice-keyboard-button").addEventListener("click",()=>{$("#voice-keyboard").hidden=!$("#voice-keyboard").hidden;if(!$("#voice-keyboard").hidden)$("#voice-text").focus()});
+$("#voice-keyboard").addEventListener("submit",event=>{event.preventDefault();const text=$("#voice-text").value.trim();if(!text)return;$("#voice-text").value="";$("#voice-transcript").innerHTML=`<p class="voice-user">You · “${escapeHTML(text)}”</p><b>Ada</b><p>I’ll keep the answer conversational and bring it back into this same chat when we finish.</p>`;$("#voice-orb").classList.add("speaking");$("#voice-status").textContent="Ada is speaking…"});
+
+renderTeam();
+if(new URLSearchParams(location.search).get("guide")==="1")openGuide();
+if(new URLSearchParams(location.search).get("voice")==="1")openVoice();
+</script>
+</body>
+</html>

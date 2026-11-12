@@ -3,15 +3,16 @@ import { useAuth } from './auth/AuthContext'
 import { Layout } from './components/Layout'
 import { Spinner } from './components/ui'
 import { AccountPage } from './pages/AccountPage'
+import { CoordinatorPage } from './pages/CoordinatorPage'
 import { MissionPage } from './pages/MissionPage'
 import { MissionsPage } from './pages/MissionsPage'
 import { NewMissionPage } from './pages/NewMissionPage'
 import { InvitePage } from './pages/InvitePage'
 import { LoginPage } from './pages/LoginPage'
 import { PeoplePage } from './pages/PeoplePage'
+import { ProvisioningPage } from './pages/ProvisioningPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { SetupPage } from './pages/SetupPage'
-import { WelcomePage } from './pages/WelcomePage'
 import { TeamEditPage } from './pages/TeamEditPage'
 import { TeamsPage } from './pages/TeamsPage'
 import { TemplatesPage } from './pages/TemplatesPage'
@@ -38,15 +39,18 @@ export function App() {
       return (
         <Routes>
           <Route element={<Layout />}>
-            <Route index element={<MissionsPage />} />
+            <Route index element={<CoordinatorPage />} />
+            <Route path="chats/:id" element={<CoordinatorPage />} />
+            <Route path="missions" element={<MissionsPage />} />
             <Route path="missions/new" element={<NewMissionPage />} />
             <Route path="missions/:id" element={<MissionPage />} />
             <Route path="teams" element={<TeamsPage />} />
             <Route path="teams/:id" element={<TeamEditPage />} />
             <Route path="templates" element={<TemplatesPage />} />
             <Route path="account" element={<AccountPage />} />
-            <Route path="welcome" element={<WelcomePage />} />
+            <Route path="welcome" element={<Navigate to="/?guide=1" replace />} />
             {isAdmin ? <Route path="people" element={<PeoplePage />} /> : null}
+            {isAdmin ? <Route path="provisioning" element={<ProvisioningPage />} /> : null}
             {isAdmin ? <Route path="settings" element={<SettingsPage />} /> : null}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>

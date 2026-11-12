@@ -4,11 +4,13 @@ import { api, errorMessage } from '../api/client'
 import type { InvitePreview, Me } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { ErrorBanner, Field, Logo, Spinner } from '../components/ui'
+import { useI18n } from '../i18n'
 
 /** /invite#<secret>. The secret lives in the fragment, so it never appears in server or proxy logs. */
 export function InvitePage() {
   const { signedIn } = useAuth()
   const navigate = useNavigate()
+  const { t } = useI18n()
   const [secret] = useState(() => window.location.hash.replace(/^#/, ''))
   const [preview, setPreview] = useState<InvitePreview | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -18,18 +20,18 @@ export function InvitePage() {
 
   useEffect(() => {
     if (!secret) {
-      setLoadError('This invite link is incomplete. Ask your admin to send it again.')
+      setLoadError(t('This invite link is incomplete. Ask your admin to send it again.'))
       return
     }
     api<InvitePreview>(`auth/invite/${encodeURIComponent(secret)}`)
       .then(setPreview)
       .catch((err) => setLoadError(errorMessage(err)))
-  }, [secret])
+  }, [secret, t])
 
   async function submit(event: FormEvent) {
     event.preventDefault()
     if (form.password !== form.confirm) {
-      setError('Passwords don’t match')
+      setError(t('Passwords don’t match'))
       return
     }
     setBusy(true)
@@ -55,10 +57,10 @@ export function InvitePage() {
         <Logo />
         {loadError ? (
           <>
-            <h1>Invite unavailable</h1>
+            <h1>{t('Invite unavailable')}</h1>
             <ErrorBanner message={loadError} />
             <a className="btn ghost" href="/">
-              Go to sign in
+              {t('Go to sign in')}
             </a>
           </>
         ) : !preview ? (
@@ -66,26 +68,24 @@ export function InvitePage() {
         ) : (
           <>
             <div>
-              <div className="kicker">You’re invited</div>
-              <h1>Join AgentSam</h1>
-              <p className="lede">
-                Creating an account for <b>{preview.email}</b> as {preview.role === 'admin' ? 'an admin' : 'a member'}.
-              </p>
+              <div className="kicker">{t('You’re invited')}</div>
+              <h1>{t('Join AgentSam')}</h1>
+              <p className="lede">{t('Creating an account for {email} as {role}.', { email: preview.email, role: preview.role === 'admin' ? t('an admin') : t('a member') })}</p>
             </div>
             <ErrorBanner message={error} />
-            <Field label="Your name" autoComplete="name" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            <Field label={t('Your name')} autoComplete="name" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
             <Field
-              label="Password"
+              label={t('Password')}
               type="password"
               autoComplete="new-password"
               minLength={12}
               required
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
-              hint="At least 12 characters."
+              hint={t('At least 12 characters.')}
             />
             <Field
-              label="Confirm password"
+              label={t('Confirm password')}
               type="password"
               autoComplete="new-password"
               required
@@ -93,7 +93,7 @@ export function InvitePage() {
               onChange={(e) => setForm({ ...form, confirm: e.target.value })}
             />
             <button className="btn" type="submit" disabled={busy}>
-              {busy ? 'Creating account…' : 'Create account'}
+              {busy ? t('Creating account…') : t('Create account')}
             </button>
           </>
         )}

@@ -5,9 +5,11 @@ import { api, errorMessage } from '../api/client'
 import type { Team } from '../api/types'
 import { Avatar } from '../components/mission'
 import { ErrorBanner, Spinner } from '../components/ui'
+import { useI18n } from '../i18n'
 
 export function TeamsPage() {
-  useDocumentTitle('Teams')
+  const { t } = useI18n()
+  useDocumentTitle(t('Teams'))
   const [teams, setTeams] = useState<Team[] | null>(null)
   const [error, setError] = useState<string | null>(null)
 
@@ -21,15 +23,15 @@ export function TeamsPage() {
     <>
       <div className="page-head">
         <div>
-          <div className="kicker">Teams</div>
-          <h1>Your agent teams</h1>
+          <div className="kicker">{t('Teams')}</div>
+          <h1>{t('Your agent teams')}</h1>
         </div>
         <div className="row">
           <Link className="btn ghost" to="/templates">
-            Browse templates
+            {t('Browse templates')}
           </Link>
           <Link className="btn" to="/teams/new">
-            New team
+            {t('New team')}
           </Link>
         </div>
       </div>
@@ -38,9 +40,9 @@ export function TeamsPage() {
         <Spinner />
       ) : teams.length === 0 ? (
         <div className="card empty">
-          <p style={{ marginBottom: 14 }}>No teams yet.</p>
+          <p style={{ marginBottom: 14 }}>{t('No teams yet.')}</p>
           <Link className="btn" to="/templates">
-            Hire one from a template
+            {t('Hire one from a template')}
           </Link>
         </div>
       ) : (
@@ -55,7 +57,7 @@ export function TeamsPage() {
               <b>
                 {team.emoji} {team.name}
               </b>
-              <span>{team.agents.length} agents</span>
+              <span>{t('{count} agents', { count: team.agents.length })}</span>
               {team.goal ? <p className="muted" style={{ fontSize: 13, marginTop: 6 }}>{team.goal}</p> : null}
             </Link>
           ))}

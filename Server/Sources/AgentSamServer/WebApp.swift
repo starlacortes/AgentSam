@@ -54,7 +54,7 @@ struct SecurityHeadersMiddleware: AsyncMiddleware {
             ("X-Content-Type-Options", "nosniff"),
             ("Referrer-Policy", "no-referrer"),
             ("X-Frame-Options", "DENY"),
-            ("Permissions-Policy", "camera=(), microphone=(), geolocation=()"),
+            ("Permissions-Policy", "camera=(), microphone=(self), geolocation=()"),
             ("Cross-Origin-Opener-Policy", "same-origin"),
         ]
         for (name, value) in headers where !response.headers.contains(name: name) {

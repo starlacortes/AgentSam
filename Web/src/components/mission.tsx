@@ -1,8 +1,10 @@
 import type { AgentRole, MissionStatus } from '../api/types'
 import type { AgentItem } from '../lib/missionPresentation'
+import { useI18n } from '../i18n'
 
 export function StatusChip({ status }: { status: MissionStatus }) {
-  return <span className={`chip status-${status}`}>{status}</span>
+  const { t } = useI18n()
+  return <span className={`chip status-${status}`}>{t(status)}</span>
 }
 
 const roleTint: Record<AgentRole, string> = { coordinator: 'emerald', worker: 'teal', verifier: 'gold' }
@@ -24,6 +26,7 @@ const stateLabel: Record<AgentItem['state'], string> = { idle: 'idle', working: 
 
 /** Coordinator on top, workers across the middle, verifier at the bottom, like MissionStageView. */
 export function AgentStage({ agents, compact = false }: { agents: AgentItem[]; compact?: boolean }) {
+  const { t } = useI18n()
   // Once a mission is over, everyone sits in one short row so the results get the space.
   const rows: AgentItem[][] = compact
     ? [agents]
@@ -35,14 +38,14 @@ export function AgentStage({ agents, compact = false }: { agents: AgentItem[]; c
 
   if (agents.length === 0) return null
   return (
-    <div className={compact ? 'stage compact' : 'stage'} aria-label="Agent stage">
+    <div className={compact ? 'stage compact' : 'stage'} aria-label={t('Agent stage')}>
       {rows.map((row, index) => (
         <div className="stage-row" key={index}>
           {row.map((item) => (
             <div className={`stage-node state-${item.state}`} key={item.agent.id} title={item.task ?? item.agent.title}>
               <Avatar name={item.agent.name} role={item.agent.role} state={item.state} size={compact ? 40 : 48} />
               <b>{item.agent.name}</b>
-              <span className="stage-state">{stateLabel[item.state]}</span>
+              <span className="stage-state">{t(stateLabel[item.state])}</span>
               {item.state === 'working' && item.task ? <span className="stage-task">{item.task}</span> : null}
             </div>
           ))}

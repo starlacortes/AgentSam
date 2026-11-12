@@ -6,12 +6,14 @@ import type { Mission, ProviderStatus, ProviderTestResult, Team, TemplateCatalog
 import { useAuth } from '../auth/AuthContext'
 import { Avatar } from '../components/mission'
 import { ErrorBanner, Spinner } from '../components/ui'
+import { useI18n } from '../i18n'
 
 type Step = 'provider' | 'team' | 'mission'
 
 /** Guided setup, like the apps: connect a provider (admins), hire a team, launch a first mission. */
 export function WelcomePage() {
-  useDocumentTitle('Get started')
+  const { t } = useI18n()
+  useDocumentTitle(t('Get started'))
   const { isAdmin, me } = useAuth()
   const navigate = useNavigate()
   const steps: Step[] = isAdmin ? ['provider', 'team', 'mission'] : ['team', 'mission']
@@ -83,11 +85,11 @@ export function WelcomePage() {
         {steps.map((s, i) => (
           <div key={s} className={`stepline ${s === step ? 'on' : ''} ${i < index ? 'done' : ''}`}>
             <span className="n">{i + 1}</span>
-            <span className="lbl">{s === 'provider' ? 'Connect models' : s === 'team' ? 'Hire a team' : 'First mission'}</span>
+            <span className="lbl">{s === 'provider' ? t('Connect models') : s === 'team' ? t('Hire a team') : t('First mission')}</span>
           </div>
         ))}
         <button className="pill" style={{ marginTop: 'auto' }} onClick={() => navigate('/')}>
-          Skip setup
+          {t('Skip setup')}
         </button>
       </aside>
       <section className="step-body stack">
@@ -96,9 +98,9 @@ export function WelcomePage() {
         {step === 'provider' ? (
           <>
             <div>
-              <div className="kicker">Step 1</div>
-              <h1>Connect your models.</h1>
-              <p className="lede">Bring your own key. It’s stored on the server and every mission uses it, for everyone.</p>
+              <div className="kicker">{t('Step {number}', { number: 1 })}</div>
+              <h1>{t('Connect your models.')}</h1>
+              <p className="lede">{t('Bring your own key. It’s stored on the server and every mission uses it, for everyone.')}</p>
             </div>
             <div className="team-picker">
               {providers.map((p) => (
@@ -111,7 +113,7 @@ export function WelcomePage() {
                   }}
                 >
                   <b>{p.provider.name}</b>
-                  <span>{p.hasKey ? 'key saved' : p.provider.defaultModel}</span>
+                  <span>{p.hasKey ? t('key saved') : p.provider.defaultModel}</span>
                 </button>
               ))}
             </div>
@@ -121,19 +123,19 @@ export function WelcomePage() {
                 style={{ flex: '1 1 260px' }}
                 type="password"
                 autoComplete="off"
-                placeholder={selected?.hasKey ? 'Key saved. Paste a new one to replace it.' : `Paste your ${selected?.provider.name ?? ''} API key`}
+                placeholder={selected?.hasKey ? t('Key saved. Paste a new one to replace it.') : t('Paste your {name} API key', { name: selected?.provider.name ?? '' })}
                 value={key}
                 onChange={(e) => setKey(e.target.value)}
               />
               <button className="btn" disabled={busy || (!key.trim() && !selected?.hasKey)} onClick={() => void connect()}>
-                {busy ? 'Testing…' : 'Test connection'}
+                {busy ? t('Testing…') : t('Test connection')}
               </button>
             </div>
             {test ? <div className={test.ok ? 'notice' : 'error'}>{test.message}</div> : null}
             <div className="row">
               <span className="spacer" />
               <button className="btn" disabled={!providers.some((p) => p.hasKey)} onClick={() => setStep('team')}>
-                Next
+                {t('Next')}
               </button>
             </div>
           </>
@@ -142,9 +144,9 @@ export function WelcomePage() {
         {step === 'team' ? (
           <>
             <div>
-              <div className="kicker">Step {index + 1}</div>
-              <h1>Who do you need?</h1>
-              <p className="lede">Pick a squad. You can rename agents and change their models later in Teams.</p>
+              <div className="kicker">{t('Step {number}', { number: index + 1 })}</div>
+              <h1>{t('Who do you need?')}</h1>
+              <p className="lede">{t('Pick a squad. You can rename agents and change their models later in Teams.')}</p>
             </div>
             {!catalog ? (
               <Spinner />
@@ -171,19 +173,15 @@ export function WelcomePage() {
         {step === 'mission' ? (
           <>
             <div>
-              <div className="kicker">Step {index + 1}</div>
-              <h1>Your first mission.</h1>
+              <div className="kicker">{t('Step {number}', { number: index + 1 })}</div>
+              <h1>{t('Your first mission.')}</h1>
               <p className="lede">
-                {team ? (
-                  <>
-                    <b>{team.name}</b> is ready, {me?.name}. What should they work on?
-                  </>
-                ) : (
-                  'Hire a team first.'
-                )}
+                {team
+                  ? t('{team} is ready, {name}. What should they work on?', { team: team.name, name: me?.name ?? '' })
+                  : t('Hire a team first.')}
               </p>
             </div>
-            <textarea className="textarea" value={objective} onChange={(e) => setObjective(e.target.value)} placeholder="Describe the objective" />
+            <textarea className="textarea" value={objective} onChange={(e) => setObjective(e.target.value)} placeholder={t('Describe the objective')} />
             <div className="row">
               {(catalog?.missionIdeas ?? []).map((idea) => (
                 <button key={idea} className="idea" onClick={() => setObjective(idea)}>
@@ -193,7 +191,7 @@ export function WelcomePage() {
             </div>
             <div className="row">
               <button className="btn" disabled={busy || !team || !objective.trim()} onClick={() => void launch()}>
-                {busy ? 'Launching…' : 'Launch mission'}
+                {busy ? t('Launching…') : t('Launch mission')}
               </button>
             </div>
           </>

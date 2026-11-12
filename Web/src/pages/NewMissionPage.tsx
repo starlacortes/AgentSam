@@ -5,16 +5,18 @@ import type { Mission, Team } from '../api/types'
 import { ErrorBanner, Spinner } from '../components/ui'
 import { Avatar } from '../components/mission'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
+import { useI18n } from '../i18n'
 
 export function NewMissionPage() {
   const navigate = useNavigate()
+  const { t } = useI18n()
   const [teams, setTeams] = useState<Team[] | null>(null)
   const [teamID, setTeamID] = useState<string>('')
   const [objective, setObjective] = useState(() => new URLSearchParams(window.location.search).get('objective') ?? '')
   const [ideas, setIdeas] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  useDocumentTitle('New mission')
+  useDocumentTitle(t('New mission'))
 
   useEffect(() => {
     api<Team[]>('teams')
@@ -46,9 +48,9 @@ export function NewMissionPage() {
     <form onSubmit={launch}>
       <div className="page-head">
         <div>
-          <div className="kicker">New mission</div>
-          <h1>What should the team do?</h1>
-          <p className="lede">The coordinator turns your objective into tasks, workers run them in parallel, and the verifier checks the results.</p>
+          <div className="kicker">{t('New mission')}</div>
+          <h1>{t('What should the team do?')}</h1>
+          <p className="lede">{t('The coordinator turns your objective into tasks, workers run them in parallel, and the verifier checks the results.')}</p>
         </div>
       </div>
       <ErrorBanner message={error} />
@@ -56,14 +58,14 @@ export function NewMissionPage() {
         <Spinner />
       ) : teams.length === 0 ? (
         <div className="card empty">
-          <p style={{ marginBottom: 14 }}>You need a team first.</p>
+          <p style={{ marginBottom: 14 }}>{t('You need a team first.')}</p>
           <Link className="btn" to="/templates">
-            Hire a team
+            {t('Hire a team')}
           </Link>
         </div>
       ) : (
         <div className="stack">
-          <div className="team-picker" role="radiogroup" aria-label="Team">
+          <div className="team-picker" role="radiogroup" aria-label={t('Team')}>
             {teams.map((team) => (
               <button
                 type="button"
@@ -81,23 +83,23 @@ export function NewMissionPage() {
                 <b>
                   {team.emoji} {team.name}
                 </b>
-                <span>{team.agents.length} agents</span>
+                <span>{t('{count} agents', { count: team.agents.length })}</span>
               </button>
             ))}
           </div>
           <label className="field">
-            <span>Objective</span>
+            <span>{t('Objective')}</span>
             <textarea
               className="textarea"
               required
               maxLength={8000}
-              placeholder="e.g. Research the top five open-source vector databases and write a comparison with a recommendation."
+              placeholder={t('e.g. Research the top five open-source vector databases and write a comparison with a recommendation.')}
               value={objective}
               onChange={(e) => setObjective(e.target.value)}
             />
           </label>
           {ideas.length > 0 ? (
-            <div className="row" aria-label="Ideas">
+            <div className="row" aria-label={t('Ideas')}>
               {ideas.slice(0, 6).map((idea) => (
                 <button type="button" key={idea} className="idea" onClick={() => setObjective(idea)}>
                   {idea}
@@ -107,9 +109,9 @@ export function NewMissionPage() {
           ) : null}
           <div className="row">
             <button className="btn" type="submit" disabled={busy || !teamID || !objective.trim()}>
-              {busy ? 'Launching…' : 'Launch mission'}
+              {busy ? t('Launching…') : t('Launch mission')}
             </button>
-            <span className="hint">Runs on the server with the provider keys your admin configured.</span>
+            <span className="hint">{t('Runs on the server with the provider keys your admin configured.')}</span>
           </div>
         </div>
       )}
