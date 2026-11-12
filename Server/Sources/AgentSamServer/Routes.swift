@@ -296,8 +296,13 @@ func routes(_ app: Application, ctx: ServerContext) {
         return try req.json(ConnectorTestResult(ok: result.ok, message: result.message))
     }
 
-    adminAPI.post("connectors", "cloudflare", "token") { req async throws -> Response in
+    // These take `:id` and validate it: constant paths like "googleads" here would shadow
+    // the `connectors/:id/...` POST routes for that connector (Vapor prefers constants).
+    adminAPI.post("connectors", ":id", "token") { req async throws -> Response in
         let lang = SrvL10n.lang(for: req)
+        guard req.parameters.get("id").flatMap(ConnectorID.init(rawValue:)) == .cloudflare else {
+            throw Abort(.notFound, reason: SrvL10n.t("srv.unknownConnector", lang: lang))
+        }
         let body = try req.decodeJSON(KeyBody.self)
         let token = body.key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty else {
@@ -311,7 +316,10 @@ func routes(_ app: Application, ctx: ServerContext) {
         return try req.json(AckResult(ok: true, detail: SrvL10n.t("srv.cloudflareStored", lang: lang)))
     }
 
-    adminAPI.post("connectors", "web", "key") { req async throws -> Response in
+    adminAPI.post("connectors", ":id", "key") { req async throws -> Response in
+        guard req.parameters.get("id").flatMap(ConnectorID.init(rawValue:)) == .web else {
+            throw Abort(.notFound, reason: SrvL10n.t("srv.unknownConnector", lang: SrvL10n.lang(for: req)))
+        }
         let body = try req.decodeJSON(KeyBody.self)
         let key = body.key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !key.isEmpty else {
@@ -325,8 +333,11 @@ func routes(_ app: Application, ctx: ServerContext) {
         return try req.json(AckResult(ok: true, detail: verified.message))
     }
 
-    adminAPI.post("connectors", "googleads", "credentials") { req async throws -> Response in
+    adminAPI.post("connectors", ":id", "credentials") { req async throws -> Response in
         let lang = SrvL10n.lang(for: req)
+        guard req.parameters.get("id").flatMap(ConnectorID.init(rawValue:)) == .googleads else {
+            throw Abort(.notFound, reason: SrvL10n.t("srv.unknownConnector", lang: lang))
+        }
         let body = try req.decodeJSON(GoogleAdsCredentialsBody.self)
         if let developerToken = body.developerToken?.trimmingCharacters(in: .whitespacesAndNewlines), !developerToken.isEmpty {
             try ctx.keyRing.set(developerToken, for: GoogleAdsConnector.developerTokenAccount)
