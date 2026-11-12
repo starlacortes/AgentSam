@@ -19,24 +19,24 @@ final class L10nTests: XCTestCase {
     func testSpanishMissionGetsSpanishPrompts() {
         let team = Team.starterTeam()
         let mission = Mission(teamID: team.id, teamName: team.name, objective: "Investiga los paneles solares", outputLanguage: "es")
-        let plan = PromptBuilder.planPrompt(mission: mission, team: team)
+        let builder = PromptBuilder(store: PromptStore(builtins: PromptStore.builtins))
+        let plan = builder.planPrompt(mission: mission, team: team, maxTasks: team.workers.count)
         XCTAssertTrue(plan.contains("OBJETIVO DE LA MISIÓN"), "plan should be in Spanish: \(plan)")
-        // Protocol tokens must stay English for the parsers.
-        XCTAssertTrue(plan.contains("TASK 1"))
-        XCTAssertTrue(plan.contains("Deliverable:"))
+        XCTAssertTrue(plan.contains("submit_plan"), "structured tool names must stay unchanged")
 
         let worker = team.workers[0]
-        let system = PromptBuilder.workerSystem(agent: worker, team: team, mission: mission)
+        let system = builder.workerSystem(agent: worker, team: team, mission: mission)
         XCTAssertTrue(system.contains("IDIOMA DE TRABAJO"), "worker system should carry the Spanish language instruction")
 
-        let coordinator = PromptBuilder.coordinatorSystem(team: team, mission: mission)
+        let coordinator = builder.coordinatorSystem(agent: team.coordinator ?? team.agents[0], team: team, mission: mission)
         XCTAssertTrue(coordinator.contains("IDIOMA DE TRABAJO"))
     }
 
     func testEnglishMissionKeepsEnglishPrompts() {
         let team = Team.starterTeam()
         let mission = Mission(teamID: team.id, teamName: team.name, objective: "Research solar panels")
-        let plan = PromptBuilder.planPrompt(mission: mission, team: team)
+        let builder = PromptBuilder(store: PromptStore(builtins: PromptStore.builtins))
+        let plan = builder.planPrompt(mission: mission, team: team, maxTasks: team.workers.count)
         XCTAssertTrue(plan.contains("MISSION OBJECTIVE"))
         XCTAssertFalse(plan.contains("IDIOMA DE TRABAJO"))
     }

@@ -1,12 +1,22 @@
 import Foundation
 
-public enum PromptBuilder {
-    /// Looks up a prompt fragment in the mission's working language.
-    private static func t(_ key: String, mission: Mission) -> String {
-        CoreL10n.t(key, lang: CoreL10n.language(for: mission))
+/// Renders versioned mission prompts and supplies their typed context values.
+public struct PromptBuilder: Sendable {
+    public let store: PromptStore
+
+    public init(store: PromptStore) {
+        self.store = store
     }
 
-    private static func contextBlock(for mission: Mission) -> String {
+    private func language(for mission: Mission?) -> String {
+        mission.map { CoreL10n.language(for: $0) } ?? "en"
+    }
+
+    private func t(_ key: String, mission: Mission?) -> String {
+        CoreL10n.t(key, lang: language(for: mission))
+    }
+
+    private func contextBlock(for mission: Mission) -> String {
         guard let context = mission.inputContext?.trimmingCharacters(in: .whitespacesAndNewlines), !context.isEmpty else {
             return ""
         }
@@ -14,130 +24,109 @@ public enum PromptBuilder {
         return String(format: t("prompt.context", mission: mission), source, context)
     }
 
-    /// Instructs agents to work in Spanish for Spanish-language missions.
-    private static func languageBlock(for mission: Mission) -> String {
-        guard CoreL10n.language(for: mission) == "es" else { return "" }
-        return t("prompt.language", mission: mission)
+    private func objective(for mission: Mission) -> String {
+        mission.objective + contextBlock(for: mission)
     }
 
-    private static func houseRules(for mission: Mission, canFinish: Bool = true) -> String {
-        let rules = t("prompt.houseRules", mission: mission)
-        guard canFinish else { return rules.replacingOccurrences(of: t("prompt.finishRule", mission: mission), with: "") }
-        return rules
+    private func localized(_ text: String, mission: Mission?) -> String {
+        guard let mission, language(for: mission) == "es" else { return text }
+        return text.replacingOccurrences(of: "MISSION OBJECTIVE", with: t("prompt.plan.objective", mission: mission))
+            + t("prompt.language", mission: mission)
     }
 
-    public static func coordinatorSystem(team: Team, mission: Mission) -> String {
-        let lang = CoreL10n.language(for: mission)
-        let name = team.coordinator?.name ?? CoreL10n.t("prompt.coordinatorFallback", lang: lang)
-        let systemPrompt = team.coordinator?.systemPrompt ?? CoreL10n.t("prompt.coordinatorFallbackRole", lang: lang)
-        let roster = team.agents.map { agent in
-            String(format: CoreL10n.t("prompt.rosterLine", lang: lang), agent.name, agent.title, String(agent.systemPrompt.prefix(220)))
-        }.joined(separator: "\n")
-        return String(
-            format: CoreL10n.t("prompt.coordinatorSystem", lang: lang),
-            name, team.name, systemPrompt, roster,
-            houseRules(for: mission, canFinish: false), languageBlock(for: mission)
-        )
-    }
-
-    public static func planPrompt(mission: Mission, team: Team) -> String {
-        let roster = team.workers.map { String(format: t("prompt.rosterLineShort", mission: mission), $0.name, $0.title) }.joined(separator: "\n")
-        return """
-        \(t("prompt.plan.objective", mission: mission))
-        \(mission.objective)\(contextBlock(for: mission))
-        
-        \(t("prompt.plan.workers", mission: mission))
-        \(roster)
-        
-        \(String(format: t("prompt.plan.requirements", mission: mission), Int64(team.workers.count)))
-        
-        \(t("prompt.plan.format", mission: mission))
-        """
-    }
-
-    public static func replanPrompt(mission: Mission, previous: String) -> String {
-        """
-        \(t("prompt.replan.intro", mission: mission))
-        \(t("prompt.plan.objective", mission: mission))
-        \(mission.objective)\(contextBlock(for: mission))
-        
-        \(t("prompt.replan.previous", mission: mission))
-        \(previous.prefix(2_000))
-
-        \(t("prompt.replan.correct", mission: mission))
-        """
-    }
-
-    public static func workerSystem(agent: AgentProfile, team: Team, mission: Mission, externalTools: [String] = []) -> String {
-        let connectorNote: String
-        if externalTools.isEmpty {
-            connectorNote = ""
-        } else {
-            connectorNote = String(format: t("prompt.worker.connectors", mission: mission), externalTools.joined(separator: ", "))
+    public func houseRules(for mission: Mission? = nil, canFinish: Bool = true) -> String {
+        let rules = store.render("house_rules")
+        guard canFinish else {
+            return rules.replacingOccurrences(of: CoreL10n.t("prompt.finishRule", lang: "en"), with: "")
         }
-        return """
-        \(String(format: t("prompt.worker.identity", mission: mission), agent.name, agent.title, team.name))
-        \(agent.systemPrompt)
-        
-        \(t("prompt.worker.missionHeader", mission: mission))
-        \(mission.objective)\(contextBlock(for: mission))
-        
-        \(houseRules(for: mission))\(languageBlock(for: mission))\(connectorNote)
-        """
+        return localized(rules, mission: mission)
     }
 
-    public static func workPrompt(task: TaskPlanItem, mission: Mission) -> String {
-        """
-        \(String(format: t("prompt.work.header", mission: mission), Int64(task.id)))
-        \(String(format: t("prompt.work.goal", mission: mission), task.goal))
-        \(String(format: t("prompt.work.deliverable", mission: mission), task.deliverable))
-        
-        \(t("prompt.work.produce", mission: mission))
-        """
+    public func coordinatorSystem(agent: AgentProfile, team: Team, mission: Mission? = nil) -> String {
+        let roster = team.agents.map { member in
+            "- \(member.name) (\(member.title)): \(member.systemPrompt.prefix(220))"
+        }.joined(separator: "\n")
+        let roleLine = team.coordinator == nil
+            ? "You are \(agent.name), acting as the Coordinator of a small agent team named \(team.name) (this team has no designated coordinator)."
+            : "You are \(agent.name), the Coordinator of a small agent team named \(team.name)."
+        let rendered = store.render("coordinator_system", context: [
+            "role_line": roleLine,
+            "coordinator_prompt": agent.systemPrompt,
+            "roster": roster,
+            "house_rules": houseRules(canFinish: false),
+        ])
+        return localized(rendered, mission: mission)
     }
 
-    public static func verifierSystem(agent: AgentProfile, mission: Mission) -> String {
-        """
-        \(String(format: t("prompt.verifier.identity", mission: mission), agent.name, agent.title))
-        \(agent.systemPrompt)
-        
-        \(t("prompt.plan.objective", mission: mission))
-        \(mission.objective)\(contextBlock(for: mission))
-        
-        \(t("prompt.verifier.readonly", mission: mission))
-        
-        \(t("prompt.verifier.format", mission: mission))
-        \(languageBlock(for: mission))
-        """
+    public func planPrompt(mission: Mission, team: Team, maxTasks: Int) -> String {
+        let roster = team.workers.map { "- \($0.name) (\($0.title))" }.joined(separator: "\n")
+        return localized(store.render("plan", context: [
+            "mission_objective": objective(for: mission),
+            "roster": roster,
+            "max_tasks": String(maxTasks),
+        ]), mission: mission)
     }
 
-    public static func verifyPrompt(deliverables: [String], mission: Mission) -> String {
-        """
-        \(t("prompt.verify.deliverables", mission: mission))
-        \(deliverables.map { "- \($0)" }.joined(separator: "\n"))
-        
-        \(t("prompt.verify.instruction", mission: mission))
-        """
+    public func replanPrompt(mission: Mission, previous: String) -> String {
+        localized(store.render("replan", context: [
+            "mission_objective": objective(for: mission),
+            "previous_reply": String(previous.prefix(2_000)),
+        ]), mission: mission)
     }
 
-    public static func reportPrompt(mission: Mission, handoffs: [String], verification: VerificationReport) -> String {
-        """
-        \(t("prompt.report.intro", mission: mission))
-        
-        \(t("prompt.plan.objective", mission: mission))
-        \(mission.objective)\(contextBlock(for: mission))
-        
-        \(t("prompt.report.handoffs", mission: mission))
-        \(handoffs.map { "— \($0)" }.joined(separator: "\n"))
-        
-        \(t("prompt.report.findings", mission: mission))
-        \(verification.markdown(language: CoreL10n.language(for: mission)))
-        
-        \(t("prompt.report.correct", mission: mission))
-        
-        \(t("prompt.report.format", mission: mission))
-        
-        \(t("prompt.report.stop", mission: mission))
-        """
+    public func invalidPlanFeedback(reason: String) -> String {
+        store.render("plan_invalid_feedback", context: ["reason": reason])
+    }
+
+    public func workerSystem(agent: AgentProfile, team: Team, mission: Mission, externalTools: [String] = []) -> String {
+        let rendered = store.render("worker_system", context: [
+            "agent_name": agent.name,
+            "agent_title": agent.title,
+            "agent_prompt": agent.systemPrompt,
+            "team_name": team.name,
+            "mission_objective": objective(for: mission),
+            "house_rules": houseRules(),
+        ])
+        let connectors = externalTools.isEmpty ? "" : String(
+            format: t("prompt.worker.connectors", mission: mission),
+            externalTools.joined(separator: ", ")
+        )
+        return localized(rendered + connectors, mission: mission)
+    }
+
+    public func workPrompt(task: TaskPlanItem, mission: Mission) -> String {
+        localized(store.render("work", context: [
+            "task_id": String(task.id),
+            "task_goal": task.goal,
+            "task_deliverable": task.deliverable,
+        ]), mission: mission)
+    }
+
+    public func verifierSystem(agent: AgentProfile, mission: Mission) -> String {
+        localized(store.render("verifier_system", context: [
+            "agent_name": agent.name,
+            "agent_title": agent.title,
+            "agent_prompt": agent.systemPrompt,
+            "mission_objective": objective(for: mission),
+        ]), mission: mission)
+    }
+
+    public func verifyPrompt(deliverables: [String], mission: Mission? = nil) -> String {
+        localized(store.render("verify", context: [
+            "deliverables": deliverables.map { "- \($0)" }.joined(separator: "\n"),
+        ]), mission: mission)
+    }
+
+    public func reportPrompt(mission: Mission, handoffs: [String], verification: VerificationReport? = nil) -> String {
+        var rendered = store.render("report", context: [
+            "mission_objective": objective(for: mission),
+            "handoffs": handoffs.map { "— \($0)" }.joined(separator: "\n"),
+        ])
+        if let verification {
+            rendered += "\n\n\(t("prompt.report.findings", mission: mission))\n"
+                + verification.markdown(language: language(for: mission))
+                + "\n\n\(t("prompt.report.correct", mission: mission))"
+        }
+        return localized(rendered, mission: mission)
     }
 }

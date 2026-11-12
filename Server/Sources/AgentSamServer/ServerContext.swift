@@ -34,6 +34,7 @@ struct ServerContext: Sendable {
     let memory: WorkspaceMemoryStore
     let conversationEngine: ConversationEngine
     let keyRing: CompositeKeyRing
+    let prompts: PromptStore
     let token: String
     let dataDir: URL
     let maloon: MaloonIntegration
@@ -57,11 +58,16 @@ struct ServerContext: Sendable {
             clientSecret: Environment.get("AGENTSAM_GOOGLE_CLIENT_SECRET") ?? ""
         )
         let connectors = ConnectorHub(store: store, keyRing: keyRing, google: google)
+        let prompts = PromptStore(
+            builtins: PromptStore.builtins,
+            fileURL: store.root.appendingPathComponent("prompts.json")
+        )
         let engine = MissionEngine(
             store: store,
             keyRing: keyRing,
             connectors: connectors,
-            config: MissionEngine.Config(maxParallel: 4, maxSteps: 14, verifyWithAgent: true)
+            config: MissionEngine.Config(maxParallel: 4, maxSteps: 14, verifyWithAgent: true),
+            promptStore: prompts
         )
         let conversations = ConversationStore(root: store.root)
         let memory = WorkspaceMemoryStore(root: store.root)
@@ -101,6 +107,7 @@ struct ServerContext: Sendable {
             memory: memory,
             conversationEngine: conversationEngine,
             keyRing: keyRing,
+            prompts: prompts,
             token: token,
             dataDir: store.root,
             maloon: MaloonIntegration(),
@@ -127,6 +134,7 @@ struct ServerContext: Sendable {
         if await store.loadTeams().isEmpty {
             await store.saveTeam(Team.starterTeam())
         }
+        prompts.ensureSeedFile()
     }
 
     func reconcileInterruptedMissions() async {

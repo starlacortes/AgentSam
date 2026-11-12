@@ -448,6 +448,26 @@ func routes(_ app: Application, ctx: ServerContext) {
         return try req.json(AckResult(ok: true, detail: nil))
     }
 
+    // MARK: Prompts
+
+    api.get("prompts") { req async throws -> Response in
+        try req.json(ctx.prompts.records())
+    }
+
+    adminAPI.put("prompts", ":id") { req async throws -> Response in
+        guard let id = req.parameters.get("id") else {
+            throw Abort(.badRequest, reason: "Missing prompt id")
+        }
+        let body = try req.decodeJSON(PromptUpdateBody.self)
+        let text = body.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { throw Abort(.badRequest, reason: "Prompt text is required") }
+        guard text.count <= 20_000 else { throw Abort(.badRequest, reason: "Prompt is too long (20,000 characters max)") }
+        guard let version = ctx.prompts.update(id: id, text: text) else {
+            throw Abort(.notFound, reason: "Unknown prompt: \(id)")
+        }
+        return try req.json(PromptUpdateResult(id: id, version: version))
+    }
+
     // MARK: Live updates
 
     api.webSocket("missions", ":id", "live") { req, ws in
@@ -502,3 +522,11 @@ func oauthResultPage(title: String, message: String) -> Response {
     return Response(status: .ok, headers: headers, body: .init(string: html))
 }
 
+struct PromptUpdateBody: Decodable {
+    var text: String
+}
+
+struct PromptUpdateResult: Encodable {
+    var id: String
+    var version: Int
+}

@@ -21,11 +21,22 @@ public actor MissionEngine {
         public var maxParallel: Int
         public var maxSteps: Int
         public var verifyWithAgent: Bool
+        /// Token budget per conversation (≈ characters ÷ 4). Conversations
+        /// that grow past it are compacted before each call; when a provider
+        /// still reports context overflow, the budget is halved and the call
+        /// retried before the phase fails.
+        public var contextBudgetTokens: Int
+        /// Output token cap passed to the provider. Anthropic always sends it
+        /// (the API requires one) with a 16384 default; OpenAI-compatible
+        /// providers only send it when set, since their limits vary.
+        public var maxOutputTokens: Int?
 
-        public init(maxParallel: Int = 4, maxSteps: Int = 14, verifyWithAgent: Bool = true) {
+        public init(maxParallel: Int = 4, maxSteps: Int = 14, verifyWithAgent: Bool = true, contextBudgetTokens: Int = 20_000, maxOutputTokens: Int? = nil) {
             self.maxParallel = maxParallel
             self.maxSteps = maxSteps
             self.verifyWithAgent = verifyWithAgent
+            self.contextBudgetTokens = contextBudgetTokens
+            self.maxOutputTokens = maxOutputTokens
         }
     }
 
@@ -43,14 +54,26 @@ public actor MissionEngine {
     private let client: LLMClient
     private let connectors: ConnectorHub?
     private let config: Config
+    private let promptBuilder: PromptBuilder
     private var runningTasks: [UUID: Task<Void, Never>] = [:]
 
-    public init(store: MissionStore, keyRing: KeyRing, client: LLMClient = LLMClient(), connectors: ConnectorHub? = nil, config: Config = Config()) {
+    public init(
+        store: MissionStore,
+        keyRing: KeyRing,
+        client: LLMClient = LLMClient(),
+        connectors: ConnectorHub? = nil,
+        config: Config = Config(),
+        promptStore: PromptStore? = nil
+    ) {
         self.store = store
         self.keyRing = keyRing
         self.client = client
         self.connectors = connectors
         self.config = config
+        self.promptBuilder = PromptBuilder(store: promptStore ?? PromptStore(
+            builtins: PromptStore.builtins,
+            fileURL: store.root.appendingPathComponent("prompts.json")
+        ))
     }
 
     public func launch(missionID: UUID, team: Team) {
@@ -102,6 +125,9 @@ public actor MissionEngine {
         mission.status = .running
         mission.startedAt = Date()
         mission.phase = .planning
+        // Record which prompt template versions this run uses, so the run can
+        // be audited against the prompts it actually saw.
+        mission.promptVersions = promptBuilder.store.currentVersions()
         await store.saveMission(mission)
         await store.appendEvent(missionID, kind: .missionStart, text: mission.objective)
         await store.appendEvent(missionID, kind: .phase, text: MissionPhase.planning.rawValue)
@@ -200,33 +226,59 @@ public actor MissionEngine {
         registry: ProviderRegistry,
         stats: inout MissionStats
     ) async throws -> [TaskPlanItem] {
-        var messages: [APIMessage] = [.user(PromptBuilder.planPrompt(mission: mission, team: team))]
-        let reply = try await call(
-            agent: coordinator,
-            registry: registry,
-            missionID: mission.id,
-            system: PromptBuilder.coordinatorSystem(team: team, mission: mission),
-            messages: messages,
-            tools: nil,
-            stats: &stats
-        )
-        messages.append(reply.message)
-        var plan = PlanParser.parse(reply.message.content ?? "")
+        // A team without workers has nothing to plan: go straight to the
+        // default plan instead of asking the coordinator for "1 to 0 tasks".
+        if team.workers.isEmpty {
+            await store.appendEvent(mission.id, kind: .notice, text: "No worker agents on this team; using the default plan.")
+            return PlanParser.fallbackPlan(mission: mission, team: team)
+        }
 
-        if plan.isEmpty {
-            await store.appendEvent(mission.id, kind: .notice, text: l10n("engine.planNotParseable", mission: mission))
-            messages.append(.user(PromptBuilder.replanPrompt(mission: mission, previous: reply.message.content ?? "")))
-            let retry = try await call(
+        let taskLimit = min(8, team.workers.count)
+        var messages: [APIMessage] = [.user(promptBuilder.planPrompt(mission: mission, team: team, maxTasks: taskLimit))]
+        var plan: [TaskPlanItem] = []
+
+        // The coordinator submits the plan through the submit_plan tool.
+        // Rejections are fed back as tool results so the model can correct
+        // itself; plain-text replies fall back to the legacy parser.
+        attemptLoop: for _ in 0..<3 {
+            let reply = try await call(
                 agent: coordinator,
                 registry: registry,
                 missionID: mission.id,
-                system: PromptBuilder.coordinatorSystem(team: team, mission: mission),
+                system: promptBuilder.coordinatorSystem(agent: coordinator, team: team, mission: mission),
                 messages: messages,
-                tools: nil,
+                tools: AgentTools.planTools,
                 stats: &stats
             )
-            messages.append(retry.message)
-            plan = PlanParser.parse(retry.message.content ?? "")
+            messages.append(reply.message)
+
+            if let planCall = (reply.message.tool_calls ?? []).first(where: { $0.function.name == "submit_plan" }) {
+                let outcome: Result<[TaskPlanItem], StructuredOutput.PlanValidationError>
+                if let submission: StructuredOutput.PlanSubmission = StructuredOutput.decode(from: planCall) {
+                    outcome = StructuredOutput.plan(from: submission, team: team, maxTasks: taskLimit)
+                } else {
+                    outcome = .failure(StructuredOutput.PlanValidationError(reason: "the arguments were not valid JSON"))
+                }
+                switch outcome {
+                case .success(let tasks):
+                    plan = tasks
+                    break attemptLoop
+                case .failure(let error):
+                    await store.appendEvent(mission.id, kind: .notice, text: "Plan rejected: \(error.reason). Asking for a corrected plan.")
+                    messages.append(.tool(id: planCall.id, content: promptBuilder.invalidPlanFeedback(reason: error.reason)))
+                    continue attemptLoop
+                }
+            }
+
+            let textPlan = PlanParser.parse(reply.message.content ?? "")
+            if !textPlan.isEmpty {
+                await store.appendEvent(mission.id, kind: .notice, text: "Coordinator replied in plain text instead of submit_plan; using the parsed plan.")
+                plan = textPlan
+                break
+            }
+
+            await store.appendEvent(mission.id, kind: .notice, text: "Coordinator didn't submit a plan; asking it to correct the reply.")
+            messages.append(.user(promptBuilder.replanPrompt(mission: mission, previous: reply.message.content ?? "")))
         }
 
         if plan.isEmpty {
@@ -323,7 +375,7 @@ public actor MissionEngine {
         registry: ProviderRegistry,
         workspace: URL
     ) async -> WorkerResult {
-        var messages: [APIMessage] = [.user(PromptBuilder.workPrompt(task: task, mission: mission))]
+        var messages: [APIMessage] = [.user(promptBuilder.workPrompt(task: task, mission: mission))]
         var workerStats = MissionStats(turns: 0)
         var handoff = l10n("engine.taskFinished", mission: mission)
         var deliverables: [String] = []
@@ -339,7 +391,7 @@ public actor MissionEngine {
                     agent: agent,
                     registry: registry,
                     missionID: mission.id,
-                    system: PromptBuilder.workerSystem(agent: agent, team: team, mission: mission, externalTools: externalToolNames),
+                    system: promptBuilder.workerSystem(agent: agent, team: team, mission: mission, externalTools: externalToolNames),
                     messages: messages,
                     tools: tools,
                     stats: &workerStats
@@ -415,36 +467,56 @@ public actor MissionEngine {
             }
         }
 
-        var verdict: VerificationReport.Verdict
+        var verdict: VerificationReport.Verdict = .unverified
         if let verifier = team.verifier, config.verifyWithAgent, !deliverableNames.isEmpty {
-            var messages: [APIMessage] = [.user(PromptBuilder.verifyPrompt(deliverables: deliverableNames, mission: mission))]
+            var messages: [APIMessage] = [.user(promptBuilder.verifyPrompt(deliverables: deliverableNames, mission: mission))]
             var verifierFindings: [VerificationReport.Finding] = []
             do {
-                for _ in 0..<6 {
+                // The verifier reads the workspace, then submits its review
+                // through the submit_review tool. Plain-text replies fall back
+                // to the legacy VERDICT parser.
+                turnLoop: for _ in 0..<6 {
                     try Task.checkCancellation()
                     let reply = try await call(
                         agent: verifier,
                         registry: registry,
                         missionID: mission.id,
-                        system: PromptBuilder.verifierSystem(agent: verifier, mission: mission),
+                        system: promptBuilder.verifierSystem(agent: verifier, mission: mission),
                         messages: messages,
-                        tools: AgentTools.readTools,
+                        tools: AgentTools.verifierTools,
                         stats: &stats
                     )
                     messages.append(reply.message)
                     let calls = reply.message.tool_calls ?? []
-                    if calls.isEmpty { break }
+
                     for call in calls {
-                        let outcome = AgentTools.run(call: call, workspace: store.deliverablesDirectory(mission.id), readOnly: true)
-                        await store.appendEvent(mission.id, kind: .toolCall, agent: verifier, text: "\(call.function.name): \(outcome.resultText.prefix(400))")
-                        messages.append(.tool(id: call.id, content: outcome.resultText))
+                        if call.function.name == "submit_review" {
+                            if let submission: StructuredOutput.ReviewSubmission = StructuredOutput.decode(from: call) {
+                                let review = StructuredOutput.review(from: submission)
+                                verifierFindings = review.findings
+                                verdict = review.verdict
+                                break turnLoop
+                            }
+                            await store.appendEvent(mission.id, kind: .toolCall, agent: verifier, text: "submit_review (unreadable — asking again)")
+                            messages.append(.tool(id: call.id, content: "Your submit_review call could not be parsed. Call submit_review again with a valid verdict and findings."))
+                        } else {
+                            let outcome = AgentTools.run(call: call, workspace: store.deliverablesDirectory(mission.id), readOnly: true)
+                            await store.appendEvent(mission.id, kind: .toolCall, agent: verifier, text: "\(call.function.name): \(outcome.resultText.prefix(400))")
+                            messages.append(.tool(id: call.id, content: outcome.resultText))
+                        }
+                    }
+
+                    if calls.isEmpty {
+                        // The model ignored the tools; fall back to the legacy text format.
+                        let parsed = VerifierParser.parse(reply.message.content ?? "")
+                        if !parsed.findings.isEmpty {
+                            verifierFindings = parsed.findings
+                            verdict = parsed.verdict
+                        }
+                        break
                     }
                 }
-                let lastText = messages.last(where: { $0.role == "assistant" && $0.content != nil })?.content ?? ""
-                let parsed = VerifierParser.parse(lastText)
-                verifierFindings = parsed.findings
-                verdict = parsed.verdict
-                if parsed.findings.isEmpty {
+                if verifierFindings.isEmpty && verdict == .unverified {
                     verifierFindings.append(VerificationReport.Finding(
                         level: .concern,
                         check: l10n("engine.checkVerifier", mission: mission),
@@ -506,12 +578,12 @@ public actor MissionEngine {
         let handoffs = results.map { result in
             "\(result.agent.name) — \(result.task.deliverable): \(result.handoff)"
         }
-        var messages: [APIMessage] = [.user(PromptBuilder.reportPrompt(mission: mission, handoffs: handoffs, verification: verification))]
+        var messages: [APIMessage] = [.user(promptBuilder.reportPrompt(mission: mission, handoffs: handoffs, verification: verification))]
         let reply = try await call(
             agent: coordinator,
             registry: registry,
             missionID: mission.id,
-            system: PromptBuilder.coordinatorSystem(team: team, mission: mission),
+            system: promptBuilder.coordinatorSystem(agent: coordinator, team: team, mission: mission),
             messages: messages,
             tools: nil,
             stats: &stats
@@ -545,23 +617,53 @@ public actor MissionEngine {
             throw MissionEngineError.unknownProvider(agent.providerID)
         }
         let key = keyRing.get(provider.keyAccount) ?? ""
-        let reply = try await client.complete(
-            provider: provider,
-            key: key,
-            model: agent.model,
-            system: system,
-            messages: messages,
-            tools: tools,
-            temperature: agent.temperature
-        )
-        stats.turns += 1
-        stats.inputTokens += reply.inputTokens
-        stats.outputTokens += reply.outputTokens
-        stats.costUSD += Pricing.estimate(model: reply.model, inputTokens: reply.inputTokens, outputTokens: reply.outputTokens)
-        if let text = reply.message.content, !text.isEmpty {
-            await store.appendEvent(missionID, kind: .agentMessage, agent: agent, text: String(text.prefix(4_000)))
+
+        // Conversations grow as tools return content, but the request must
+        // not: compact when the running estimate exceeds the budget, and when
+        // a provider rejects for context overflow, halve the budget and retry
+        // before giving up on the phase.
+        var budgetTokens = config.contextBudgetTokens
+        var overflowRetries = 0
+        while true {
+            let compacted = ConversationCompactor.compact(messages: messages, budgetTokens: budgetTokens)
+            if compacted.trimmed, let note = compacted.notice {
+                await store.appendEvent(missionID, kind: .notice, agent: agent, text: note)
+            }
+
+            let reply: LLMReply
+            do {
+                reply = try await client.complete(
+                    provider: provider,
+                    key: key,
+                    model: agent.model,
+                    system: system,
+                    messages: compacted.messages,
+                    tools: tools,
+                    temperature: agent.temperature,
+                    maxTokens: config.maxOutputTokens
+                )
+            } catch let error as LLMError where error.isContextOverflow {
+                overflowRetries += 1
+                guard overflowRetries <= 2 else { throw error }
+                budgetTokens = max(ConversationCompactor.minimumBudgetTokens, budgetTokens / 2)
+                await store.appendEvent(
+                    missionID,
+                    kind: .notice,
+                    agent: agent,
+                    text: "Provider reported the conversation exceeded its context window. Trimming and retrying (\(overflowRetries)/2)."
+                )
+                continue
+            }
+
+            stats.turns += 1
+            stats.inputTokens += reply.inputTokens
+            stats.outputTokens += reply.outputTokens
+            stats.costUSD += Pricing.estimate(model: reply.model, inputTokens: reply.inputTokens, outputTokens: reply.outputTokens)
+            if let text = reply.message.content, !text.isEmpty {
+                await store.appendEvent(missionID, kind: .agentMessage, agent: agent, text: String(text.prefix(4_000)))
+            }
+            return reply
         }
-        return reply
     }
 
     private func stripFences(_ text: String) -> String {

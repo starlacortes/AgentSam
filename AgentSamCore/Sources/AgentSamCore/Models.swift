@@ -314,6 +314,9 @@ public struct Mission: Codable, Identifiable, Hashable, Sendable {
     public var totalOutputTokens: Int
     /// Who started the mission (a user's name on the web app, or "Server token"). Nil for older missions.
     public var launchedBy: String?
+    /// Prompt template versions in use when the mission launched, keyed by
+    /// template id. Nil for missions that predate the prompt store.
+    public var promptVersions: [String: Int]?
 
     public init(
         id: UUID = UUID(),
@@ -342,6 +345,8 @@ public struct Mission: Codable, Identifiable, Hashable, Sendable {
         self.totalCostUSD = 0
         self.totalInputTokens = 0
         self.totalOutputTokens = 0
+        self.launchedBy = nil
+        self.promptVersions = nil
     }
 }
 
