@@ -91,8 +91,11 @@ public struct PromptBuilder: Sendable {
             format: t("prompt.worker.connectors", mission: mission),
             externalTools.joined(separator: ", ")
         )
-        return localized(rendered + connectors, mission: mission)
+        return localized(rendered + connectors + Self.webBuildNote, mission: mission)
     }
+
+    /// Lets the chat preview pages the team builds: one entry file with relative, sibling assets.
+    public static let webBuildNote = "\n\nIf your task produces a web page or site, also write it as `index.html` (or another `.html` file) with any `.css` and `.js` beside it, referenced by relative paths such as `styles.css`. Keep everything self-contained: no build step, and only well-known CDN links if a library is essential. The user can preview these files live in chat."
 
     public func workPrompt(task: TaskPlanItem, mission: Mission) -> String {
         localized(store.render("work", context: [

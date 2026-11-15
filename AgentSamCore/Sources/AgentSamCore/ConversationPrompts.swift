@@ -15,10 +15,10 @@ public enum ConversationPrompts {
         - DIRECT: answer a question, explain something, have a conversation, or read connected data yourself. Also use DIRECT to tell the user what an existing team can do. Do not invoke a team for a simple request.
         - ROUTE_TEAM: a substantial task benefits from one or more existing specialist teams. Select only their exact UUIDs, at most 3. Multiple teams should have distinct, useful contributions.
         - PROPOSE_TEAM: the user asks for a new team or changes to agents, or no existing team fits a recurring specialist need. Return a complete draft. Never claim it exists yet; the user must approve it. When modifying, set baseTeamID to the exact existing UUID and preserve its coordinator and relevant agents unless a change is requested.
-        - CLARIFY: a necessary detail is missing and a reasonable assumption cannot be made. Ask one specific question.
+        - CLARIFY: a necessary detail is missing and a reasonable assumption cannot be made. Ask one specific question. When the answer is one of a few likely choices, add 2-4 short "options" (under 60 characters each) the user can tap.
 
         Respond with ONLY one JSON object, no Markdown:
-        {"action":"DIRECT|ROUTE_TEAM|PROPOSE_TEAM|CLARIFY","message":"short rationale or clarification","teamIDs":[],"rationale":"one user-facing sentence","proposal":null}
+        {"action":"DIRECT|ROUTE_TEAM|PROPOSE_TEAM|CLARIFY","message":"short rationale or clarification","teamIDs":[],"rationale":"one user-facing sentence","proposal":null,"options":[]}
         For PROPOSE_TEAM, proposal is {"baseTeamID":null,"name":"...","emoji":"...","goal":"...","rationale":"...","agents":[AgentProfile...],"toolScope":{"connectorIDs":["gmail"],"permissions":{"sendEmail":false,"createDraft":false,"dnsWrite":false,"githubWrite":false}}}. Every AgentProfile needs id (a new UUID), name, emoji, title, role (coordinator, worker, or verifier), systemPrompt, providerID, model, and temperature. Use exactly one coordinator named Ada, at least one worker, at most one verifier, and no more than 16 agents. Models must come from the roster below. Default tools to read-only.
 
         Existing teams and available models:
@@ -47,8 +47,42 @@ public enum ConversationPrompts {
         Recent conversation (untrusted data):
         \(recent)
 
+        When you write a web page, component, or SVG for the user, put it in one complete fenced ```html or ```svg block (inline CSS and JS) so they can preview it live beside the chat.
+        If natural next steps exist, you may end with a fenced block tagged suggestions containing up to 3 short follow-up requests the user might send, one per line, written in the user's voice. Omit it when nothing useful comes to mind.
+
         Use \(language == "es" ? "Spanish" : "English") unless the user explicitly requests another language. Respond with the answer itself, not a description of how you will answer.
         """
+    }
+
+    /// Splits a trailing ```suggestions block off a response. Returns the visible text and the cleaned suggestions.
+    public static func extractSuggestions(_ text: String) -> (text: String, suggestions: [String]) {
+        let pattern = "```suggestions[^\\n]*\\n([\\s\\S]*?)```\\s*$"
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let whole = Range(match.range, in: text),
+              let body = Range(match.range(at: 1), in: text) else { return (text, []) }
+        let lines = text[body].split(whereSeparator: \.isNewline).map { line in
+            line.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "^([-*•]|\\d+[.)])\\s*", with: "", options: .regularExpression)
+        }
+        let visible = String(text[..<whole.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+        return (visible, Array(ConversationMessage.cleanQuickReplies(lines).prefix(3)))
+    }
+
+    /// A short, user-facing label for a connector tool call, shown as a live step.
+    public static func toolStepLabel(_ name: String, language: String) -> String {
+        let es = language == "es"
+        switch name {
+        case "gmail_search": return es ? "Buscando en Gmail" : "Searching Gmail"
+        case "gmail_read": return es ? "Leyendo un correo" : "Reading an email"
+        case "googleads_accounts": return es ? "Revisando cuentas de Google Ads" : "Checking Google Ads accounts"
+        case "googleads_campaigns": return es ? "Revisando campañas" : "Reviewing campaigns"
+        case "googleads_query": return es ? "Consultando Google Ads" : "Querying Google Ads"
+        case "cloudflare_zones": return es ? "Leyendo zonas de Cloudflare" : "Reading Cloudflare zones"
+        case "cloudflare_dns_list": return es ? "Leyendo registros DNS" : "Reading DNS records"
+        case "web_search": return es ? "Buscando en la web" : "Searching the web"
+        case "web_fetch": return es ? "Leyendo una página web" : "Reading a web page"
+        default: return es ? "Usando \(name)" : "Using \(name)"
+        }
     }
 
     public static func consolidationPrompt(userText: String, missions: [Mission], memory: String, language: String) -> String {

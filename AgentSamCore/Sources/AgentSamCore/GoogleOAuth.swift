@@ -92,10 +92,16 @@ public struct GoogleOAuth: Sendable {
     public let clientID: String
     public let clientSecret: String
     public let session: URLSession
+    /// Signs a message with RS256 (RSA PKCS#1 v1.5 + SHA-256) using a PEM private key. Supplied by
+    /// hosts that have an RSA implementation; enables service-account sign-in when set.
+    public let rs256Signer: RS256Signer?
 
-    public init(clientID: String = "", clientSecret: String = "", session: URLSession? = nil) {
+    public typealias RS256Signer = @Sendable (_ pemPrivateKey: String, _ message: Data) throws -> Data
+
+    public init(clientID: String = "", clientSecret: String = "", session: URLSession? = nil, rs256Signer: RS256Signer? = nil) {
         self.clientID = clientID.trimmingCharacters(in: .whitespacesAndNewlines)
         self.clientSecret = clientSecret.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.rs256Signer = rs256Signer
         if let session {
             self.session = session
         } else {
@@ -164,8 +170,35 @@ public struct GoogleOAuth: Sendable {
         return try await tokenRequest(params)
     }
 
-    private func tokenRequest(_ params: [String: String]) async throws -> TokenResult {
-        let data = try await ConnectorHTTP.request(session, url: Self.tokenEndpoint, method: "POST", formBody: params)
+    /// Exchanges a signed service-account JWT for an access token (RFC 7523 JWT bearer grant).
+    public func serviceAccountToken(_ account: GoogleServiceAccount, scopes: [String]) async throws -> TokenResult {
+        guard let rs256Signer else {
+            throw ConnectorError("Service-account sign-in is not available on this host.")
+        }
+        let now = Int(Date().timeIntervalSince1970)
+        let header: [String: Any] = ["alg": "RS256", "typ": "JWT", "kid": account.privateKeyID]
+        let claims: [String: Any] = [
+            "iss": account.clientEmail,
+            "scope": scopes.joined(separator: " "),
+            "aud": account.tokenURI,
+            "iat": now,
+            "exp": now + 3600,
+        ]
+        let encode: ([String: Any]) throws -> String = {
+            Self.base64url(try JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys]))
+        }
+        let signingInput = "\(try encode(header)).\(try encode(claims))"
+        let signature = try rs256Signer(account.privateKey, Data(signingInput.utf8))
+        let assertion = "\(signingInput).\(Self.base64url(signature))"
+        let endpoint = URL(string: account.tokenURI) ?? Self.tokenEndpoint
+        return try await tokenRequest([
+            "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+            "assertion": assertion,
+        ], endpoint: endpoint)
+    }
+
+    private func tokenRequest(_ params: [String: String], endpoint: URL = GoogleOAuth.tokenEndpoint) async throws -> TokenResult {
+        let data = try await ConnectorHTTP.request(session, url: endpoint, method: "POST", formBody: params)
         let object = try ConnectorHTTP.jsonObject(data)
         if let errorText = object["error"] as? String {
             let description = object["error_description"] as? String ?? ""
@@ -211,6 +244,41 @@ public struct GoogleOAuth: Sendable {
     }
 }
 
+/// A Google Cloud service-account key (the JSON file downloaded from IAM > Service accounts > Keys).
+public struct GoogleServiceAccount: Sendable, Equatable {
+    public let clientEmail: String
+    public let privateKey: String
+    public let privateKeyID: String
+    public let tokenURI: String
+
+    /// Accepts the key file's JSON, the same JSON base64-encoded (handy for env vars), or a path to the file.
+    public static func parse(_ raw: String) -> GoogleServiceAccount? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        var data: Data?
+        if trimmed.hasPrefix("{") {
+            data = Data(trimmed.utf8)
+        } else if trimmed.hasPrefix("/") || trimmed.hasPrefix("~") || trimmed.hasSuffix(".json") {
+            data = FileManager.default.contents(atPath: (trimmed as NSString).expandingTildeInPath)
+        } else {
+            data = Data(base64Encoded: trimmed) ?? GoogleOAuth.decodeBase64url(trimmed)
+        }
+        guard let data,
+              let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              (object["type"] as? String ?? "service_account") == "service_account",
+              let email = object["client_email"] as? String, !email.isEmpty,
+              let key = object["private_key"] as? String, key.contains("PRIVATE KEY") else {
+            return nil
+        }
+        return GoogleServiceAccount(
+            clientEmail: email,
+            privateKey: key,
+            privateKeyID: object["private_key_id"] as? String ?? "",
+            tokenURI: object["token_uri"] as? String ?? GoogleOAuth.tokenEndpoint.absoluteString
+        )
+    }
+}
+
 /// Per-connector Google access-token provider with a small cache persisted in the key ring.
 public struct GoogleTokenProvider: Sendable {
     public let connectorID: ConnectorID
@@ -231,15 +299,38 @@ public struct GoogleTokenProvider: Sendable {
         "connector.\(id.rawValue).accessTokenCache"
     }
 
+    /// Service-account key (JSON, base64 JSON, or a file path). On the server this can come from
+    /// env, e.g. AGENTSAM_KEY_CONNECTOR_GOOGLEADS_SERVICEACCOUNT.
+    public static func serviceAccountAccount(for id: ConnectorID) -> String {
+        "connector.\(id.rawValue).serviceAccount"
+    }
+
+    public static func serviceAccount(for id: ConnectorID, keyRing: KeyRing) -> GoogleServiceAccount? {
+        keyRing.get(serviceAccountAccount(for: id)).flatMap(GoogleServiceAccount.parse)
+    }
+
     public var hasCredentials: Bool {
         !(keyRing.get(Self.refreshAccount(for: connectorID)) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || Self.serviceAccount(for: connectorID, keyRing: keyRing) != nil
+    }
+
+    /// Scopes requested when minting service-account tokens.
+    var serviceAccountScopes: [String] {
+        connectorID == .googleads ? [GoogleAdsConnector.oauthScope] : []
     }
 
     public func accessToken() async throws -> String? {
-        guard oauth.isConfigured else { return nil }
         if let cached = loadCache(), cached.expiresAt > Date().addingTimeInterval(120).timeIntervalSince1970, !cached.token.isEmpty {
             return cached.token
         }
+        // A service account takes precedence: it needs no user sign-in and never expires.
+        if oauth.rs256Signer != nil, !serviceAccountScopes.isEmpty,
+           let account = Self.serviceAccount(for: connectorID, keyRing: keyRing) {
+            let result = try await oauth.serviceAccountToken(account, scopes: serviceAccountScopes)
+            saveCache(token: result.accessToken, expiresIn: result.expiresIn)
+            return result.accessToken
+        }
+        guard oauth.isConfigured else { return nil }
         guard let refreshToken = keyRing.get(Self.refreshAccount(for: connectorID))?.trimmingCharacters(in: .whitespacesAndNewlines),
               !refreshToken.isEmpty else {
             return nil

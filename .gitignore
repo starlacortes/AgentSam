@@ -4,3 +4,9 @@ Server/.build/
 AgentSamCore/.build/
 deploy/.env
 Server/data/
+
+# Google service-account keys — never commit
+secrets/
+Server/secrets/
+*service-account*.json
+ageless-valor-*.json

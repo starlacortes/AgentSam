@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, errorMessage } from '../api/client'
 import type { ConnectorStatus, Conversation, ConversationSummary, GuideState, ProviderStatus, Team, WorkspaceMemory } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { AgentWorkroom } from '../components/coordinator/AgentWorkroom'
 import { CoordinatorSidebar, type PanelName } from '../components/coordinator/CoordinatorSidebar'
-import { ConversationMessages } from '../components/coordinator/ConversationMessages'
+import { ConversationMessages, type MessageHandlers } from '../components/coordinator/ConversationMessages'
+import { SidePanel, type CanvasState } from '../components/coordinator/SidePanel'
 import { Guide } from '../components/coordinator/Guide'
 import { Icon } from '../components/coordinator/Icon'
 import { VoiceMode, type VoiceReply } from '../components/coordinator/VoiceMode'
@@ -15,6 +16,33 @@ import { useI18n } from '../i18n'
 import { connectorLabel, shouldPoll } from '../lib/coordinator'
 import { transcribeConversation } from '../lib/voice'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
+
+const DRAFT_PREFIX = 'agentsam.draft.'
+const CANVAS_WIDTH_KEY = 'agentsam.canvasWidth'
+const MAX_ATTACHMENT_BYTES = 200_000
+const TEXT_ATTACHMENT = /\.(txt|md|markdown|csv|tsv|json|ya?ml|xml|html?|css|m?js|ts|tsx|jsx|py|rb|go|rs|swift|java|kt|c|h|cpp|sh|sql|log|toml|ini|env\.example)$/i
+
+function readStored(key: string): string | null {
+  try { return window.localStorage.getItem(key) } catch { return null }
+}
+
+function writeStored(key: string, value: string | null) {
+  try {
+    if (value) window.localStorage.setItem(key, value)
+    else window.localStorage.removeItem(key)
+  } catch { /* storage unavailable: drafts are a convenience only */ }
+}
+
+function clampCanvasWidth(width: number): number {
+  return Math.round(Math.min(Math.max(width, 340), Math.max(340, window.innerWidth - 520)))
+}
+
+/** A dropped or pasted text file, as a fenced block the model can read. */
+export function attachmentBlock(name: string, text: string): string {
+  const ext = name.includes('.') ? name.split('.').pop()!.toLowerCase() : ''
+  const fence = text.includes('```') ? '~~~~' : '```'
+  return `${name}:\n${fence}${ext}\n${text.replace(/\s+$/, '')}\n${fence}\n`
+}
 
 function mergeConversation(list: ConversationSummary[], conversation: Conversation): ConversationSummary[] {
   return [conversation, ...list.filter((item) => item.id !== conversation.id)].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
@@ -41,13 +69,39 @@ export function CoordinatorPage() {
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [canvas, setCanvas] = useState<CanvasState | null>(null)
+  const [canvasWidth, setCanvasWidth] = useState(() => Number(readStored(CANVAS_WIDTH_KEY)) || 520)
+  const [dragging, setDragging] = useState(false)
   const input = useRef<HTMLTextAreaElement>(null)
+  const draftKey = useRef<string>(`${DRAFT_PREFIX}new`)
+  const carryDraft = useRef(false)
   const sendLock = useRef(false)
   const mounted = useRef(true)
   const running = shouldPoll(conversation)
   const hasProvider = providers.some((provider) => provider.hasKey)
   const gmail = connectors.find((connector) => connector.id === 'gmail')
   useDocumentTitle(conversation?.title ?? t('Chat'))
+  const missionIDs = useMemo(() => [...new Set([...(conversation?.messages ?? [])].reverse().flatMap((message) => message.missionIDs))], [conversation?.messages])
+
+  // Per-conversation drafts survive reloads and switching chats.
+  useEffect(() => {
+    const key = `${DRAFT_PREFIX}${id ?? 'new'}`
+    if (key === draftKey.current) return
+    draftKey.current = key
+    if (carryDraft.current) { carryDraft.current = false; return }
+    setDraft(readStored(key) ?? '')
+  }, [id])
+  useEffect(() => { writeStored(draftKey.current, draft) }, [draft])
+
+  // A new chat starts with a fresh panel, kept open if it was.
+  useEffect(() => { setCanvas((current) => current ? { tab: current.tab, source: null, missionID: null } : null) }, [id])
+
+  useLayoutEffect(() => {
+    const element = input.current
+    if (!element) return
+    element.style.height = 'auto'
+    element.style.height = `${Math.min(element.scrollHeight, 220)}px`
+  }, [draft])
 
   const replaceConversation = useCallback((next: Conversation) => {
     setConversation((current) => current?.id === next.id && current.updatedAt > next.updatedAt ? current : next)
@@ -140,6 +194,17 @@ export function CoordinatorPage() {
     return () => window.removeEventListener('keydown', shortcut)
   }, [])
 
+  const stopRef = useRef<() => void>(() => {})
+  useEffect(() => {
+    const escape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape' || !running || voiceOpen || panel) return
+      event.preventDefault()
+      stopRef.current()
+    }
+    window.addEventListener('keydown', escape)
+    return () => window.removeEventListener('keydown', escape)
+  }, [running, voiceOpen, panel])
+
   const newChat = async (project?: string) => {
     setError(null)
     try {
@@ -156,6 +221,8 @@ export function CoordinatorPage() {
     if (conversation) return conversation
     const current = await api<Conversation>('conversations', { method: 'POST', body: { projectName } })
     replaceConversation(current)
+    carryDraft.current = true
+    writeStored(draftKey.current, null)
     navigate(`/chats/${current.id}`, { replace: true })
     return current
   }
@@ -210,7 +277,54 @@ export function CoordinatorPage() {
       event.preventDefault()
       void sendMessage(draft)
     }
+    if (event.key === 'ArrowUp' && !draft && !event.shiftKey) {
+      const last = [...(conversation?.messages ?? [])].reverse().find((message) => message.role === 'user')
+      if (last) { event.preventDefault(); prompt(last.text) }
+    }
   }
+
+  const attach = async (files: FileList | File[]) => {
+    const list = [...files]
+    if (!list.length) return false
+    const blocks: string[] = []
+    for (const file of list.slice(0, 5)) {
+      if (!(file.type.startsWith('text/') || file.type === 'application/json' || TEXT_ATTACHMENT.test(file.name))) { setError(t('Only text files can be added to a message.')); continue }
+      if (file.size > MAX_ATTACHMENT_BYTES) { setError(t('{name} is larger than 200 KB.', { name: file.name })); continue }
+      blocks.push(attachmentBlock(file.name, await file.text()))
+    }
+    if (blocks.length) {
+      setDraft((current) => `${current}${current && !current.endsWith('\n') ? '\n\n' : ''}${blocks.join('\n')}`.slice(0, 20000))
+      input.current?.focus()
+    }
+    return true
+  }
+
+  const drop = (event: DragEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setDragging(false)
+    if (!running) void attach(event.dataTransfer.files)
+  }
+
+  const paste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    if (!event.clipboardData.files.length) return
+    event.preventDefault()
+    void attach(event.clipboardData.files)
+  }
+
+  const openCanvas = useCallback((next: Partial<CanvasState>) => {
+    setCanvas((current) => ({
+      tab: next.tab ?? current?.tab ?? 'preview',
+      source: 'source' in next ? next.source ?? null : current?.source ?? null,
+      missionID: 'missionID' in next ? next.missionID ?? null : current?.missionID ?? null,
+    }))
+    setPanel(null)
+  }, [])
+
+  const resizeCanvas = useCallback((width: number) => {
+    const next = clampCanvasWidth(width)
+    setCanvasWidth(next)
+    writeStored(CANVAS_WIDTH_KEY, String(next))
+  }, [])
 
   const prompt = (text: string) => {
     setDraft(text)
@@ -221,12 +335,8 @@ export function CoordinatorPage() {
     }, 0)
   }
 
-  const retry = (text: string) => {
-    prompt(text)
-  }
-
   const stop = async () => {
-    if (!conversation) return
+    if (!conversation || !running) return
     try {
       await api(`conversations/${conversation.id}/stop`, { method: 'POST' })
       await new Promise((resolve) => window.setTimeout(resolve, 250))
@@ -266,8 +376,19 @@ export function CoordinatorPage() {
     setPanel(name)
     setSidebarOpen(false)
   }
+  stopRef.current = () => { void stop() }
 
-  return <div className="co-app">
+  const handlers: MessageHandlers = {
+    onUpdated: updateProposal,
+    onRevise: () => prompt(t('Please revise the proposed team: ')),
+    onRetry: (text) => void sendMessage(text),
+    onEdit: prompt,
+    onQuickReply: (text) => void sendMessage(text),
+    onOpenCanvas: openCanvas,
+    onStarter: prompt,
+  }
+
+  return <div className={`co-app ${canvas ? 'with-canvas' : ''}`} style={canvas ? { ['--co-canvas-width' as string]: `${clampCanvasWidth(canvasWidth)}px` } : undefined}>
     <CoordinatorSidebar conversations={conversations} teams={teams} selectedID={conversation?.id ?? null} open={sidebarOpen} onClose={() => setSidebarOpen(false)} onSelect={(chatID) => navigate(`/chats/${chatID}`)} onNew={(project) => void newChat(project)} onPanel={openPanel} memoryEnabled={memory?.enabled ?? false} />
     <main className="co-main">
       <header className="co-chat-header">
@@ -276,24 +397,27 @@ export function CoordinatorPage() {
         <div className="co-header-actions">
           <button className={`co-connection-pill ${gmail?.configured && gmail.enabled ? 'connected' : ''}`} onClick={() => openPanel('connections')}><Icon name="plug" size={13} /><span>{t(connectorLabel(gmail))}</span><i /></button>
           <button className="co-icon-button co-help-button" aria-label={t('Open the guide')} onClick={() => void restartGuide().catch((err) => setError(errorMessage(err)))}><Icon name="info" size={17} /></button>
+          <button className={`co-icon-button co-canvas-toggle ${canvas ? 'active' : ''}`} aria-label={canvas ? t('Hide preview and console') : t('Show preview and console')} aria-pressed={Boolean(canvas)} title={t('Preview & console')} onClick={() => canvas ? setCanvas(null) : openCanvas({ tab: missionIDs.length ? 'console' : 'preview' })}><Icon name="panel" size={16} /></button>
           <button className="co-voice-button" onClick={() => setVoiceOpen(true)} disabled={sending}><Icon name="mic" size={15} /><span>{t('Voice')}</span></button>
           {conversation ? <button className="co-icon-button co-delete-chat" aria-label={t('Delete conversation')} disabled={running} onClick={() => void remove()}><Icon name="trash" size={16} /></button> : null}
         </div>
       </header>
       <AgentWorkroom conversation={conversation} teams={teams} />
       <div className="co-chat-body">
-        {loading && id ? <div className="co-loading"><Spinner /></div> : <ConversationMessages conversation={conversation} onUpdated={updateProposal} onRevise={() => prompt(t('Please revise the proposed team: '))} onRetry={retry} onStarter={prompt} />}
+        {loading && id ? <div className="co-loading"><Spinner /></div> : <ConversationMessages conversation={conversation} busy={sending || running} handlers={handlers} />}
       </div>
       <div className="co-composer-wrap">
         {!hasProvider && !loading ? <div className="co-provider-notice"><Icon name="info" size={16} /><p>{t('Add a model provider and API key before chatting with Ada.')}</p>{isAdmin ? <Link to="/settings">{t('Set up providers')} →</Link> : null}</div> : null}
         <ErrorBanner message={error} />
-        <form className="co-composer" onSubmit={submit}>
-          <textarea ref={input} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={composeKey} aria-label={t('Message Ada')} placeholder={t('Ask a question, or describe an outcome…')} rows={1} maxLength={20000} disabled={running} />
-          <div className="co-composer-foot"><span className="co-composer-hint">{t('Ada answers directly or brings in the right team.')}<span className="co-enter-hint"> · {t('Enter to send · Shift + Enter for a new line')}</span></span>{running ? <button className="co-stop-button" type="button" onClick={() => void stop()}><Icon name="stop" size={12} />{t('Stop')}</button> : <button className="co-send-button" type="submit" aria-label={t('Send message')} disabled={sending || !draft.trim() || !hasProvider}><Icon name="arrow" size={18} /></button>}</div>
+        <form className={`co-composer ${dragging ? 'dragging' : ''}`} onSubmit={submit} onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); setDragging(true) } }} onDragLeave={() => setDragging(false)} onDrop={drop}>
+          {dragging ? <div className="co-drop-hint"><Icon name="file" size={16} />{t('Drop a text file to add it to your message')}</div> : null}
+          <textarea ref={input} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={composeKey} onPaste={paste} aria-label={t('Message Ada')} placeholder={t('Ask a question, or describe an outcome…')} rows={1} maxLength={20000} disabled={running} />
+          <div className="co-composer-foot"><span className="co-composer-hint">{t('Ada answers directly or brings in the right team.')}<span className="co-enter-hint"> · {t('Enter to send · Shift + Enter for a new line')}</span></span>{running ? <button className="co-stop-button" type="button" onClick={() => void stop()} title={t('Stop (Esc)')}><Icon name="stop" size={12} />{t('Stop')}</button> : <button className="co-send-button" type="submit" aria-label={t('Send message')} disabled={sending || !draft.trim() || !hasProvider}><Icon name="arrow" size={18} /></button>}</div>
         </form>
         <p className="co-composer-note">{t('Agent activity shows concise work summaries, not private reasoning. Review team proposals and connections before granting access.')}</p>
       </div>
     </main>
+    {canvas ? <SidePanel state={canvas} missionIDs={missionIDs} onChange={setCanvas} onClose={() => setCanvas(null)} onResize={resizeCanvas} /> : null}
     {panel ? <WorkspacePanel panel={panel} teams={teams} connectors={connectors} memory={memory} onConnectors={setConnectors} onMemory={setMemory} onClose={() => setPanel(null)} onNewTeam={() => prompt(t('I need a team for '))} onRestartGuide={restartGuide} /> : null}
     {guide && (!guide.completed || searchParams.get('guide') === '1') ? <Guide onFinish={finishGuide} /> : null}
     {voiceOpen ? <VoiceMode onSend={sendMessage} onTranscribe={transcribeVoice} onClose={() => setVoiceOpen(false)} /> : null}
