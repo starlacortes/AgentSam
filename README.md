@@ -141,7 +141,7 @@ Connectors give mission agents tools beyond their own files. Set them up on the 
 |---|---|---|
 | **Gmail** | `gmail_search`, `gmail_read` | `gmail_draft`, `gmail_send` |
 | **Google Ads** | `googleads_accounts`, `googleads_campaigns`, `googleads_query` (GAQL SELECT) | none, read-only |
-| **GitHub** | `github_repos`, `github_read` (files and directories), `github_search`, `github_issues`, `github_issue` | none, read-only |
+| **GitHub** | `github_repos`, `github_read` (files and directories), `github_search`, `github_issues`, `github_issue` | `github_write_file` (commit to an existing non-default branch), `github_comment` |
 | **Web** | `web_fetch` (public pages as text); `web_search` once a Brave Search key is saved | none |
 | **Cloudflare** | `cloudflare_zones`, `cloudflare_dns_list` | `cloudflare_dns_create/update/delete`, `cloudflare_purge_cache` |
 

@@ -26,7 +26,23 @@ final class GitHubConnectorTests: XCTestCase {
         let names = Set(readDefs.map(\.function.name).filter { $0.hasPrefix("github_") })
         XCTAssertEqual(names, ["github_repos", "github_read", "github_search", "github_issues", "github_issue"])
         XCTAssertEqual(Set(allDefs.map(\.function.name).filter { $0.hasPrefix("github_") }), names)
+        await store.saveConnectorConfigs([ConnectorConfig(id: .github, enabled: true, permissions: ConnectorPermissions(githubWrite: true))])
+        let writeNames = Set(await hub.toolDefs().map(\.function.name).filter { $0.hasPrefix("github_") })
+        XCTAssertTrue(writeNames.isSuperset(of: ["github_write_file", "github_comment"]))
+        let denied = await hub.run(call: APIToolCall(id: "1", function: .init(name: "github_write_file", arguments: "{}")), readOnly: true)
+        XCTAssertTrue(denied.resultText.contains("read-only"))
+        let noPermission = await hub.run(call: APIToolCall(id: "2", function: .init(name: "github_comment", arguments: "{}")), scope: ToolScope(connectorIDs: [.github]))
+        XCTAssertTrue(noPermission.resultText.contains("disabled"))
         hub.disconnect(.github)
         XCTAssertFalse(hub.isConfigured(.github))
+    }
+}
+
+extension GitHubConnectorTests {
+    func testOldPermissionsJSONStillDecodes() throws {
+        let old = #"{"sendEmail":true,"createDraft":false,"dnsWrite":false}"#.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(ConnectorPermissions.self, from: old)
+        XCTAssertTrue(decoded.sendEmail)
+        XCTAssertFalse(decoded.githubWrite)
     }
 }

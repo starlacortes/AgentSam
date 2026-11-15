@@ -27,7 +27,7 @@ public enum ConnectorID: String, Codable, CaseIterable, Hashable, Sendable {
         case .gmail: "Search, read, draft, and optionally send email through your Gmail account."
         case .googleads: "Run read-only GAQL queries against your Google Ads accounts."
         case .cloudflare: "Inspect Cloudflare zones and DNS, with optional write access."
-        case .github: "Read repositories, code, issues, and pull requests on GitHub (read-only)."
+        case .github: "Read repositories, code, issues, and pull requests on GitHub, with optional write access to a branch."
         case .web: "Read public web pages, and search the web with a Brave Search key."
         }
     }
@@ -56,11 +56,23 @@ public struct ConnectorPermissions: Codable, Hashable, Sendable {
     public var createDraft: Bool
     /// Cloudflare: allow DNS create/update/delete and cache purge tools.
     public var dnsWrite: Bool
+    /// GitHub: allow committing files to a non-default branch and commenting on issues/PRs.
+    public var githubWrite: Bool
 
-    public init(sendEmail: Bool = false, createDraft: Bool = false, dnsWrite: Bool = false) {
+    public init(sendEmail: Bool = false, createDraft: Bool = false, dnsWrite: Bool = false, githubWrite: Bool = false) {
         self.sendEmail = sendEmail
         self.createDraft = createDraft
         self.dnsWrite = dnsWrite
+        self.githubWrite = githubWrite
+    }
+
+    // Hand-written so configs saved before `githubWrite` existed still load.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sendEmail = try c.decodeIfPresent(Bool.self, forKey: .sendEmail) ?? false
+        createDraft = try c.decodeIfPresent(Bool.self, forKey: .createDraft) ?? false
+        dnsWrite = try c.decodeIfPresent(Bool.self, forKey: .dnsWrite) ?? false
+        githubWrite = try c.decodeIfPresent(Bool.self, forKey: .githubWrite) ?? false
     }
 }
 
@@ -282,6 +294,8 @@ public struct ConnectorHub: Sendable {
                 permissions.sendEmail = permissions.sendEmail && scope.permissions.sendEmail
                 permissions.createDraft = permissions.createDraft && scope.permissions.createDraft
                 permissions.dnsWrite = permissions.dnsWrite && scope.permissions.dnsWrite
+            permissions.githubWrite = permissions.githubWrite && scope.permissions.githubWrite
+                permissions.githubWrite = permissions.githubWrite && scope.permissions.githubWrite
             }
             if let web = provider as? WebConnector {
                 defs += web.toolDefs(keyRing: keyRing).filter { !readOnly || Self.readOnlyToolNames.contains($0.function.name) }
@@ -314,6 +328,7 @@ public struct ConnectorHub: Sendable {
             permissions.sendEmail = permissions.sendEmail && scope.permissions.sendEmail
             permissions.createDraft = permissions.createDraft && scope.permissions.createDraft
             permissions.dnsWrite = permissions.dnsWrite && scope.permissions.dnsWrite
+            permissions.githubWrite = permissions.githubWrite && scope.permissions.githubWrite
         }
         let args = AgentTools.arguments(of: call)
         return await provider.run(call.function.name, args: args, permissions: permissions, runtime: runtime)

@@ -198,6 +198,9 @@ function ConnectorCard({ status, onChanged }: { status: ConnectorStatus; onChang
             />
           </>
         ) : null}
+        {status.id === 'github' ? (
+          <Toggle label="Commit to branches and comment" checked={p.githubWrite} disabled={busy !== null} onChange={(githubWrite) => void patch({ permissions: { ...p, githubWrite } })} />
+        ) : null}
         {status.id === 'cloudflare' ? (
           <Toggle label="Change DNS and purge cache" checked={p.dnsWrite} disabled={busy !== null} onChange={(dnsWrite) => void patch({ permissions: { ...p, dnsWrite } })} />
         ) : null}

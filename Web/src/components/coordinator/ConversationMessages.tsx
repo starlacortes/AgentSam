@@ -21,7 +21,7 @@ export function ProposalCard({ conversationID, message, onUpdated, onRevise }: {
       onUpdated('conversation' in result ? result.conversation : result)
     } catch (err) { setError(errorMessage(err)) } finally { setBusy(false) }
   }
-  const permissions = [proposal.toolScope.permissions.sendEmail ? t('Send email') : null, proposal.toolScope.permissions.createDraft ? t('Create drafts') : null, proposal.toolScope.permissions.dnsWrite ? t('DNS writes') : null].filter(Boolean)
+  const permissions = [proposal.toolScope.permissions.sendEmail ? t('Send email') : null, proposal.toolScope.permissions.createDraft ? t('Create drafts') : null, proposal.toolScope.permissions.dnsWrite ? t('DNS writes') : null, proposal.toolScope.permissions.githubWrite ? t('GitHub writes') : null].filter(Boolean)
   return <div className="co-team-proposal">
     <div className="co-proposal-head"><Icon name="users" /><div><b>{proposal.team.name}</b><span>{proposal.baseTeamID ? t('Team modification proposal') : t('New team proposal')}</span></div><span className="co-chip">{t(proposal.status)}</span></div>
     <p className="co-proposal-rationale">{proposal.rationale}</p>

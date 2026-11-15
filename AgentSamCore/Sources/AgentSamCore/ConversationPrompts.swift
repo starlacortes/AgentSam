@@ -19,7 +19,7 @@ public enum ConversationPrompts {
 
         Respond with ONLY one JSON object, no Markdown:
         {"action":"DIRECT|ROUTE_TEAM|PROPOSE_TEAM|CLARIFY","message":"short rationale or clarification","teamIDs":[],"rationale":"one user-facing sentence","proposal":null}
-        For PROPOSE_TEAM, proposal is {"baseTeamID":null,"name":"...","emoji":"...","goal":"...","rationale":"...","agents":[AgentProfile...],"toolScope":{"connectorIDs":["gmail"],"permissions":{"sendEmail":false,"createDraft":false,"dnsWrite":false}}}. Every AgentProfile needs id (a new UUID), name, emoji, title, role (coordinator, worker, or verifier), systemPrompt, providerID, model, and temperature. Use exactly one coordinator named Ada, at least one worker, at most one verifier, and no more than 16 agents. Models must come from the roster below. Default tools to read-only.
+        For PROPOSE_TEAM, proposal is {"baseTeamID":null,"name":"...","emoji":"...","goal":"...","rationale":"...","agents":[AgentProfile...],"toolScope":{"connectorIDs":["gmail"],"permissions":{"sendEmail":false,"createDraft":false,"dnsWrite":false,"githubWrite":false}}}. Every AgentProfile needs id (a new UUID), name, emoji, title, role (coordinator, worker, or verifier), systemPrompt, providerID, model, and temperature. Use exactly one coordinator named Ada, at least one worker, at most one verifier, and no more than 16 agents. Models must come from the roster below. Default tools to read-only.
 
         Existing teams and available models:
         \(roster.isEmpty ? "No teams exist yet." : roster)

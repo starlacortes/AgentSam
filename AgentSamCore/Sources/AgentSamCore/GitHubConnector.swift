@@ -3,8 +3,9 @@ import Foundation
 import FoundationNetworking
 #endif
 
-/// Read-only GitHub access for agents, authenticated with a personal access token
-/// (fine-grained tokens with read-only repository permissions are recommended).
+/// GitHub access for agents, authenticated with a personal access token. Reads are always on;
+/// writes (commit a file to a branch, comment) need the `githubWrite` permission, and commits to a
+/// repository's default branch are always refused so agents work on a branch.
 public struct GitHubConnector: ConnectorToolProvider {
     public static let apiBase = "https://api.github.com"
     public static let tokenAccount = "connector.github.token"
@@ -21,7 +22,9 @@ public struct GitHubConnector: ConnectorToolProvider {
     // MARK: Tool definitions
 
     public func toolDefs(permissions: ConnectorPermissions) -> [APIToolDef] {
-        [Self.reposTool, Self.readTool, Self.searchTool, Self.issuesTool, Self.issueTool]
+        var defs = [Self.reposTool, Self.readTool, Self.searchTool, Self.issuesTool, Self.issueTool]
+        if permissions.githubWrite { defs += [Self.writeFileTool, Self.commentTool] }
+        return defs
     }
 
     private static func prop(_ type: String, _ description: String) -> JSONValue {
@@ -94,6 +97,36 @@ public struct GitHubConnector: ConnectorToolProvider {
         ])
     )
 
+    static let writeFileTool = APIToolDef(
+        name: "github_write_file",
+        description: "Create or update one file on a branch with a commit (requires GitHub write permission). The branch must already exist and cannot be the repository's default branch.",
+        parameters: .object([
+            ("type", .string("object")),
+            ("properties", .object([
+                ("repo", prop("string", "Repository as owner/name")),
+                ("branch", prop("string", "Existing branch to commit to (not the default branch)")),
+                ("path", prop("string", "File path in the repository")),
+                ("content", prop("string", "Complete new file contents")),
+                ("message", prop("string", "Commit message")),
+            ])),
+            ("required", .array([.string("repo"), .string("branch"), .string("path"), .string("content"), .string("message")])),
+        ])
+    )
+
+    static let commentTool = APIToolDef(
+        name: "github_comment",
+        description: "Post a comment on an issue or pull request (requires GitHub write permission).",
+        parameters: .object([
+            ("type", .string("object")),
+            ("properties", .object([
+                ("repo", prop("string", "Repository as owner/name")),
+                ("number", prop("integer", "Issue or pull request number")),
+                ("body", prop("string", "Comment text (Markdown)")),
+            ])),
+            ("required", .array([.string("repo"), .string("number"), .string("body")])),
+        ])
+    )
+
     // MARK: Execution
 
     public func run(_ name: String, args: [String: JSONValue], permissions: ConnectorPermissions, runtime: ConnectorRuntime) async -> ToolOutcome {
@@ -125,6 +158,23 @@ public struct GitHubConnector: ConnectorToolProvider {
                     return ToolOutcome(resultText: "github_issue requires repo (owner/name) and number.")
                 }
                 return ToolOutcome(resultText: try await readIssue(repo: repo, number: Int(number), runtime: runtime))
+
+            case "github_write_file":
+                guard permissions.githubWrite else { return ToolOutcome(resultText: Self.writesDisabled) }
+                guard let repo = args["repo"]?.stringValue, let branch = args["branch"]?.stringValue,
+                      let path = args["path"]?.stringValue, let content = args["content"]?.stringValue,
+                      let message = args["message"]?.stringValue else {
+                    return ToolOutcome(resultText: "github_write_file requires repo, branch, path, content, and message.")
+                }
+                return ToolOutcome(resultText: try await writeFile(repo: repo, branch: branch, path: path, content: content, message: message, runtime: runtime))
+
+            case "github_comment":
+                guard permissions.githubWrite else { return ToolOutcome(resultText: Self.writesDisabled) }
+                guard let repo = args["repo"]?.stringValue, let number = args["number"]?.numberValue,
+                      let body = args["body"]?.stringValue, !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                    return ToolOutcome(resultText: "github_comment requires repo, number, and body.")
+                }
+                return ToolOutcome(resultText: try await comment(repo: repo, number: Int(number), body: body, runtime: runtime))
 
             default:
                 return ToolOutcome(resultText: "Unknown tool: \(name).")
@@ -201,6 +251,17 @@ public struct GitHubConnector: ConnectorToolProvider {
             .filter { $0 != "." && $0 != ".." }
             .compactMap { $0.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed)?.replacingOccurrences(of: "/", with: "%2F") }
             .joined(separator: "/")
+    }
+
+    static let writesDisabled = "GitHub writes are disabled for the GitHub connector. Enable them in Settings."
+
+    private func send(_ method: String, _ path: String, body: [String: Any], runtime: ConnectorRuntime) async throws -> [String: Any] {
+        let headers = try authHeaders(runtime)
+        guard let url = ConnectorHTTP.url(Self.apiBase, path) else {
+            throw ConnectorError("Bad GitHub URL.")
+        }
+        let data = try await ConnectorHTTP.request(runtime.session, url: url, method: method, headers: headers, jsonBody: body)
+        return try ConnectorHTTP.jsonObject(data)
     }
 
     private func get(_ path: String, query: [URLQueryItem] = [], runtime: ConnectorRuntime) async throws -> Any {
@@ -291,6 +352,49 @@ public struct GitHubConnector: ConnectorToolProvider {
             return "\(repo): \(item["path"] as? String ?? "?")"
         }
         return lines.joined(separator: "\n")
+    }
+
+    private func writeFile(repo: String, branch: String, path: String, content: String, message: String, runtime: ConnectorRuntime) async throws -> String {
+        let repo = try Self.validRepo(repo)
+        let branch = branch.trimmingCharacters(in: .whitespacesAndNewlines)
+        let cleanPath = Self.encodedPath(path)
+        guard !branch.isEmpty else { throw ConnectorError("branch is required.") }
+        guard !cleanPath.isEmpty else { throw ConnectorError("path is required.") }
+        guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ConnectorError("A commit message is required.") }
+
+        guard let info = try await get("/repos/\(repo)", runtime: runtime) as? [String: Any],
+              let defaultBranch = info["default_branch"] as? String else {
+            throw ConnectorError("Unexpected response from GitHub.")
+        }
+        guard branch != defaultBranch else {
+            throw ConnectorError("Refusing to commit to the default branch (\(defaultBranch)). Use a working branch.")
+        }
+
+        var body: [String: Any] = [
+            "message": message,
+            "content": Data(content.utf8).base64EncodedString(),
+            "branch": branch,
+        ]
+        var updating = false
+        do {
+            if let existing = try await get("/repos/\(repo)/contents/\(cleanPath)", query: [URLQueryItem(name: "ref", value: branch)], runtime: runtime) as? [String: Any],
+               let sha = existing["sha"] as? String {
+                body["sha"] = sha
+                updating = true
+            }
+        } catch let error as ConnectorError where error.message.hasPrefix("HTTP 404") {
+            // New file (or a missing branch, which the PUT below reports clearly).
+        }
+        let result = try await send("PUT", "/repos/\(repo)/contents/\(cleanPath)", body: body, runtime: runtime)
+        let commit = (result["commit"] as? [String: Any])?["sha"] as? String ?? "?"
+        return "\(updating ? "Updated" : "Created") \(path) on \(repo)@\(branch) in commit \(commit.prefix(7))."
+    }
+
+    private func comment(repo: String, number: Int, body: String, runtime: ConnectorRuntime) async throws -> String {
+        let repo = try Self.validRepo(repo)
+        guard number > 0 else { throw ConnectorError("number must be a positive issue or pull request number.") }
+        let result = try await send("POST", "/repos/\(repo)/issues/\(number)/comments", body: ["body": body], runtime: runtime)
+        return "Commented on \(repo)#\(number)" + ((result["html_url"] as? String).map { ": \($0)" } ?? ".")
     }
 
     private static func issueLine(_ item: [String: Any], repo: String?) -> String {
