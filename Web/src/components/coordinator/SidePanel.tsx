@@ -95,7 +95,10 @@ export function SidePanel({ state, missionIDs, onChange, onClose, onResize }: {
   onResize: (width: number) => void
 }) {
   const { t } = useI18n()
-  const missionID = state.source?.kind === 'mission' ? state.source.missionID : (state.missionID ?? missionIDs[0] ?? null)
+  const chatConversationID = state.source?.kind === 'chat' ? state.source.conversationID : null
+  const missionID = state.source?.kind === 'mission'
+    ? state.source.missionID
+    : (chatConversationID ? null : state.missionID ?? missionIDs[0] ?? null)
   const [detail, setDetail] = useState<MissionDetail | null>(null)
   const [events, setEvents] = useState<RunEvent[]>([])
   const [reloadToken, setReloadToken] = useState(0)
@@ -108,6 +111,7 @@ export function SidePanel({ state, missionIDs, onChange, onClose, onResize }: {
   const [filter, setFilter] = useState<ConsoleFilter>('all')
   const [seenErrors, setSeenErrors] = useState(0)
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
+  const [chatList, setChatList] = useState<string[] | null>(null)
   const frame = useRef<HTMLIFrameElement>(null)
   const logBox = useRef<HTMLDivElement>(null)
   const pinned = useRef(true)
@@ -122,25 +126,45 @@ export function SidePanel({ state, missionIDs, onChange, onClose, onResize }: {
     setEvents([])
     setFiles({})
     setSelectedFile(null)
-  }, [missionID])
+    setChatList(null)
+  }, [missionID, chatConversationID])
 
   const deliverables = useMemo(() => (detail?.mission.id === missionID ? detail?.deliverables ?? [] : []), [detail, missionID])
-  const deliverableKey = deliverables.join('\n')
-  const entry = state.source?.kind === 'mission' && state.source.entry ? state.source.entry : pickEntry(deliverables)
-  const pages = deliverables.filter(isHTML)
+  // The file list the panel shows: a mission's deliverables, or Ada's chat workspace files.
+  const names = useMemo(() => {
+    if (chatConversationID) return chatList ?? []
+    return deliverables
+  }, [chatConversationID, chatList, deliverables])
+  const namesKey = names.join('\n')
+  const entry = state.source?.kind !== 'code' && state.source?.entry ? state.source.entry : pickEntry(names)
+  const pages = names.filter(isHTML)
 
-  // Fetch the files a mission preview needs whenever the file list changes.
+  const fetchFile = useCallback((name: string): Promise<string> => {
+    if (chatConversationID) return api<string>(`conversations/${chatConversationID}/files/${encodeURIComponent(name)}`).then(String)
+    if (missionID) return fetchDeliverable(missionID, name)
+    return Promise.reject(new Error('No file source'))
+  }, [chatConversationID, missionID])
+
+  // Chat workspace listing, refetched on every reload.
   useEffect(() => {
-    if (state.source?.kind === 'code' || !missionID || !entry) return
+    if (!chatConversationID) return
     let active = true
-    const names = deliverableKey.split('\n').filter((name) => PREVIEW_TEXT_EXTENSIONS.has(extensionOf(name)))
+    void api<string[]>(`conversations/${chatConversationID}/files`).then((list) => { if (active) setChatList(list) }).catch((err) => { if (active) setError(errorMessage(err)) })
+    return () => { active = false }
+  }, [chatConversationID, reloadToken])
+
+  // Fetch the files a preview needs whenever the file list changes.
+  useEffect(() => {
+    if (state.source?.kind === 'code' || (!missionID && !chatConversationID) || !entry) return
+    let active = true
+    const wanted = namesKey.split('\n').filter((name) => PREVIEW_TEXT_EXTENSIONS.has(extensionOf(name)))
     setLoadingFiles(true)
-    void Promise.all(names.map(async (name) => [name, await fetchDeliverable(missionID, name).catch(() => '')] as const))
+    void Promise.all(wanted.map(async (name) => [name, await fetchFile(name).catch(() => '')] as const))
       .then((pairs) => { if (active) { setFiles(Object.fromEntries(pairs)); setError(null) } })
       .catch((err) => { if (active) setError(errorMessage(err)) })
       .finally(() => { if (active) setLoadingFiles(false) })
     return () => { active = false }
-  }, [missionID, entry, deliverableKey, state.source?.kind, reloadToken])
+  }, [missionID, chatConversationID, entry, namesKey, state.source?.kind, reloadToken, fetchFile])
 
   const doc = useMemo(() => {
     if (state.source?.kind === 'code') return codePreviewDocument(state.source.language, state.source.code)
@@ -209,9 +233,9 @@ export function SidePanel({ state, missionIDs, onChange, onClose, onResize }: {
       <div className="co-canvas-tabs" role="tablist">
         <Tab name="preview" icon="monitor" label={t('Preview')} active={state.tab === 'preview'} onSelect={select} />
         <Tab name="console" icon="terminal" label={t('Console')} active={state.tab === 'console'} badge={state.tab === 'console' ? 0 : Math.max(0, errorCount - seenErrors)} onSelect={select} />
-        <Tab name="files" icon="file" label={t('Files')} active={state.tab === 'files'} badge={deliverables.length || undefined} onSelect={select} />
+        <Tab name="files" icon="file" label={t('Files')} active={state.tab === 'files'} badge={names.length || undefined} onSelect={select} />
       </div>
-      {missionIDs.length > 1 && state.source?.kind !== 'code' ? <select className="co-canvas-select" aria-label={t('Team run')} value={missionID ?? ''} onChange={(event) => onChange({ ...state, missionID: event.target.value, source: state.source?.kind === 'mission' ? { kind: 'mission', missionID: event.target.value } : state.source })}>
+      {missionIDs.length > 1 && state.source?.kind !== 'code' && state.source?.kind !== 'chat' ? <select className="co-canvas-select" aria-label={t('Team run')} value={missionID ?? ''} onChange={(event) => onChange({ ...state, missionID: event.target.value, source: state.source?.kind === 'mission' ? { kind: 'mission', missionID: event.target.value } : state.source })}>
         {missionIDs.map((id, index) => <option key={id} value={id}>{index === 0 ? t('Latest run') : t('Run {n}', { n: missionIDs.length - index })}</option>)}
       </select> : null}
       <button type="button" className="co-icon-button" aria-label={t('Close panel')} onClick={onClose}><Icon name="close" size={15} /></button>
@@ -223,7 +247,7 @@ export function SidePanel({ state, missionIDs, onChange, onClose, onResize }: {
       <div className="co-preview-bar">
         <button type="button" className="co-icon-button" aria-label={t('Reload preview')} title={t('Reload preview')} onClick={reload}><Icon name="refresh" size={14} /></button>
         <span className="co-preview-address" title={title}>{title}</span>
-        {pages.length > 1 && state.source?.kind !== 'code' ? <select className="co-canvas-select" aria-label={t('Page')} value={entry ?? ''} onChange={(event) => missionID && onChange({ ...state, source: { kind: 'mission', missionID, entry: event.target.value } })}>{pages.map((name) => <option key={name} value={name}>{name}</option>)}</select> : null}
+        {pages.length > 1 && state.source?.kind !== 'code' ? <select className="co-canvas-select" aria-label={t('Page')} value={entry ?? ''} onChange={(event) => onChange({ ...state, source: { ...(state.source as { kind: 'mission' | 'chat' }), entry: event.target.value } as never })}>{pages.map((name) => <option key={name} value={name}>{name}</option>)}</select> : null}
         <div className="co-device-toggle" role="group" aria-label={t('Preview width')}>
           {(['desktop', 'tablet', 'phone'] as Device[]).map((name) => <button key={name} type="button" aria-pressed={device === name} aria-label={t(name === 'desktop' ? 'Desktop width' : name === 'tablet' ? 'Tablet width' : 'Phone width')} onClick={() => setDevice(name)}><Icon name={name === 'desktop' ? 'monitor' : name} size={13} /></button>)}
         </div>
@@ -252,28 +276,28 @@ export function SidePanel({ state, missionIDs, onChange, onClose, onResize }: {
       </div>
     </div> : null}
 
-    {state.tab === 'files' ? <FilesTab missionID={missionID} names={deliverables} selected={selectedFile} onSelect={setSelectedFile} onPreview={(name) => missionID && onChange({ ...state, tab: 'preview', source: { kind: 'mission', missionID, entry: name } })} /> : null}
+    {state.tab === 'files' ? <FilesTab names={names} fetchOne={fetchFile} selected={selectedFile} onSelect={setSelectedFile} onPreview={(name) => onChange({ ...state, tab: 'preview', source: chatConversationID ? { kind: 'chat', conversationID: chatConversationID, entry: name } : missionID ? { kind: 'mission', missionID, entry: name } : state.source })} /> : null}
   </aside>
 }
 
-function FilesTab({ missionID, names, selected, onSelect, onPreview }: { missionID: string | null; names: string[]; selected: string | null; onSelect: (name: string | null) => void; onPreview: (name: string) => void }) {
+function FilesTab({ names, fetchOne, selected, onSelect, onPreview }: { names: string[]; fetchOne: (name: string) => Promise<string>; selected: string | null; onSelect: (name: string | null) => void; onPreview: (name: string) => void }) {
   const { t } = useI18n()
   const [content, setContent] = useState<Record<string, string>>({})
   const [error, setError] = useState<string | null>(null)
   const current = selected && names.includes(selected) ? selected : null
 
-  useEffect(() => { setContent({}) }, [missionID])
+  useEffect(() => { setContent({}) }, [names])
   useEffect(() => {
-    if (!missionID || !current || content[current] !== undefined) return
-    fetchDeliverable(missionID, current).then((text) => setContent((value) => ({ ...value, [current]: text }))).catch((err) => setError(errorMessage(err)))
-  }, [missionID, current, content])
+    if (!current || content[current] !== undefined) return
+    fetchOne(current).then((text) => setContent((value) => ({ ...value, [current]: text }))).catch((err) => setError(errorMessage(err)))
+  }, [current, content, fetchOne])
 
-  if (!missionID || !names.length) return <div className="co-canvas-body"><div className="co-canvas-empty"><Icon name="file" size={24} /><b>{t('No files yet')}</b><p>{t('Files your teams write show up here.')}</p></div></div>
+  if (!names.length) return <div className="co-canvas-body"><div className="co-canvas-empty"><Icon name="file" size={24} /><b>{t('No files yet')}</b><p>{t('Files Ada and your teams write show up here.')}</p></div></div>
 
   const downloadAll = async () => {
     try {
-      const files = await Promise.all(names.map(async (name) => ({ name, text: content[name] ?? await fetchDeliverable(missionID, name) })))
-      saveFile(`mission-${missionID.slice(0, 8)}.zip`, makeZip(files), 'application/zip')
+      const files = await Promise.all(names.map(async (name) => ({ name, text: content[name] ?? await fetchOne(name) })))
+      saveFile(`workspace-files.zip`, makeZip(files), 'application/zip')
     } catch (err) { setError(errorMessage(err)) }
   }
 

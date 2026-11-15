@@ -32,6 +32,7 @@ struct ServerContext: Sendable {
     let engine: MissionEngine
     let conversations: ConversationStore
     let memory: WorkspaceMemoryStore
+    let chatWorkspace: ChatWorkspaceStore
     let conversationEngine: ConversationEngine
     let keyRing: CompositeKeyRing
     let prompts: PromptStore
@@ -72,10 +73,12 @@ struct ServerContext: Sendable {
         )
         let conversations = ConversationStore(root: store.root)
         let memory = WorkspaceMemoryStore(root: store.root)
+        let chatWorkspace = ChatWorkspaceStore(root: store.root)
         let conversationEngine = ConversationEngine(
             store: store,
             conversations: conversations,
             memory: memory,
+            workspace: chatWorkspace,
             keyRing: keyRing,
             connectors: connectors,
             missions: engine
@@ -106,6 +109,7 @@ struct ServerContext: Sendable {
             engine: engine,
             conversations: conversations,
             memory: memory,
+            chatWorkspace: chatWorkspace,
             conversationEngine: conversationEngine,
             keyRing: keyRing,
             prompts: prompts,

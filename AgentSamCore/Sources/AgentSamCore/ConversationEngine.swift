@@ -7,6 +7,7 @@ public actor ConversationEngine {
     private let store: MissionStore
     private let conversations: ConversationStore
     private let memory: WorkspaceMemoryStore
+    private let workspace: ChatWorkspaceStore
     private let keyRing: KeyRing
     private let client: LLMClient
     private let connectors: ConnectorHub?
@@ -16,10 +17,11 @@ public actor ConversationEngine {
     private var running: [UUID: Task<Void, Never>] = [:]
     private var memoryJobs: [UUID: Task<Void, Never>] = [:]
 
-    public init(store: MissionStore, conversations: ConversationStore, memory: WorkspaceMemoryStore, keyRing: KeyRing, client: LLMClient = LLMClient(), connectors: ConnectorHub? = nil, missions: MissionEngine) {
+    public init(store: MissionStore, conversations: ConversationStore, memory: WorkspaceMemoryStore, workspace: ChatWorkspaceStore? = nil, keyRing: KeyRing, client: LLMClient = LLMClient(), connectors: ConnectorHub? = nil, missions: MissionEngine) {
         self.store = store
         self.conversations = conversations
         self.memory = memory
+        self.workspace = workspace ?? ChatWorkspaceStore(root: store.root)
         self.keyRing = keyRing
         self.client = client
         self.connectors = connectors
@@ -28,10 +30,11 @@ public actor ConversationEngine {
         self.missionOverride = nil
     }
 
-    init(store: MissionStore, conversations: ConversationStore, memory: WorkspaceMemoryStore, keyRing: KeyRing, connectors: ConnectorHub? = nil, missions: MissionEngine, completion: @escaping Completion, missionRunner: MissionRunner? = nil) {
+    init(store: MissionStore, conversations: ConversationStore, memory: WorkspaceMemoryStore, workspace: ChatWorkspaceStore? = nil, keyRing: KeyRing, connectors: ConnectorHub? = nil, missions: MissionEngine, completion: @escaping Completion, missionRunner: MissionRunner? = nil) {
         self.store = store
         self.conversations = conversations
         self.memory = memory
+        self.workspace = workspace ?? ChatWorkspaceStore(root: store.root)
         self.keyRing = keyRing
         self.client = LLMClient()
         self.connectors = connectors
@@ -138,13 +141,14 @@ public actor ConversationEngine {
             var teamIDs: [UUID] = []
             var activity = [AgentActivity(agentID: coordinator.id, agentName: "Ada", summary: language == "es" ? "Respondiendo directamente" : "Answering directly", state: "working")]
             var quickReplies: [String] = []
+            var writtenFiles: [String] = []
 
             switch decision?.action {
             case .routeTeam:
                 let selected = Array((decision?.teamIDs ?? []).compactMap { id in teams.first(where: { $0.id == id && !$0.workers.isEmpty }) }.prefix(3))
                 if selected.isEmpty {
                     await beginStep(writing, in: ref)
-                    responseText = try await directAnswer(userText: userMessage.text, coordinator: coordinator, history: history, memory: memoryText, language: language, ref: ref)
+                    responseText = try await directAnswer(userText: userMessage.text, coordinator: coordinator, history: history, memory: memoryText, language: language, ref: ref, conversationID: conversationID, writtenFiles: &writtenFiles)
                 } else {
                     let rationale = shortSummary(decision?.rationale ?? decision?.message, fallback: language == "es" ? "Coordinando equipos especialistas" : "Coordinating specialist teams")
                     activity[0].summary = rationale
@@ -187,7 +191,7 @@ public actor ConversationEngine {
                 if let draft = decision?.proposal, let made = try? TeamProposalValidation.make(draft: draft, teams: teams, providers: providers) {
                     await beginStep(es ? "Preparando la propuesta de equipo" : "Drafting a team proposal", in: ref)
                     proposal = made
-                    responseText = try await directAnswer(userText: userMessage.text, coordinator: coordinator, history: history, memory: memoryText, language: language, proposal: made)
+                    responseText = try await directAnswer(userText: userMessage.text, coordinator: coordinator, history: history, memory: memoryText, language: language, proposal: made, ref: ref, conversationID: conversationID, writtenFiles: &writtenFiles)
                     activity[0].summary = language == "es" ? "Propuesta lista para revisar" : "Proposal ready for your review"
                 } else {
                     responseText = language == "es"
@@ -201,7 +205,7 @@ public actor ConversationEngine {
                 quickReplies = ConversationMessage.cleanQuickReplies(decision?.options ?? [])
             case .direct, nil:
                 await beginStep(writing, in: ref)
-                responseText = try await directAnswer(userText: userMessage.text, coordinator: coordinator, history: history, memory: memoryText, language: language, ref: ref)
+                responseText = try await directAnswer(userText: userMessage.text, coordinator: coordinator, history: history, memory: memoryText, language: language, ref: ref, conversationID: conversationID, writtenFiles: &writtenFiles)
             }
 
             if decision?.action != .clarify {
@@ -216,12 +220,14 @@ public actor ConversationEngine {
             let trimmed = responseText.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { throw ConversationError.persistence("Ada received an empty response from the model. Please try again.") }
             for index in activity.indices { activity[index].state = "done" }
+            let fileIDs = Array(NSOrderedSet(array: writtenFiles).array.compactMap { $0 as? String }) as [String]
             let completed = try await conversations.updateMessage(id: conversationID, ownerID: ownerID, messageID: responseID) { message in
                 message.text = trimmed
                 message.status = .complete
                 message.proposal = proposal
                 message.activity = activity
                 message.quickReplies = quickReplies
+                message.fileIDs = fileIDs
                 Self.settleSteps(&message.steps, as: "done")
                 message.completedAt = Date()
             }
@@ -272,14 +278,16 @@ public actor ConversationEngine {
         return ConversationDecision.parse(reply.message.content ?? "")
     }
 
-    private func directAnswer(userText: String, coordinator: AgentProfile, history: [ConversationMessage], memory: String, language: String, proposal: TeamProposal? = nil, ref: ResponseRef? = nil) async throws -> String {
-        let tools = await connectors?.toolDefs(readOnly: true) ?? []
+    private func directAnswer(userText: String, coordinator: AgentProfile, history: [ConversationMessage], memory: String, language: String, proposal: TeamProposal? = nil, ref: ResponseRef? = nil, conversationID: UUID? = nil, writtenFiles: inout [String]) async throws -> String {
+        let connectorTools = await connectors?.toolDefs(readOnly: true) ?? []
+        let tools = conversationID == nil ? connectorTools : connectorTools + ChatWorkspaceTools.definitions
         let system = ConversationPrompts.responseSystem(coordinator: coordinator, memory: memory, history: history, tools: tools, language: language)
         var text = userText
         if let proposal {
             text += "\n\nA team proposal has been prepared and is displayed separately for approval. Its name is \(proposal.team.name). Explain the proposal briefly, mention that no team has been created or changed yet, and ask the user to review it. Do not output JSON."
         }
         var messages: [APIMessage] = [.user(text)]
+        var runs = 0
         for _ in 0..<8 {
             try Task.checkCancellation()
             let reply = try await complete(coordinator: coordinator, system: system, messages: messages, tools: tools)
@@ -288,7 +296,26 @@ public actor ConversationEngine {
             if calls.isEmpty { return reply.message.content ?? "" }
             for call in calls {
                 await beginStep(ConversationPrompts.toolStepLabel(call.function.name, language: language), in: ref)
-                let outcome = await connectors?.run(call: call, readOnly: true) ?? ToolOutcome(resultText: "No connector is available for this tool.")
+                let outcome: ToolOutcome
+                if ChatWorkspaceTools.owns(call.function.name) {
+                    if let conversationID {
+                        if call.function.name == "run_program" {
+                            runs += 1
+                            if runs > ChatWorkspaceTools.maxRunsPerTurn {
+                                outcome = ToolOutcome(resultText: "Program-run limit reached for this reply (4). Use the output you already have.")
+                            } else {
+                                outcome = await ChatWorkspaceTools.run(call: call, workspace: workspace, conversationID: conversationID)
+                            }
+                        } else {
+                            outcome = await ChatWorkspaceTools.run(call: call, workspace: workspace, conversationID: conversationID)
+                        }
+                        if !outcome.wroteFiles.isEmpty { writtenFiles.append(contentsOf: outcome.wroteFiles) }
+                    } else {
+                        outcome = ToolOutcome(resultText: "Workspace tools are unavailable in this context.")
+                    }
+                } else {
+                    outcome = await connectors?.run(call: call, readOnly: true) ?? ToolOutcome(resultText: "No connector is available for this tool.")
+                }
                 messages.append(.tool(id: call.id, content: String(outcome.resultText.prefix(32_000))))
             }
             await beginStep(language == "es" ? "Redactando la respuesta" : "Writing the answer", in: ref)

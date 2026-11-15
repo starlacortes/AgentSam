@@ -40,7 +40,19 @@ Every turn, tool call, deliverable, finding, and cost is a `RunEvent`, appended 
     events.jsonl          append-only RunEvent ledger
     deliverables/         agent-produced .md files + final-report.md + verification.md
     conversations/        full per-agent message transcripts (JSON)
+  conversations/
+    <uuid>.json           chat history (the web app's conversations)
+    <uuid>/files/         files Ada wrote directly in chat (see below)
 ```
+
+## Ada's chat workspace
+
+In a direct chat, Ada can do more than answer. She has a private workspace for the conversation:
+
+- `chat_write_file` / `chat_read_file` / `chat_list_files` — files live under `conversations/<uuid>/files/`, shown in the chat as chips that open the preview and files sidebar. Paths are jailed to that folder (no `..`, no absolute paths) and reads are limited to text formats, the same allowlist as mission deliverables.
+- `run_program` — runs JavaScript (Node), Python, or C (compiled with gcc) in a throwaway sandbox under the conversation's folder. Runs have a 20-second wall-clock timeout, capped output, at most 4 runs per reply, and a PATH-only environment so no server secrets reach the child. The sandbox is deleted after each run; the toolchains come from the Docker image.
+
+Connector tools stay read-only in direct chat (write permissions like sending mail or committing to GitHub remain team-worker-only).
 
 ## Deploy on Railway
 
@@ -113,6 +125,8 @@ POST   /api/missions         { teamID, objective } or { workflowID, objective } 
 GET    /api/missions         GET /api/missions/:id  POST /api/missions/:id/stop
 GET    /api/missions/:id/events?afterSeq=N
 GET    /api/missions/:id/deliverables/:name
+GET    /api/conversations/:id/files             (Ada's chat workspace)
+GET    /api/conversations/:id/files/:name       (one chat workspace file, text only)
 WS     /api/missions/:id/live       (live RunEvent stream; closes on missionEnd)
 ```
 

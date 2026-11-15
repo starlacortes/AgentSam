@@ -223,7 +223,7 @@ export const coordinatorSpanish: Record<string, string> = {
   "No output yet.": "Todavía no hay salida.",
   "Team work and preview output appear here.": "Aquí aparecen el trabajo del equipo y la salida de la vista previa.",
   "No files yet": "Aún no hay archivos",
-  "Files your teams write show up here.": "Aquí aparecen los archivos que escriben tus equipos.",
+  "Files Ada and your teams write show up here.": "Aquí aparecen los archivos que escriben Ada y tus equipos.",
   "All files": "Todos los archivos",
   "Download": "Descargar",
   "Preview {name}": "Vista previa de {name}",

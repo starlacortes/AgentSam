@@ -65,6 +65,36 @@ final class ConversationAPITests: XCTestCase {
         })
     }
 
+    func testChatWorkspaceFilesAreServedOnlyToTheirConversation() async throws {
+        let conversation = try await createConversation()
+        let workspace = ChatWorkspaceStore(root: URL(fileURLWithPath: directory.path))
+        _ = await workspace.write(conversationID: conversation.id, name: "site/index.html", content: "<h1>Jelly</h1>")
+        _ = await workspace.write(conversationID: conversation.id, name: "plan.md", content: "# Plan")
+
+        try await app.test(.GET, "api/conversations/\(conversation.id.uuidString)/files", beforeRequest: authorize, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok)
+            let names = try res.content.decode([String].self)
+            XCTAssertEqual(names, ["plan.md", "site/index.html"])
+        })
+        try await app.test(.GET, "api/conversations/\(conversation.id.uuidString)/files/site%2Findex.html", beforeRequest: authorize, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok)
+            XCTAssertEqual(res.body.string, "<h1>Jelly</h1>")
+            XCTAssertEqual(res.headers.contentType?.description, "text/plain; charset=utf-8")
+        })
+        // A different conversation (and a different owner) sees nothing.
+        let other = try await createConversation()
+        try await app.test(.GET, "api/conversations/\(other.id.uuidString)/files", beforeRequest: authorize, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok)
+            XCTAssertEqual(try res.content.decode([String].self), [])
+        })
+        try await app.test(.GET, "api/conversations/\(conversation.id.uuidString)/files/..%2Fkeys.json", beforeRequest: authorize, afterResponse: { res async in
+            XCTAssertEqual(res.status, .notFound)
+        })
+        try await app.test(.GET, "api/conversations/\(conversation.id.uuidString)/files", afterResponse: { res async in
+            XCTAssertEqual(res.status, .unauthorized)
+        })
+    }
+
     func testProposalOnlyMutatesAfterApprovalAndCannotBeAppliedTwice() async throws {
         let conversation = try await createConversation()
         var seeded: Team?

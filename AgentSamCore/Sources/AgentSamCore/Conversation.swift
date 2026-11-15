@@ -45,6 +45,8 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
     public var steps: [MessageStep]
     /// Short replies the user can send with one click: clarifying options or suggested follow-ups.
     public var quickReplies: [String]
+    /// Files Ada wrote with the chat workspace tools during this reply, listed in the message.
+    public var fileIDs: [String]
     public var completedAt: Date?
 
     public init(
@@ -59,6 +61,7 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
         activity: [AgentActivity] = [],
         steps: [MessageStep] = [],
         quickReplies: [String] = [],
+        fileIDs: [String] = [],
         completedAt: Date? = nil
     ) {
         self.id = id
@@ -72,11 +75,12 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
         self.activity = activity
         self.steps = steps
         self.quickReplies = quickReplies
+        self.fileIDs = fileIDs
         self.completedAt = completedAt
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, role, text, createdAt, status, missionIDs, teamIDs, proposal, activity, steps, quickReplies, completedAt
+        case id, role, text, createdAt, status, missionIDs, teamIDs, proposal, activity, steps, quickReplies, fileIDs, completedAt
     }
 
     /// Older conversations on disk predate `steps`, `quickReplies`, and `completedAt`.
@@ -93,6 +97,7 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
         activity = try c.decodeIfPresent([AgentActivity].self, forKey: .activity) ?? []
         steps = try c.decodeIfPresent([MessageStep].self, forKey: .steps) ?? []
         quickReplies = try c.decodeIfPresent([String].self, forKey: .quickReplies) ?? []
+        fileIDs = try c.decodeIfPresent([String].self, forKey: .fileIDs) ?? []
         completedAt = try c.decodeIfPresent(Date.self, forKey: .completedAt)
     }
 
