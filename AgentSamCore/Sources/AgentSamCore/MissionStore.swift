@@ -249,9 +249,14 @@ public actor MissionStore {
             }
     }
 
+    /// Text formats the web app may read back, including the pieces of a site the chat can preview.
+    public static let readableDeliverableExtensions: Set<String> = [
+        "", "md", "markdown", "txt", "html", "htm", "css", "js", "mjs", "json", "svg", "csv", "tsv", "xml", "yaml", "yml",
+    ]
+
     public func deliverable(missionID: UUID, name: String) -> String? {
         guard let url = AgentTools.resolve(name, in: deliverablesDirectory(missionID)),
-              url.pathExtension.lowercased() == "md" || url.pathExtension.lowercased() == "txt" || url.pathExtension.isEmpty,
+              Self.readableDeliverableExtensions.contains(url.pathExtension.lowercased()),
               let data = try? Data(contentsOf: url) else { return nil }
         return String(data: data, encoding: .utf8)
     }

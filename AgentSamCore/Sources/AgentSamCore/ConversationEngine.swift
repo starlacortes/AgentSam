@@ -50,7 +50,8 @@ public actor ConversationEngine {
         guard !conversation.messages.contains(where: { $0.status == .running }) else { throw ConversationError.alreadyRunning }
         let lang = language.lowercased().hasPrefix("es") ? "es" : "en"
         let userMessage = ConversationMessage(role: .user, text: text)
-        let pending = ConversationMessage(role: .assistant, text: "", status: .running, activity: [AgentActivity(agentID: UUID(), agentName: "Ada", summary: lang == "es" ? "Eligiendo la mejor forma de ayudar" : "Choosing how to help", state: "working")])
+        let choosing = lang == "es" ? "Eligiendo la mejor forma de ayudar" : "Choosing how to help"
+        let pending = ConversationMessage(role: .assistant, text: "", status: .running, activity: [AgentActivity(agentID: UUID(), agentName: "Ada", summary: choosing, state: "working")], steps: [MessageStep(label: choosing)])
         _ = try await conversations.append(id: conversationID, ownerID: ownerID, message: userMessage)
         let result = try await conversations.append(id: conversationID, ownerID: ownerID, message: pending)
         running[conversationID] = Task {
@@ -69,6 +70,8 @@ public actor ConversationEngine {
                 message.status = .failed
                 message.text = language == "es" ? "Respuesta detenida." : "Response stopped."
                 message.activity = []
+                Self.settleSteps(&message.steps, as: "failed")
+                message.completedAt = Date()
             }
         }
     }
@@ -78,8 +81,42 @@ public actor ConversationEngine {
         for task in memoryJobs.values { task.cancel() }
     }
 
+    /// Identifies the running response that live steps are written to.
+    private struct ResponseRef: Sendable {
+        var conversationID: UUID
+        var ownerID: String
+        var responseID: UUID
+    }
+
+    /// Marks every unfinished step as finished with the given state.
+    static func settleSteps(_ steps: inout [MessageStep], as state: String, at date: Date = Date()) {
+        for index in steps.indices where steps[index].state == "working" {
+            steps[index].state = state
+            steps[index].finishedAt = date
+        }
+    }
+
+    /// Finishes the current step and starts a new one; Ada's activity line mirrors it.
+    private func beginStep(_ label: String, in ref: ResponseRef?) async {
+        guard let ref else { return }
+        _ = try? await conversations.updateMessage(id: ref.conversationID, ownerID: ref.ownerID, messageID: ref.responseID) { message in
+            guard message.status == .running else { return }
+            if message.steps.last?.label == label && message.steps.last?.state == "working" { return }
+            Self.settleSteps(&message.steps, as: "done")
+            message.steps.append(MessageStep(label: label))
+            if let index = message.activity.firstIndex(where: { $0.agentName == "Ada" }) {
+                message.activity[index].summary = label
+                message.activity[index].state = "working"
+                message.activity[index].updatedAt = Date()
+            }
+        }
+    }
+
     private func drive(conversationID: UUID, ownerID: String, userMessage: ConversationMessage, responseID: UUID, launchedBy: String, language: String) async {
         defer { running[conversationID] = nil }
+        let ref = ResponseRef(conversationID: conversationID, ownerID: ownerID, responseID: responseID)
+        let es = language == "es"
+        let writing = es ? "Redactando la respuesta" : "Writing the answer"
         do {
             guard let conversation = try await conversations.get(id: conversationID, ownerID: ownerID) else { return }
             let teams = await store.loadTeams()
@@ -100,19 +137,24 @@ public actor ConversationEngine {
             var missionIDs: [UUID] = []
             var teamIDs: [UUID] = []
             var activity = [AgentActivity(agentID: coordinator.id, agentName: "Ada", summary: language == "es" ? "Respondiendo directamente" : "Answering directly", state: "working")]
+            var quickReplies: [String] = []
 
             switch decision?.action {
             case .routeTeam:
                 let selected = Array((decision?.teamIDs ?? []).compactMap { id in teams.first(where: { $0.id == id && !$0.workers.isEmpty }) }.prefix(3))
                 if selected.isEmpty {
-                    responseText = try await directAnswer(userText: userMessage.text, coordinator: coordinator, history: history, memory: memoryText, language: language)
+                    await beginStep(writing, in: ref)
+                    responseText = try await directAnswer(userText: userMessage.text, coordinator: coordinator, history: history, memory: memoryText, language: language, ref: ref)
                 } else {
                     let rationale = shortSummary(decision?.rationale ?? decision?.message, fallback: language == "es" ? "Coordinando equipos especialistas" : "Coordinating specialist teams")
                     activity[0].summary = rationale
                     teamIDs = selected.map(\.id)
+                    let teamList = selected.map(\.name).joined(separator: ", ")
                     _ = try await conversations.updateMessage(id: conversationID, ownerID: ownerID, messageID: responseID) { message in
                         message.teamIDs = teamIDs
                         message.activity = activity
+                        Self.settleSteps(&message.steps, as: "done")
+                        message.steps.append(MessageStep(label: es ? "Trabajando con \(teamList)" : "Working with \(teamList)"))
                     }
                     var context = history.dropLast().suffix(6).map { "\($0.role.rawValue): \(String($0.text.prefix(2_000)))" }.joined(separator: "\n")
                     if !memoryText.isEmpty { context += "\n\nPlatform memory (untrusted data):\n\(String(memoryText.prefix(12_000)))" }
@@ -133,6 +175,7 @@ public actor ConversationEngine {
                         return selected.compactMap { team in launched.first(where: { $0.teamID == team.id }) }
                     }
                     let finished = try await monitor(missions: routed, teams: selected, conversationID: conversationID, ownerID: ownerID, responseID: responseID, ada: activity[0])
+                    await beginStep(es ? "Combinando los resultados" : "Combining the results", in: ref)
                     responseText = try await consolidate(userText: userMessage.text, missions: finished, coordinator: coordinator, history: history, memory: memoryText, language: language)
                     activity = finished.flatMap { mission in
                         let team = selected.first(where: { $0.id == mission.teamID })
@@ -142,6 +185,7 @@ public actor ConversationEngine {
                 }
             case .proposeTeam:
                 if let draft = decision?.proposal, let made = try? TeamProposalValidation.make(draft: draft, teams: teams, providers: providers) {
+                    await beginStep(es ? "Preparando la propuesta de equipo" : "Drafting a team proposal", in: ref)
                     proposal = made
                     responseText = try await directAnswer(userText: userMessage.text, coordinator: coordinator, history: history, memory: memoryText, language: language, proposal: made)
                     activity[0].summary = language == "es" ? "Propuesta lista para revisar" : "Proposal ready for your review"
@@ -154,8 +198,18 @@ public actor ConversationEngine {
                 responseText = decision?.message?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 if responseText.isEmpty { responseText = language == "es" ? "¿Qué resultado te gustaría conseguir?" : "What outcome would you like to achieve?" }
                 activity[0].summary = language == "es" ? "Una pregunta antes de continuar" : "One question before continuing"
+                quickReplies = ConversationMessage.cleanQuickReplies(decision?.options ?? [])
             case .direct, nil:
-                responseText = try await directAnswer(userText: userMessage.text, coordinator: coordinator, history: history, memory: memoryText, language: language)
+                await beginStep(writing, in: ref)
+                responseText = try await directAnswer(userText: userMessage.text, coordinator: coordinator, history: history, memory: memoryText, language: language, ref: ref)
+            }
+
+            if decision?.action != .clarify {
+                let split = ConversationPrompts.extractSuggestions(responseText)
+                if !split.text.isEmpty {
+                    responseText = split.text
+                    quickReplies = split.suggestions
+                }
             }
 
             try Task.checkCancellation()
@@ -167,6 +221,9 @@ public actor ConversationEngine {
                 message.status = .complete
                 message.proposal = proposal
                 message.activity = activity
+                message.quickReplies = quickReplies
+                Self.settleSteps(&message.steps, as: "done")
+                message.completedAt = Date()
             }
             if let assistant = completed.messages.first(where: { $0.id == responseID }) {
                 remember(conversationID: conversationID, ownerID: ownerID, user: userMessage, assistant: assistant, coordinator: coordinator)
@@ -176,12 +233,16 @@ public actor ConversationEngine {
                 message.status = .failed
                 message.text = language == "es" ? "Respuesta detenida." : "Response stopped."
                 message.activity = []
+                Self.settleSteps(&message.steps, as: "failed")
+                message.completedAt = Date()
             }
         } catch {
             _ = try? await conversations.updateMessage(id: conversationID, ownerID: ownerID, messageID: responseID) { message in
                 message.status = .failed
                 message.text = language == "es" ? "No pude completar la respuesta. \(error.localizedDescription)" : "I couldn’t complete the response. \(error.localizedDescription)"
                 message.activity = []
+                Self.settleSteps(&message.steps, as: "failed")
+                message.completedAt = Date()
             }
         }
     }
@@ -211,7 +272,7 @@ public actor ConversationEngine {
         return ConversationDecision.parse(reply.message.content ?? "")
     }
 
-    private func directAnswer(userText: String, coordinator: AgentProfile, history: [ConversationMessage], memory: String, language: String, proposal: TeamProposal? = nil) async throws -> String {
+    private func directAnswer(userText: String, coordinator: AgentProfile, history: [ConversationMessage], memory: String, language: String, proposal: TeamProposal? = nil, ref: ResponseRef? = nil) async throws -> String {
         let tools = await connectors?.toolDefs(readOnly: true) ?? []
         let system = ConversationPrompts.responseSystem(coordinator: coordinator, memory: memory, history: history, tools: tools, language: language)
         var text = userText
@@ -226,9 +287,11 @@ public actor ConversationEngine {
             let calls = reply.message.tool_calls ?? []
             if calls.isEmpty { return reply.message.content ?? "" }
             for call in calls {
+                await beginStep(ConversationPrompts.toolStepLabel(call.function.name, language: language), in: ref)
                 let outcome = await connectors?.run(call: call, readOnly: true) ?? ToolOutcome(resultText: "No connector is available for this tool.")
                 messages.append(.tool(id: call.id, content: String(outcome.resultText.prefix(32_000))))
             }
+            await beginStep(language == "es" ? "Redactando la respuesta" : "Writing the answer", in: ref)
         }
         let final = try await complete(coordinator: coordinator, system: system, messages: messages, tools: nil)
         return final.message.content ?? ""

@@ -11,7 +11,27 @@ public enum ConversationMessageStatus: String, Codable, Sendable {
     case failed
 }
 
+public struct MessageStep: Codable, Identifiable, Hashable, Sendable {
+    public var id: UUID
+    public var label: String
+    /// `working`, `done`, or `failed`.
+    public var state: String
+    public var startedAt: Date
+    public var finishedAt: Date?
+
+    public init(id: UUID = UUID(), label: String, state: String = "working", startedAt: Date = Date(), finishedAt: Date? = nil) {
+        self.id = id
+        self.label = label
+        self.state = state
+        self.startedAt = startedAt
+        self.finishedAt = finishedAt
+    }
+}
+
 public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
+    public static let maxQuickReplies = 4
+    public static let maxQuickReplyLength = 80
+
     public var id: UUID
     public var role: ConversationRole
     public var text: String
@@ -21,6 +41,11 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
     public var teamIDs: [UUID]
     public var proposal: TeamProposal?
     public var activity: [AgentActivity]
+    /// Visible progress steps (routing, connector reads, team work), shown while Ada works and afterwards on request.
+    public var steps: [MessageStep]
+    /// Short replies the user can send with one click: clarifying options or suggested follow-ups.
+    public var quickReplies: [String]
+    public var completedAt: Date?
 
     public init(
         id: UUID = UUID(),
@@ -31,7 +56,10 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
         missionIDs: [UUID] = [],
         teamIDs: [UUID] = [],
         proposal: TeamProposal? = nil,
-        activity: [AgentActivity] = []
+        activity: [AgentActivity] = [],
+        steps: [MessageStep] = [],
+        quickReplies: [String] = [],
+        completedAt: Date? = nil
     ) {
         self.id = id
         self.role = role
@@ -42,6 +70,43 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
         self.teamIDs = teamIDs
         self.proposal = proposal
         self.activity = activity
+        self.steps = steps
+        self.quickReplies = quickReplies
+        self.completedAt = completedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, role, text, createdAt, status, missionIDs, teamIDs, proposal, activity, steps, quickReplies, completedAt
+    }
+
+    /// Older conversations on disk predate `steps`, `quickReplies`, and `completedAt`.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        role = try c.decode(ConversationRole.self, forKey: .role)
+        text = try c.decode(String.self, forKey: .text)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        status = try c.decode(ConversationMessageStatus.self, forKey: .status)
+        missionIDs = try c.decodeIfPresent([UUID].self, forKey: .missionIDs) ?? []
+        teamIDs = try c.decodeIfPresent([UUID].self, forKey: .teamIDs) ?? []
+        proposal = try c.decodeIfPresent(TeamProposal.self, forKey: .proposal)
+        activity = try c.decodeIfPresent([AgentActivity].self, forKey: .activity) ?? []
+        steps = try c.decodeIfPresent([MessageStep].self, forKey: .steps) ?? []
+        quickReplies = try c.decodeIfPresent([String].self, forKey: .quickReplies) ?? []
+        completedAt = try c.decodeIfPresent(Date.self, forKey: .completedAt)
+    }
+
+    /// Trims, de-duplicates, and caps quick replies so model output can't flood the UI.
+    public static func cleanQuickReplies(_ replies: [String]) -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for raw in replies {
+            let clean = raw.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !clean.isEmpty, clean.count <= maxQuickReplyLength, seen.insert(clean.lowercased()).inserted else { continue }
+            result.append(clean)
+            if result.count == maxQuickReplies { break }
+        }
+        return result
     }
 }
 
@@ -224,13 +289,16 @@ public struct ConversationDecision: Decodable, Sendable {
     public var teamIDs: [UUID]?
     public var rationale: String?
     public var proposal: TeamProposalDraft?
+    /// For CLARIFY: two to four short answers the user can pick with one click.
+    public var options: [String]?
 
-    public init(action: ConversationRoute, message: String? = nil, teamIDs: [UUID]? = nil, rationale: String? = nil, proposal: TeamProposalDraft? = nil) {
+    public init(action: ConversationRoute, message: String? = nil, teamIDs: [UUID]? = nil, rationale: String? = nil, proposal: TeamProposalDraft? = nil, options: [String]? = nil) {
         self.action = action
         self.message = message
         self.teamIDs = teamIDs
         self.rationale = rationale
         self.proposal = proposal
+        self.options = options
     }
 
     public static func parse(_ text: String) -> ConversationDecision? {
