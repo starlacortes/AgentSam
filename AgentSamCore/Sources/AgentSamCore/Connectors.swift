@@ -38,6 +38,7 @@ public enum ConnectorID: String, Codable, CaseIterable, Hashable, Sendable {
         case .googleads: [
             GoogleTokenProvider.refreshAccount(for: self),
             GoogleTokenProvider.cacheAccount(for: self),
+            GoogleTokenProvider.serviceAccountAccount(for: self),
             GoogleAdsConnector.developerTokenAccount,
             GoogleAdsConnector.customerIdAccount,
         ]

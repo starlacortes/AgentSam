@@ -6,7 +6,7 @@ import FoundationNetworking
 public struct GoogleAdsConnector: ConnectorToolProvider {
     public static let apiBase = "https://googleads.googleapis.com"
     /// Google retires each Ads API version about a year after release; override with AGENTSAM_GOOGLE_ADS_API_VERSION.
-    public static let apiVersion = ProcessInfo.processInfo.environment["AGENTSAM_GOOGLE_ADS_API_VERSION"].flatMap { $0.isEmpty ? nil : $0 } ?? "v25"
+    public static let apiVersion = ProcessInfo.processInfo.environment["AGENTSAM_GOOGLE_ADS_API_VERSION"].flatMap { $0.isEmpty ? nil : $0 } ?? "v26"
     public static let oauthScope = "https://www.googleapis.com/auth/adwords"
     public static let developerTokenAccount = "connector.googleads.developerToken"
     public static let customerIdAccount = "connector.googleads.customerId"
@@ -18,7 +18,9 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
     public func isConfigured(keyRing: KeyRing) -> Bool {
         // Google sign-in is enough: API access is now granted to the Google Cloud project, and a
         // developer token is only sent when one was saved (older setups still use one).
+        // A service-account key works in place of sign-in.
         !(keyRing.get(GoogleTokenProvider.refreshAccount(for: .googleads)) ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || GoogleTokenProvider.serviceAccount(for: .googleads, keyRing: keyRing) != nil
     }
 
     // MARK: Tool definitions
@@ -123,7 +125,9 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
 
     private func apiContext(token: String, runtime: ConnectorRuntime) throws -> APIContext {
         let developerToken = runtime.keyRing.get(Self.developerTokenAccount)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let loginCustomerID = runtime.keyRing.get(Self.customerIdAccount)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let loginCustomerID = (runtime.keyRing.get(Self.customerIdAccount) ?? "")
+            .replacingOccurrences(of: "-", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         return APIContext(token: token, developerToken: developerToken, loginCustomerID: loginCustomerID)
     }
 
@@ -144,6 +148,7 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
         let cleaned = (raw ?? context.loginCustomerID)
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "customers/", with: "")
+            .replacingOccurrences(of: "-", with: "")
         guard !cleaned.isEmpty else {
             throw ConnectorError("Provide customer_id or configure a login customer ID for the Google Ads connector.")
         }
