@@ -4,7 +4,7 @@ import { api, errorMessage } from '../../api/client'
 import type { Conversation, ConversationMessage, MissionDetail, TeamProposal } from '../../api/types'
 import { useI18n } from '../../i18n'
 import { canApprove } from '../../lib/coordinator'
-import { isPreviewableLanguage, pickEntry } from '../../lib/preview'
+import { isHTML, isPreviewableLanguage, pickEntry } from '../../lib/preview'
 import { Markdown, type CodeTools } from '../Markdown'
 import { ErrorBanner } from '../ui'
 import { Icon } from './Icon'
@@ -107,6 +107,9 @@ function Message({ conversationID, message, latest, busy, handlers, retry }: { c
         {running ? <button type="button" className="co-source-chip co-watch-chip" onClick={() => onOpenCanvas({ tab: 'console', missionID: message.missionIDs[0], source: null })}><i className="co-live-dot" />{t('Watch work')}</button> : null}
         {message.missionIDs.map((id) => <Link key={id} className="co-source-chip" to={`/missions/${id}`}><Icon name="file" size={12} />{t('Work & files')}</Link>)}
         {!running ? message.missionIDs.map((id) => <SitePreviewChip key={`preview-${id}`} missionID={id} onOpen={(entry) => onOpenCanvas({ tab: 'preview', missionID: id, source: { kind: 'mission', missionID: id, entry } })} />) : null}
+      </div> : null}
+      {message.fileIDs?.length ? <div className="co-source-row">
+        {message.fileIDs.map((name) => <button key={name} type="button" className="co-source-chip" onClick={() => onOpenCanvas({ tab: isHTML(name) ? 'preview' : 'files', source: { kind: 'chat', conversationID, entry: isHTML(name) ? name : undefined } })}><Icon name="file" size={12} />{name}</button>)}
       </div> : null}
       {message.proposal ? <ProposalCard conversationID={conversationID} message={message} onUpdated={handlers.onUpdated} onRevise={handlers.onRevise} /> : null}
       {message.status === 'complete' ? <div className="co-message-actions">

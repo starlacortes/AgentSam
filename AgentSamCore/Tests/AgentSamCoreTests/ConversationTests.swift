@@ -58,7 +58,8 @@ final class ConversationTests: XCTestCase {
             if system.contains("Decide how to handle") {
                 return LLMReply(message: .assistant("{\"action\":\"DIRECT\"}"), inputTokens: 0, outputTokens: 0, model: "stub")
             }
-            XCTAssertTrue(tools?.isEmpty ?? true)
+            // Direct answers see Ada's workspace tools even with no connectors configured.
+            XCTAssertTrue(tools?.map(\.function.name).contains("chat_write_file") ?? false)
             return LLMReply(message: .assistant("A direct answer."), inputTokens: 0, outputTokens: 0, model: "stub")
         }
         let conversation = try await conversations.create(ownerID: "owner")
@@ -321,6 +322,44 @@ final class ConversationTests: XCTestCase {
         XCTAssertEqual(answer.text, "A page.")
         XCTAssertEqual(answer.quickReplies, ["Add a contact form"])
         XCTAssertEqual(answer.steps.map(\.label), ["Choosing how to help", "Writing the answer"])
+        await engine.shutdown()
+    }
+
+    func testDirectAnswerCanWriteWorkspaceFiles() async throws {
+        let store = MissionStore(root: directory)
+        await store.saveProviders([provider])
+        let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
+        try keys.set("test-key", for: provider.keyAccount)
+        let conversations = ConversationStore(root: directory)
+        let memory = WorkspaceMemoryStore(root: directory)
+        let engine = engine(store, conversations, memory, keys: keys) { _, _, _, system, messages, tools in
+            if system.contains("Summarize only durable") { return LLMReply(message: .assistant("## Notes"), inputTokens: 0, outputTokens: 0, model: "stub") }
+            if system.contains("Decide how to handle") {
+                return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
+            // First response turn writes a file; the tool result comes back and the final answer lands.
+            if messages.allSatisfy({ $0.role != "tool" }) {
+                return LLMReply(
+                    message: APIMessage(
+                        role: "assistant",
+                        content: nil,
+                        tool_calls: [APIToolCall(id: "w1", function: .init(name: "chat_write_file", arguments: #"{"path":"index.html","content":"<h1>Jelly</h1>"}"#))]
+                    ),
+                    inputTokens: 0, outputTokens: 0, model: "stub"
+                )
+            }
+            XCTAssertTrue(messages.contains { $0.role == "tool" && ($0.content ?? "").contains("Wrote index.html") })
+            XCTAssertTrue(tools?.map(\.function.name).contains("chat_write_file") ?? false)
+            XCTAssertTrue(tools?.map(\.function.name).contains("chat_read_file") ?? false)
+            XCTAssertTrue(tools?.map(\.function.name).contains("run_program") ?? false)
+            return LLMReply(message: .assistant("I wrote index.html for you."), inputTokens: 0, outputTokens: 0, model: "stub")
+        }
+        let conversation = try await conversations.create(ownerID: "owner")
+        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Build a page", launchedBy: "Owner", language: "en")
+        let result = try await finishedConversation(conversations, id: conversation.id)
+        let answer = try XCTUnwrap(result.messages.last)
+        XCTAssertEqual(answer.text, "I wrote index.html for you.")
+        XCTAssertEqual(answer.fileIDs, ["index.html"])
         await engine.shutdown()
     }
 

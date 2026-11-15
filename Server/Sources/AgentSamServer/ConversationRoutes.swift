@@ -125,6 +125,33 @@ func conversationRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
         try req.json(await ctx.memory.state())
     }
 
+    // Ada's per-conversation workspace: files she wrote with the chat tools.
+    api.get("conversations", ":id", "files") { req async throws -> Response in
+        let owner = try req.requirePrincipal().conversationOwnerID
+        guard let conversation = try await ctx.conversations.get(id: req.conversationID, ownerID: owner) else {
+            throw ConversationError.notFound
+        }
+        return try req.json(await ctx.chatWorkspace.files(conversationID: conversation.id))
+    }
+
+    api.get("conversations", ":id", "files", ":name") { req async throws -> Response in
+        let owner = try req.requirePrincipal().conversationOwnerID
+        guard let conversation = try await ctx.conversations.get(id: req.conversationID, ownerID: owner) else {
+            throw ConversationError.notFound
+        }
+        guard let name = req.parameters.get("name") else {
+            throw Abort(.badRequest, reason: "A file name is required.")
+        }
+        guard let content = await ctx.chatWorkspace.read(conversationID: conversation.id, name: name) else {
+            throw Abort(.notFound, reason: "File not found.")
+        }
+        var headers = HTTPHeaders()
+        // Always plain text: workspace HTML is previewed in a sandboxed frame, never rendered from this origin.
+        headers.replaceOrAdd(name: .contentType, value: "text/plain; charset=utf-8")
+        headers.replaceOrAdd(name: "X-Content-Type-Options", value: "nosniff")
+        return Response(status: .ok, headers: headers, body: .init(string: content))
+    }
+
     api.patch("workspace", "memory") { req async throws -> Response in
         let body = try req.decodeJSON(MemoryPatchBody.self)
         return try req.json(try await ctx.memory.setEnabled(body.enabled))

@@ -8,6 +8,7 @@
 export type PreviewSource =
   | { kind: 'code'; title: string; language: string; code: string }
   | { kind: 'mission'; missionID: string; entry?: string }
+  | { kind: 'chat'; conversationID: string; entry?: string }
 
 export type ConsoleLevel = 'log' | 'info' | 'warn' | 'error' | 'debug'
 

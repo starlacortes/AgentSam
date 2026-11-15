@@ -313,7 +313,6 @@ public struct ConnectorHub: Sendable {
                 permissions.sendEmail = permissions.sendEmail && scope.permissions.sendEmail
                 permissions.createDraft = permissions.createDraft && scope.permissions.createDraft
                 permissions.dnsWrite = permissions.dnsWrite && scope.permissions.dnsWrite
-            permissions.githubWrite = permissions.githubWrite && scope.permissions.githubWrite
                 permissions.githubWrite = permissions.githubWrite && scope.permissions.githubWrite
             }
             if let web = provider as? WebConnector {

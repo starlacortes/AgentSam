@@ -39,6 +39,18 @@ describe('interactive chat', () => {
     expect(h.onQuickReply).toHaveBeenCalledWith('Investors')
   })
 
+  it('lists files Ada wrote as chips that open the workspace preview', () => {
+    const h = handlers()
+    renderUI(<ConversationMessages conversation={chat([
+      assistant({ text: 'I made you a page.', fileIDs: ['index.html', 'notes.md'] }),
+    ])} handlers={h} />)
+    const pageChip = screen.getByRole('button', { name: /index\.html/ })
+    fireEvent.click(pageChip)
+    expect(h.onOpenCanvas).toHaveBeenCalledWith(expect.objectContaining({ tab: 'preview', source: { kind: 'chat', conversationID: 'chat-1', entry: 'index.html' } }))
+    fireEvent.click(screen.getByRole('button', { name: /notes\.md/ }))
+    expect(h.onOpenCanvas).toHaveBeenCalledWith(expect.objectContaining({ tab: 'files', source: { kind: 'chat', conversationID: 'chat-1', entry: undefined } }))
+  })
+
   it('opens an HTML code block in the preview panel', () => {
     const h = handlers()
     renderUI(<ConversationMessages conversation={chat([assistant({ text: '```html\n<h1>Hi</h1>\n```' })])} handlers={h} />)

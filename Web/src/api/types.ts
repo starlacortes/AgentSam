@@ -131,6 +131,8 @@ export interface ConversationMessage {
   steps?: MessageStep[]
   /** One-click replies: clarifying options or suggested follow-ups. */
   quickReplies?: string[]
+  /** Files Ada wrote to the conversation workspace during this reply. */
+  fileIDs?: string[]
   completedAt?: string
 }
 
