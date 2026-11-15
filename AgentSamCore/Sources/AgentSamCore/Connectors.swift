@@ -117,9 +117,27 @@ public enum ConnectorHTTP {
         let (data, response) = try await session.data(for: request)
         let status = (response as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(status) else {
-            throw ConnectorError("HTTP \(status): \(snippet(data))")
+            throw ConnectorError("HTTP \(status): \(googleErrorSummary(data) ?? snippet(data))")
         }
         return data
+    }
+
+    /// Google APIs nest the useful part (e.g. Google Ads `requestError: PAGE_SIZE_NOT_SUPPORTED`)
+    /// deep in `error.details[].errors[]`, past where a raw snippet gets cut off. Pull it out.
+    static func googleErrorSummary(_ data: Data) -> String? {
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let error = object["error"] as? [String: Any] else { return nil }
+        var parts: [String] = []
+        if let status = error["status"] as? String { parts.append(status) }
+        for detail in error["details"] as? [[String: Any]] ?? [] {
+            for item in detail["errors"] as? [[String: Any]] ?? [] {
+                let code = (item["errorCode"] as? [String: Any])?.map { "\($0.key): \($0.value)" }.joined(separator: ", ")
+                let message = item["message"] as? String
+                parts.append([code, message].compactMap { $0 }.joined(separator: " — "))
+            }
+        }
+        if parts.count <= 1, let message = error["message"] as? String { parts.append(message) }
+        return parts.isEmpty ? nil : parts.joined(separator: "; ")
     }
 
     public static func jsonObject(_ data: Data) throws -> [String: Any] {

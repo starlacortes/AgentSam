@@ -109,6 +109,13 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
             }
             let context = try apiContext(token: token, runtime: runtime)
             let customers = try await listAccessibleCustomers(context: context, runtime: runtime)
+            // Also run a tiny GAQL search: listing accounts can succeed while queries are rejected.
+            let probe = context.loginCustomerID.isEmpty
+                ? customers.first?.replacingOccurrences(of: "customers/", with: "")
+                : context.loginCustomerID
+            if let probe {
+                _ = try await searchRaw(customerID: probe, query: "SELECT customer.id FROM customer LIMIT 1", pageToken: nil, context: context, runtime: runtime)
+            }
             return (true, "Connected — \(customers.count) customer account(s) accessible.")
         } catch {
             return (false, error.localizedDescription)
@@ -182,10 +189,11 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
             } else {
                 for result in results.results {
                     let client = result["customerClient"] as? [String: Any]
-                    let id = client?["id"] as? NSNumber
+                    // REST returns int64 fields as strings.
+                    let id = (client?["id"] as? String) ?? (client?["id"] as? NSNumber)?.stringValue
                     let name = client?["descriptiveName"] as? String ?? "?"
                     let status = client?["status"] as? String ?? "?"
-                    lines.append("- \(id?.stringValue ?? "?") — \(name) (\(status))")
+                    lines.append("- \(id ?? "?") — \(name) (\(status))")
                 }
             }
         }
@@ -219,7 +227,8 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
         guard let url = ConnectorHTTP.url(Self.apiBase, "/\(Self.apiVersion)/customers/\(customerID)/googleAds:search") else {
             throw ConnectorError("Bad Google Ads URL.")
         }
-        var body: [String: Any] = ["query": query, "pageSize": 500]
+        // No pageSize: the API rejects it (PAGE_SIZE_NOT_SUPPORTED); pages are a fixed 10,000 rows.
+        var body: [String: Any] = ["query": query]
         if let pageToken, !pageToken.isEmpty {
             body["pageToken"] = pageToken
         }
