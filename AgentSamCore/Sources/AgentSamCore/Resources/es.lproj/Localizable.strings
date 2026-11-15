@@ -45,6 +45,7 @@
 "connector.gmail.detail" = "Busca, lee, redacta y, opcionalmente, envía correos con tu cuenta de Gmail.";
 "connector.googleads.detail" = "Ejecuta consultas GAQL de solo lectura contra tus cuentas de Google Ads.";
 "connector.cloudflare.detail" = "Inspecciona las zonas y el DNS de Cloudflare, con acceso de escritura opcional.";
+"connector.github.detail" = "Lee repositorios, código, issues y pull requests en GitHub, con acceso de escritura opcional a una rama.";
 
 /* Engine errors */
 "engine.error.noAgents" = "Este equipo no tiene agentes para ejecutar.";

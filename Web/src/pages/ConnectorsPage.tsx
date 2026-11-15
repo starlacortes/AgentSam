@@ -5,11 +5,11 @@ import { api, errorMessage } from '../api/client'
 import type { Ack, ConnectorId, ConnectorPermissions, ConnectorStatus, ConnectorTestResult } from '../api/types'
 import { ErrorBanner, Spinner } from '../components/ui'
 
-const ORDER: ConnectorId[] = ['gmail', 'googleads', 'web', 'cloudflare']
+const ORDER: ConnectorId[] = ['gmail', 'googleads', 'web', 'cloudflare', 'github']
 
 type Result = { ok: boolean; message: string } | null
 
-/** Admin only: the outside tools mission agents can use (Gmail, Google Ads, the web, Cloudflare). */
+/** Admin only: the outside tools mission agents can use (Gmail, Google Ads, the web, Cloudflare, GitHub). */
 export function ConnectorsPage() {
   useDocumentTitle('Connectors')
   const [connectors, setConnectors] = useState<ConnectorStatus[] | null>(null)
@@ -159,23 +159,23 @@ function ConnectorCard({ status, onChanged }: { status: ConnectorStatus; onChang
         </div>
       ) : null}
 
-      {status.id === 'web' || status.id === 'cloudflare' ? (
+      {status.id === 'web' || status.id === 'cloudflare' || status.id === 'github' ? (
         <div className="row">
           <input
             className="input mono"
             style={{ flex: '1 1 260px' }}
             type="password"
             autoComplete="off"
-            placeholder={status.id === 'web' ? 'Brave Search API key, to turn on web search' : 'Cloudflare API token'}
+            placeholder={status.id === 'web' ? 'Brave Search API key, to turn on web search' : status.id === 'github' ? 'GitHub personal access token (read-only is enough)' : 'Cloudflare API token'}
             value={secret}
             onChange={(e) => setSecret(e.target.value)}
-            aria-label={status.id === 'web' ? 'Brave Search API key' : 'Cloudflare API token'}
+            aria-label={status.id === 'web' ? 'Brave Search API key' : status.id === 'github' ? 'GitHub token' : 'Cloudflare API token'}
           />
           <button
             className="btn small"
             disabled={!secret.trim() || busy !== null}
             onClick={() =>
-              void saveSecret(status.id === 'web' ? 'connectors/web/key' : 'connectors/cloudflare/token', status.id === 'web' ? 'Key' : 'Token')
+              void saveSecret(status.id === 'web' ? 'connectors/web/key' : `connectors/${status.id}/token`, status.id === 'web' ? 'Key' : 'Token')
             }
           >
             {busy === 'secret' ? 'Checking…' : 'Check and save'}
@@ -197,6 +197,9 @@ function ConnectorCard({ status, onChanged }: { status: ConnectorStatus; onChang
               }}
             />
           </>
+        ) : null}
+        {status.id === 'github' ? (
+          <Toggle label="Commit to branches and comment" checked={p.githubWrite} disabled={busy !== null} onChange={(githubWrite) => void patch({ permissions: { ...p, githubWrite } })} />
         ) : null}
         {status.id === 'cloudflare' ? (
           <Toggle label="Change DNS and purge cache" checked={p.dnsWrite} disabled={busy !== null} onChange={(dnsWrite) => void patch({ permissions: { ...p, dnsWrite } })} />

@@ -106,6 +106,7 @@ POST   /api/integrations/maloon/test
 GET    /api/connectors       PATCH /api/connectors/:id
 POST   /api/connectors/:id/test        POST /api/connectors/:id/disconnect
 POST   /api/connectors/cloudflare/token
+POST   /api/connectors/github/token
 POST   /api/connectors/googleads/credentials
 POST   /api/connectors/:id/authorize
 POST   /api/missions         { teamID, objective } or { workflowID, objective } → launches the run
@@ -140,6 +141,7 @@ Connectors give mission agents tools beyond their own files. Set them up on the 
 |---|---|---|
 | **Gmail** | `gmail_search`, `gmail_read` | `gmail_draft`, `gmail_send` |
 | **Google Ads** | `googleads_accounts`, `googleads_campaigns`, `googleads_query` (GAQL SELECT) | none, read-only |
+| **GitHub** | `github_repos`, `github_read` (files and directories), `github_search`, `github_issues`, `github_issue` | `github_write_file` (commit to an existing non-default branch), `github_comment` |
 | **Web** | `web_fetch` (public pages as text); `web_search` once a Brave Search key is saved | none |
 | **Cloudflare** | `cloudflare_zones`, `cloudflare_dns_list` | `cloudflare_dns_create/update/delete`, `cloudflare_purge_cache` |
 
@@ -167,6 +169,7 @@ POST   /api/connectors/:id/test
 POST   /api/connectors/:id/disconnect
 POST   /api/connectors/web/key                { key }  (Brave Search, verified before storing)
 POST   /api/connectors/cloudflare/token       { key }  (verified before storing)
+POST   /api/connectors/github/token           { key }  (verified before storing)
 POST   /api/connectors/googleads/credentials  { developerToken, customerId }
 POST   /api/connectors/:id/authorize          → { url } for the Google consent flow
 GET    /api/connectors/:id/callback           (Google's OAuth callback; returns to /connectors)
@@ -201,7 +204,7 @@ The web app is in English. Each mission still carries an `outputLanguage` (`en` 
 ## Security notes
 
 - API keys are stored in `keys.json` (file-protected, 0600 via atomic writes) or env vars on the server — never in the data volume's readable documents.
-- Connector credentials follow the same rule: Cloudflare tokens and Google OAuth refresh tokens live in the key store, not in `connectors.json`. Write-capable connector tools (send email, DNS edits) are disabled by default and must be explicitly enabled per connector. Google OAuth authorization state tokens are single-use and expire after 10 minutes.
+- Connector credentials follow the same rule: Cloudflare and GitHub tokens and Google OAuth refresh tokens live in the key store, not in `connectors.json`. Write-capable connector tools (send email, DNS edits) are disabled by default and must be explicitly enabled per connector. Google OAuth authorization state tokens are single-use and expire after 10 minutes.
 - The server is read-for-write protected: every `/api/*` route requires the token, with one deliberate exception — the Google OAuth callback (`GET /api/connectors/:id/callback`), which validates a single-use state token and stores only the refresh token it just exchanged.
 - Mission workspaces are path-sandboxed (no `..`, no absolute paths, text-only deliverables).
 - Maloon snapshots may contain business and customer contact data. They are persisted only in mission records on the protected data volume, are not emitted to the live event stream, and should be included in volume backup/access policies.

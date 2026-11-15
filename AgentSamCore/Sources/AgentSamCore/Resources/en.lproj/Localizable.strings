@@ -46,6 +46,7 @@
 "connector.gmail.detail" = "Search, read, draft, and optionally send email through your Gmail account.";
 "connector.googleads.detail" = "Run read-only GAQL queries against your Google Ads accounts.";
 "connector.cloudflare.detail" = "Inspect Cloudflare zones and DNS, with optional write access.";
+"connector.github.detail" = "Read repositories, code, issues, and pull requests on GitHub, with optional write access to a branch.";
 
 /* Engine errors */
 "engine.error.noAgents" = "This team has no agents to run.";
