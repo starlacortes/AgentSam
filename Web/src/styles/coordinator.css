@@ -216,6 +216,7 @@
 .co-connector-logo.gmail { color: #eaa093; }
 .co-connector-logo.googleads { color: #a6c9ef; }
 .co-connector-logo.cloudflare { color: #e8bd77; }
+.co-connector-logo.github { color: #c9d1d9; }
 .co-switch { position: relative; width: 34px; height: 20px; margin-left: auto; padding: 0; border: 1px solid var(--line2); border-radius: 99px; background: #26342b; transition: .18s; flex: none; }
 .co-switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 12px; height: 12px; border-radius: 50%; background: var(--mut); transition: .18s; }
 .co-switch[aria-checked='true'] { background: rgba(74,217,158,.2); border-color: rgba(74,217,158,.45); }

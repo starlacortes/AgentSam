@@ -83,7 +83,7 @@ export interface ConnectorPermissions {
   dnsWrite: boolean
 }
 
-export type ConnectorId = 'gmail' | 'googleads' | 'cloudflare' | 'web'
+export type ConnectorId = 'gmail' | 'googleads' | 'cloudflare' | 'github' | 'web'
 
 export interface ConnectorStatus {
   id: ConnectorId

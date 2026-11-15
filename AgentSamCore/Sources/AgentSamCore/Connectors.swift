@@ -9,6 +9,7 @@ public enum ConnectorID: String, Codable, CaseIterable, Hashable, Sendable {
     case gmail
     case googleads
     case cloudflare
+    case github
     case web
 
     public var displayName: String {
@@ -16,6 +17,7 @@ public enum ConnectorID: String, Codable, CaseIterable, Hashable, Sendable {
         case .gmail: "Gmail"
         case .googleads: "Google Ads"
         case .cloudflare: "Cloudflare"
+        case .github: "GitHub"
         case .web: "Web"
         }
     }
@@ -25,6 +27,7 @@ public enum ConnectorID: String, Codable, CaseIterable, Hashable, Sendable {
         case .gmail: "Search, read, draft, and optionally send email through your Gmail account."
         case .googleads: "Run read-only GAQL queries against your Google Ads accounts."
         case .cloudflare: "Inspect Cloudflare zones and DNS, with optional write access."
+        case .github: "Read repositories, code, issues, and pull requests on GitHub (read-only)."
         case .web: "Read public web pages, and search the web with a Brave Search key."
         }
     }
@@ -33,6 +36,7 @@ public enum ConnectorID: String, Codable, CaseIterable, Hashable, Sendable {
     public var credentialAccounts: [String] {
         switch self {
         case .cloudflare: [CloudflareConnector.tokenAccount]
+        case .github: [GitHubConnector.tokenAccount]
         case .web: [WebConnector.braveKeyAccount]
         case .gmail: [GoogleTokenProvider.refreshAccount(for: self), GoogleTokenProvider.cacheAccount(for: self)]
         case .googleads: [
@@ -189,6 +193,7 @@ public struct ConnectorHub: Sendable {
 
     public static let providers: [any ConnectorToolProvider] = [
         CloudflareConnector(),
+        GitHubConnector(),
         GmailConnector(),
         GoogleAdsConnector(),
         WebConnector(),
@@ -262,6 +267,7 @@ public struct ConnectorHub: Sendable {
         "gmail_search", "gmail_read",
         "googleads_accounts", "googleads_campaigns", "googleads_query",
         "cloudflare_zones", "cloudflare_dns_list",
+        "github_repos", "github_read", "github_search", "github_issues", "github_issue",
         "web_fetch", "web_search",
     ]
 

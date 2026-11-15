@@ -17,6 +17,8 @@
 "srv.maloonNotConfigured" = "Maloon integration is not configured on this server.";
 "srv.cloudflareTokenRequired" = "Cloudflare API token is required.";
 "srv.cloudflareStored" = "Cloudflare token verified and stored.";
+"srv.githubTokenRequired" = "GitHub token is required.";
+"srv.githubStored" = "GitHub token verified and stored.";
 "srv.adsStored" = "Google Ads credentials stored.";
 "srv.notGoogleOAuth" = "This connector does not use Google OAuth.";
 "srv.googleOAuthNotConfigured" = "Google OAuth is not configured on this server. Set AGENTSAM_GOOGLE_CLIENT_ID and AGENTSAM_GOOGLE_CLIENT_SECRET.";

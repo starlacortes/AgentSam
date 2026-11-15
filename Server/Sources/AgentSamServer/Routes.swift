@@ -300,13 +300,21 @@ func routes(_ app: Application, ctx: ServerContext) {
     // the `connectors/:id/...` POST routes for that connector (Vapor prefers constants).
     adminAPI.post("connectors", ":id", "token") { req async throws -> Response in
         let lang = SrvL10n.lang(for: req)
-        guard req.parameters.get("id").flatMap(ConnectorID.init(rawValue:)) == .cloudflare else {
+        guard let connectorID = req.parameters.get("id").flatMap(ConnectorID.init(rawValue:)), connectorID == .cloudflare || connectorID == .github else {
             throw Abort(.notFound, reason: SrvL10n.t("srv.unknownConnector", lang: lang))
         }
         let body = try req.decodeJSON(KeyBody.self)
         let token = body.key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !token.isEmpty else {
-            throw Abort(.badRequest, reason: SrvL10n.t("srv.cloudflareTokenRequired", lang: lang))
+            throw Abort(.badRequest, reason: SrvL10n.t(connectorID == .github ? "srv.githubTokenRequired" : "srv.cloudflareTokenRequired", lang: lang))
+        }
+        if connectorID == .github {
+            let verified = await GitHubConnector.verifyToken(token, session: ctx.connectors.session)
+            guard verified.ok else {
+                throw Abort(.badRequest, reason: verified.message)
+            }
+            try ctx.keyRing.set(token, for: GitHubConnector.tokenAccount)
+            return try req.json(AckResult(ok: true, detail: SrvL10n.t("srv.githubStored", lang: lang)))
         }
         let verified = await CloudflareConnector.verifyToken(token, session: ctx.connectors.session)
         guard verified.ok else {
