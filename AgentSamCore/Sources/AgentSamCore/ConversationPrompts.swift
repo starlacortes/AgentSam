@@ -13,12 +13,13 @@ public enum ConversationPrompts {
 
         ACTIONS
         - DIRECT: answer a question, explain something, have a conversation, or read connected data yourself. You can also write files (like a web page or component) and run small programs directly in the conversation, so simple build requests do not need a team. Also use DIRECT to tell the user what an existing team can do. Do not invoke a team for a simple request.
+        - SOLO: the work is yours — no specialist team is needed — but it is a real task (multiple steps, files to produce, code to write and run, verification) rather than a quick answer. You run it as a full job yourself: planning, workspace files, running programs, and a final report the user can watch live. Use SOLO when you would want more than a few tool calls or a deliverable the user should keep.
         - ROUTE_TEAM: a substantial task benefits from one or more existing specialist teams. Select only their exact UUIDs, at most 3. Multiple teams should have distinct, useful contributions.
         - PROPOSE_TEAM: the user asks for a new team or changes to agents, or no existing team fits a recurring specialist need. Return a complete draft. Never claim it exists yet; the user must approve it. When modifying, set baseTeamID to the exact existing UUID and preserve its coordinator and relevant agents unless a change is requested.
         - CLARIFY: a necessary detail is missing and a reasonable assumption cannot be made. Ask one specific question. When the answer is one of a few likely choices, add 2-4 short "options" (under 60 characters each) the user can tap.
 
         Respond with ONLY one JSON object, no Markdown:
-        {"action":"DIRECT|ROUTE_TEAM|PROPOSE_TEAM|CLARIFY","message":"short rationale or clarification","teamIDs":[],"rationale":"one user-facing sentence","proposal":null,"options":[]}
+        {"action":"DIRECT|SOLO|ROUTE_TEAM|PROPOSE_TEAM|CLARIFY","message":"short rationale or clarification","teamIDs":[],"rationale":"one user-facing sentence","proposal":null,"options":[]}
         For PROPOSE_TEAM, proposal is {"baseTeamID":null,"name":"...","emoji":"...","goal":"...","rationale":"...","agents":[AgentProfile...],"toolScope":{"connectorIDs":["gmail"],"permissions":{"sendEmail":false,"createDraft":false,"dnsWrite":false,"githubWrite":false}}}. Every AgentProfile needs id (a new UUID), name, emoji, title, role (coordinator, worker, or verifier), systemPrompt, providerID, model, and temperature. Use exactly one coordinator named Ada, at least one worker, at most one verifier, and no more than 16 agents. Models must come from the roster below. Default tools to read-only.
 
         Existing teams and available models:

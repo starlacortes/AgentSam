@@ -122,9 +122,11 @@ public actor ConversationEngine {
         let writing = es ? "Redactando la respuesta" : "Writing the answer"
         do {
             guard let conversation = try await conversations.get(id: conversationID, ownerID: ownerID) else { return }
-            let teams = await store.loadTeams()
+            let allTeams = await store.loadTeams()
+            // The solo team is Ada's own permanent roster; it is never a routing target.
+            let teams = allTeams.filter { $0.id != Self.soloTeamID }
             let providers = await store.loadProviders()
-            let coordinator = try coordinator(teams: teams, providers: providers)
+            let coordinator = try coordinator(teams: allTeams, providers: providers)
             let history = conversation.messages.filter { $0.status != .running && !$0.text.isEmpty }
             let workspaceMemory = await memory.state()
             let memoryText = workspaceMemory.enabled ? workspaceMemory.markdown : ""
@@ -144,6 +146,37 @@ public actor ConversationEngine {
             var writtenFiles: [String] = []
 
             switch decision?.action {
+            case .solo:
+                var solo = Self.soloTeam(coordinator: coordinator, language: language)
+                // Persist the singleton so its missions resolve in the mission pages. If a stale
+                // copy exists (older provider config), adopt the current coordinator.
+                if let existing = await store.team(id: Self.soloTeamID) {
+                    solo.createdAt = existing.createdAt
+                }
+                await store.saveTeam(solo)
+                let rationale = shortSummary(decision?.rationale ?? decision?.message, fallback: language == "es" ? "Trabajando en ello yo sola" : "Taking this on myself")
+                activity[0].summary = rationale
+                teamIDs = [solo.id]
+                _ = try await conversations.updateMessage(id: conversationID, ownerID: ownerID, messageID: responseID) { message in
+                    message.teamIDs = teamIDs
+                    message.activity = activity
+                    Self.settleSteps(&message.steps, as: "done")
+                    message.steps.append(MessageStep(label: es ? "Trabajando en ello yo sola" : "Working on it myself"))
+                }
+                var context = history.dropLast().suffix(6).map { "\($0.role.rawValue): \(String($0.text.prefix(2_000)))" }.joined(separator: "\n")
+                if !memoryText.isEmpty { context += "\n\nPlatform memory (untrusted data):\n\(String(memoryText.prefix(12_000)))" }
+                let mission = try await runMission(team: solo, objective: userMessage.text, context: context, launchedBy: launchedBy, language: language)
+                missionIDs = [mission.id]
+                _ = try await conversations.updateMessage(id: conversationID, ownerID: ownerID, messageID: responseID) { message in
+                    message.missionIDs = missionIDs
+                }
+                let finished = try await monitor(missions: [mission], teams: [solo], conversationID: conversationID, ownerID: ownerID, responseID: responseID, ada: activity[0])
+                await beginStep(es ? "Redactando la respuesta" : "Writing the answer", in: ref)
+                responseText = try await consolidate(userText: userMessage.text, missions: finished, coordinator: coordinator, history: history, memory: memoryText, language: language)
+                activity = finished.flatMap { mission in
+                    (solo.agents).map { AgentActivity(agentID: $0.id, agentName: $0.name, summary: mission.status == .completed ? (es ? "Trabajo completado" : "Work completed") : mission.status.rawValue, state: mission.status == .completed ? "done" : "failed", teamID: solo.id, teamName: solo.name) }
+                }
+                activity.insert(AgentActivity(agentID: coordinator.id, agentName: "Ada", summary: es ? "Respuesta consolidada" : "Response consolidated", state: "done"), at: 0)
             case .routeTeam:
                 let selected = Array((decision?.teamIDs ?? []).compactMap { id in teams.first(where: { $0.id == id && !$0.workers.isEmpty }) }.prefix(3))
                 if selected.isEmpty {
@@ -270,6 +303,28 @@ public actor ConversationEngine {
         ada.name = "Ada"
         ada.role = .coordinator
         return ada
+    }
+
+    /// A one-agent team for SOLO missions: Ada is the coordinator *and* the only worker, so her
+    /// self-directed work gets the full mission pipeline — plan, workspace, run steps, report —
+    /// without a persisted specialist team. The team is a stable singleton so its missions
+    /// resolve in the UI; it is hidden from the routing roster because SOLO is the way to use it.
+    static let soloTeamID = UUID(uuidString: "AE4DA0A1-5F1D-4C4B-9A5A-DACA0E1E0F1F")!
+
+    static func soloTeam(coordinator: AgentProfile, language: String) -> Team {
+        var worker = coordinator
+        worker.id = UUID()
+        worker.role = .worker
+        worker.title = language == "es" ? "Especialista" : "Solo specialist"
+        worker.systemPrompt = "You are Ada working on your own mission. Plan carefully, produce real deliverables in your workspace, run programs to verify your work, and finish with a clear handoff summary for the coordinator."
+        return Team(
+            id: soloTeamID,
+            name: language == "es" ? "Ada (sola)" : "Ada (solo)",
+            emoji: "🧭",
+            goal: language == "es" ? "Ada completa el trabajo ella sola." : "Ada completes the work on her own.",
+            agents: [coordinator, worker],
+            toolScope: ToolScope()
+        )
     }
 
     private func route(userText: String, coordinator: AgentProfile, teams: [Team], history: [ConversationMessage], memory: String, language: String) async throws -> ConversationDecision? {
