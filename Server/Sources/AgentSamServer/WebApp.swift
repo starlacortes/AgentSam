@@ -32,6 +32,71 @@ enum WebApp {
     }
 }
 
+/// The frame the chat uses to preview agent-built pages.
+///
+/// A `srcdoc` frame would inherit the app's strict CSP (no inline scripts), so the preview loads this tiny
+/// shell instead. Its own CSP `sandbox` directive puts it in an opaque origin — no cookies, storage, or
+/// same-origin API access — while allowing the page's inline scripts and CDN assets. (The sandbox lives in the
+/// header rather than an iframe attribute because some embedded browsers refuse sandboxed iframes.) Every
+/// other response here sends `X-Frame-Options: DENY`, so the frame can't navigate to an unsandboxed page of
+/// this app. The chat sends the page over `postMessage`, and the shell writes it into itself.
+enum PreviewFrame {
+    static let readyTag = "__agentsamPreviewReady"
+    static let loadTag = "__agentsamPreviewLoad"
+
+    /// `frame-ancestors 'self'` can't be used: the `sandbox` directive makes this document's own origin opaque,
+    /// so 'self' would match nothing. The app's origin is named explicitly instead.
+    static func contentSecurityPolicy(appOrigin: String?) -> String {
+        (baseDirectives + ["frame-ancestors \(appOrigin ?? "'none'")"]).joined(separator: "; ")
+    }
+
+    private static let baseDirectives = [
+        "sandbox allow-scripts allow-forms allow-modals",
+        "default-src 'none'",
+        "script-src 'unsafe-inline' 'unsafe-eval' https: data: blob:",
+        "style-src 'unsafe-inline' https: data:",
+        "img-src https: data: blob:",
+        "font-src https: data:",
+        "media-src https: data: blob:",
+        "connect-src https:",
+        "form-action 'none'",
+        "base-uri 'none'",
+    ]
+
+    /// The browser-facing origin of this server, e.g. `https://agentsam.example.com`.
+    static func appOrigin(_ req: Request) -> String? {
+        if let configured = Environment.get("AGENTSAM_PUBLIC_URL"), let url = URL(string: configured), let scheme = url.scheme, let host = url.host {
+            return "\(scheme)://\(host)\(url.port.map { ":\($0)" } ?? "")"
+        }
+        guard let host = req.headers.first(name: .host), host.range(of: #"^[A-Za-z0-9.\-]+(:\d{1,5})?$"#, options: .regularExpression) != nil else { return nil }
+        let scheme = req.headers.first(name: "X-Forwarded-Proto") == "https" ? "https" : "http"
+        return "\(scheme)://\(host)"
+    }
+
+    static let html = """
+    <!doctype html><html><head><meta charset="utf-8"><title>Preview</title><script>
+    // Refuse to render unless the CSP sandbox took effect (an opaque origin), so a stripped header can't
+    // let a page run with this app's origin.
+    addEventListener('message', function (event) {
+      if (self.origin !== 'null') return;
+      if (event.source !== parent || !event.data || event.data.tag !== '\(loadTag)' || typeof event.data.html !== 'string') return;
+      document.open(); document.write(event.data.html); document.close();
+    });
+    parent.postMessage({ tag: '\(readyTag)' }, '*');
+    </script></head><body></body></html>
+    """
+
+    static func register(_ app: Application) {
+        app.get("api", "preview-frame") { req async -> Response in
+            var headers = HTTPHeaders()
+            headers.replaceOrAdd(name: .contentType, value: "text/html; charset=utf-8")
+            headers.replaceOrAdd(name: "Content-Security-Policy", value: contentSecurityPolicy(appOrigin: appOrigin(req)))
+            headers.replaceOrAdd(name: "X-Frame-Options", value: "SAMEORIGIN")
+            return Response(status: .ok, headers: headers, body: .init(string: html))
+        }
+    }
+}
+
 /// Security headers for every response. Railway terminates TLS itself, so these can't rely on the Caddyfile.
 struct SecurityHeadersMiddleware: AsyncMiddleware {
     static let contentSecurityPolicy = [

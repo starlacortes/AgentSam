@@ -126,6 +126,19 @@ export interface ConversationMessage {
   teamIDs: string[]
   proposal?: TeamProposal
   activity: AgentActivity[]
+  /** Visible progress steps; absent on conversations saved before they existed. */
+  steps?: MessageStep[]
+  /** One-click replies: clarifying options or suggested follow-ups. */
+  quickReplies?: string[]
+  completedAt?: string
+}
+
+export interface MessageStep {
+  id: string
+  label: string
+  state: 'working' | 'done' | 'failed'
+  startedAt: string
+  finishedAt?: string
 }
 
 export interface ConversationSummary {

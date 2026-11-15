@@ -36,6 +36,7 @@ struct ServerContextKey: StorageKey {
 }
 
 func routes(_ app: Application, ctx: ServerContext) {
+    PreviewFrame.register(app)
     app.get("healthz") { _ async -> String in
         "ok"
     }
@@ -435,7 +436,9 @@ func routes(_ app: Application, ctx: ServerContext) {
             throw Abort(.notFound, reason: SrvL10n.t("srv.deliverableNotFound", lang: lang))
         }
         var headers = HTTPHeaders()
+        // Always plain text: HTML deliverables are previewed in a sandboxed frame, never rendered from this origin.
         headers.replaceOrAdd(name: .contentType, value: "text/markdown; charset=utf-8")
+        headers.replaceOrAdd(name: "X-Content-Type-Options", value: "nosniff")
         return Response(status: .ok, headers: headers, body: .init(string: content))
     }
 

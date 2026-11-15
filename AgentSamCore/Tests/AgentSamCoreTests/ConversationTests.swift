@@ -250,4 +250,95 @@ final class ConversationTests: XCTestCase {
         let outOfScope = await hub.run(call: APIToolCall(id: "2", function: .init(name: "cloudflare_zones", arguments: "{}")), scope: ToolScope(connectorIDs: []))
         XCTAssertTrue(outOfScope.resultText.contains("does not have access"))
     }
+
+    func testOlderMessagesDecodeWithoutInteractiveFields() throws {
+        let json = #"{"id":"B556E20F-6A57-4661-9DD8-624E193382B7","role":"assistant","text":"Hi","createdAt":0,"status":"complete","missionIDs":[],"teamIDs":[],"activity":[]}"#
+        let message = try JSONDecoder().decode(ConversationMessage.self, from: Data(json.utf8))
+        XCTAssertEqual(message.text, "Hi")
+        XCTAssertTrue(message.steps.isEmpty)
+        XCTAssertTrue(message.quickReplies.isEmpty)
+        XCTAssertNil(message.completedAt)
+    }
+
+    func testSuggestionsAreSplitFromTheVisibleAnswer() {
+        let split = ConversationPrompts.extractSuggestions("Here is the plan.\n\n```suggestions\n- Make it shorter\n2. Add a pricing table\nMake it shorter\n\n```\n")
+        XCTAssertEqual(split.text, "Here is the plan.")
+        XCTAssertEqual(split.suggestions, ["Make it shorter", "Add a pricing table"])
+        let untouched = ConversationPrompts.extractSuggestions("```html\n<p>hi</p>\n```")
+        XCTAssertEqual(untouched.text, "```html\n<p>hi</p>\n```")
+        XCTAssertTrue(untouched.suggestions.isEmpty)
+    }
+
+    func testQuickRepliesAreCleanedAndCapped() {
+        let long = String(repeating: "x", count: 81)
+        let cleaned = ConversationMessage.cleanQuickReplies(["  Yes  ", "yes", "", long, "No", "Maybe", "Later", "Never"])
+        XCTAssertEqual(cleaned, ["Yes", "No", "Maybe", "Later"])
+    }
+
+    func testClarifyOptionsBecomeQuickRepliesAndStepsSettle() async throws {
+        let store = MissionStore(root: directory)
+        await store.saveProviders([provider])
+        let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
+        try keys.set("test-key", for: provider.keyAccount)
+        let conversations = ConversationStore(root: directory)
+        let memory = WorkspaceMemoryStore(root: directory)
+        let engine = engine(store, conversations, memory, keys: keys) { _, _, _, system, _, _ in
+            if system.contains("Decide how to handle") {
+                return LLMReply(message: .assistant(#"{"action":"CLARIFY","message":"Which audience?","options":["Customers","Investors","Customers"]}"#), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
+            return LLMReply(message: .assistant("## Notes"), inputTokens: 0, outputTokens: 0, model: "stub")
+        }
+        let conversation = try await conversations.create(ownerID: "owner")
+        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Write a pitch", launchedBy: "Owner", language: "en")
+        let result = try await finishedConversation(conversations, id: conversation.id)
+        let answer = try XCTUnwrap(result.messages.last)
+        XCTAssertEqual(answer.text, "Which audience?")
+        XCTAssertEqual(answer.quickReplies, ["Customers", "Investors"])
+        XCTAssertFalse(answer.steps.isEmpty)
+        XCTAssertTrue(answer.steps.allSatisfy { $0.state == "done" && $0.finishedAt != nil })
+        XCTAssertNotNil(answer.completedAt)
+        await engine.shutdown()
+    }
+
+    func testDirectAnswerRecordsStepsAndSuggestions() async throws {
+        let store = MissionStore(root: directory)
+        await store.saveProviders([provider])
+        let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
+        try keys.set("test-key", for: provider.keyAccount)
+        let conversations = ConversationStore(root: directory)
+        let memory = WorkspaceMemoryStore(root: directory)
+        let engine = engine(store, conversations, memory, keys: keys) { _, _, _, system, _, _ in
+            if system.contains("Summarize only durable") { return LLMReply(message: .assistant("## Notes"), inputTokens: 0, outputTokens: 0, model: "stub") }
+            if system.contains("Decide how to handle") {
+                return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
+            return LLMReply(message: .assistant("A page.\n```suggestions\nAdd a contact form\n```"), inputTokens: 0, outputTokens: 0, model: "stub")
+        }
+        let conversation = try await conversations.create(ownerID: "owner")
+        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Make a page", launchedBy: "Owner", language: "en")
+        let result = try await finishedConversation(conversations, id: conversation.id)
+        let answer = try XCTUnwrap(result.messages.last)
+        XCTAssertEqual(answer.text, "A page.")
+        XCTAssertEqual(answer.quickReplies, ["Add a contact form"])
+        XCTAssertEqual(answer.steps.map(\.label), ["Choosing how to help", "Writing the answer"])
+        await engine.shutdown()
+    }
+
+    func testWebDeliverablesAreReadableButBinaryAndEscapesAreNot() async throws {
+        let store = MissionStore(root: directory)
+        let missionID = UUID()
+        let folder = store.deliverablesDirectory(missionID)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data("<h1>Hi</h1>".utf8).write(to: folder.appendingPathComponent("index.html"))
+        try Data("body{}".utf8).write(to: folder.appendingPathComponent("styles.css"))
+        try Data([0x89, 0x50]).write(to: folder.appendingPathComponent("logo.png"))
+        let html = await store.deliverable(missionID: missionID, name: "index.html")
+        let css = await store.deliverable(missionID: missionID, name: "styles.css")
+        let png = await store.deliverable(missionID: missionID, name: "logo.png")
+        let escape = await store.deliverable(missionID: missionID, name: "../../keys.json")
+        XCTAssertEqual(html, "<h1>Hi</h1>")
+        XCTAssertEqual(css, "body{}")
+        XCTAssertNil(png)
+        XCTAssertNil(escape)
+    }
 }

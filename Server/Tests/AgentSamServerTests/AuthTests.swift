@@ -227,6 +227,19 @@ final class AuthTests: XCTestCase {
         }
     }
 
+    func testPreviewFrameIsSandboxedAndNeedsNoSession() async throws {
+        try await app.test(.GET, "api/preview-frame", beforeRequest: { req in req.headers.replaceOrAdd(name: .host, value: "agentsam.test:8443") }) { res async in
+            XCTAssertEqual(res.status, .ok)
+            let csp = res.headers.first(name: "Content-Security-Policy") ?? ""
+            XCTAssertTrue(csp.hasPrefix("sandbox allow-scripts"), csp)
+            XCTAssertFalse(csp.contains("allow-same-origin"))
+            XCTAssertTrue(csp.contains("frame-ancestors http://agentsam.test:8443"), csp)
+            XCTAssertEqual(res.headers.first(name: "X-Frame-Options"), "SAMEORIGIN")
+            XCTAssertTrue(res.body.string.contains("__agentsamPreviewLoad"))
+            XCTAssertTrue(res.body.string.contains("self.origin !== 'null'"))
+        }
+    }
+
     func testSecretsHelpers() {
         XCTAssertTrue(Secrets.constantTimeEquals("abc", "abc"))
         XCTAssertFalse(Secrets.constantTimeEquals("abc", "abd"))
