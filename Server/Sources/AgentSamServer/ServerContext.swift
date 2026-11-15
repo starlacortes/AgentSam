@@ -55,7 +55,8 @@ struct ServerContext: Sendable {
         let keyRing = CompositeKeyRing(fileRing: fileRing)
         let google = GoogleOAuth(
             clientID: Environment.get("AGENTSAM_GOOGLE_CLIENT_ID") ?? "",
-            clientSecret: Environment.get("AGENTSAM_GOOGLE_CLIENT_SECRET") ?? ""
+            clientSecret: Environment.get("AGENTSAM_GOOGLE_CLIENT_SECRET") ?? "",
+            rs256Signer: GoogleRS256.sign
         )
         let connectors = ConnectorHub(store: store, keyRing: keyRing, google: google)
         let prompts = PromptStore(
