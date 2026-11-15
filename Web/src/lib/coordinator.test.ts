@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentActivity, Conversation, ConversationMessage, Team } from '../api/types'
-import { canApprove, connectorLabel, groupedConversations, presentWork, shouldPoll, voiceTranscript } from './coordinator'
+import { canApprove, canvasForFinishedFiles, connectorLabel, groupedConversations, presentWork, shouldPoll, voiceTranscript, wroteFreshFiles } from './coordinator'
 
 const team: Team = { id: 'team-1', name: 'Research', emoji: 'R', goal: 'Research', agents: [], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' }
 const activity: AgentActivity = { id: 'activity-1', agentID: 'agent-1', agentName: 'Scout', summary: 'Reviewing the brief', state: 'working', updatedAt: '2026-01-01T00:00:00Z', teamID: 'team-1' }
@@ -47,6 +47,18 @@ describe('coordinator presentation', () => {
     expect(canApprove({ ...complete, proposal })).toBe(true)
     expect(canApprove({ ...message('running'), proposal })).toBe(false)
     expect(canApprove({ ...complete, proposal: { ...proposal, status: 'applied' } })).toBe(false)
+  })
+
+  it('opens a page Ada wrote in the preview tab, and other files in the file list', () => {
+    const complete = message('complete')
+    expect(canvasForFinishedFiles(['index.html', 'notes.md'], complete)).toEqual({ tab: 'preview', entry: 'index.html' })
+    expect(canvasForFinishedFiles(['site/about.html'], complete)).toEqual({ tab: 'preview', entry: 'site/about.html' })
+    expect(canvasForFinishedFiles(['notes.md'], complete)).toEqual({ tab: 'files' })
+    expect(canvasForFinishedFiles([], complete)).toBeNull()
+    expect(canvasForFinishedFiles(['index.html'], message('running'))).toBeNull()
+    expect(canvasForFinishedFiles(undefined, complete)).toBeNull()
+    expect(wroteFreshFiles({ ...complete, fileIDs: ['index.html'] })).toBe(true)
+    expect(wroteFreshFiles(complete)).toBe(false)
   })
 })
 

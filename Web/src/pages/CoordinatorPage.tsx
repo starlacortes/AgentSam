@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, errorMessage } from '../api/client'
-import type { ConnectorStatus, Conversation, ConversationSummary, GuideState, ProviderStatus, Team, WorkspaceMemory } from '../api/types'
+import type { ConnectorStatus, Conversation, ConversationSummary, GuideState, MissionDetail, ProviderStatus, Team, WorkspaceMemory } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { AgentWorkroom } from '../components/coordinator/AgentWorkroom'
 import { CoordinatorSidebar, type PanelName } from '../components/coordinator/CoordinatorSidebar'
@@ -13,7 +13,8 @@ import { VoiceMode, type VoiceReply } from '../components/coordinator/VoiceMode'
 import { WorkspacePanel } from '../components/coordinator/WorkspacePanels'
 import { ErrorBanner, Spinner } from '../components/ui'
 import { useI18n } from '../i18n'
-import { connectorLabel, shouldPoll } from '../lib/coordinator'
+import { canvasForFinishedFiles, connectorLabel, shouldPoll, wroteFreshFiles } from '../lib/coordinator'
+import { pickEntry } from '../lib/preview'
 import { transcribeConversation } from '../lib/voice'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 
@@ -95,6 +96,51 @@ export function CoordinatorPage() {
 
   // A new chat starts with a fresh panel, kept open if it was.
   useEffect(() => { setCanvas((current) => current ? { tab: current.tab, source: null, missionID: null } : null) }, [id])
+
+  // When Ada finishes a reply that wrote files, the sidebar opens them by itself — a page she
+  // wrote goes straight to the preview tab. It fires once per message, and only for replies
+  // this page watched go from running to complete (never for history loaded on open).
+  const autoOpened = useRef<string>('')
+  const observedWorking = useRef<string | null>(null)
+  useEffect(() => {
+    const running = [...(conversation?.messages ?? [])].reverse().find((message) => message.status === 'running')
+    if (running) observedWorking.current = running.id
+  }, [conversation?.messages])
+  useEffect(() => {
+    const conversationID = conversation?.id
+    const target = conversation?.messages.find((message) => message.id === observedWorking.current)
+    if (!conversationID || !target || target.status !== 'complete') return
+    observedWorking.current = null
+    if (autoOpened.current === target.id) return
+    if (wroteFreshFiles(target)) {
+      const next = canvasForFinishedFiles(target.fileIDs, target)
+      if (!next) return
+      autoOpened.current = target.id
+      setCanvas((current) => current && current.source ? current : ({
+        tab: next.tab,
+        source: { kind: 'chat', conversationID, entry: next.entry },
+        missionID: null,
+      }))
+      return
+    }
+    // A finished run (solo or a team) that produced a page opens it in the preview too.
+    const missionID = target.missionIDs[0]
+    if (!missionID) return
+    let active = true
+    void api<MissionDetail>(`missions/${missionID}`).then((detail) => {
+      const entry = pickEntry(detail.deliverables)
+      if (!active || !entry) return
+      autoOpened.current = target.id
+      setCanvas((current) => current && current.source ? current : ({
+        tab: 'preview',
+        source: { kind: 'mission', missionID, entry },
+        missionID,
+      }))
+    }).catch(() => {})
+    return () => { active = false }
+  }, [conversation?.messages, conversation?.id])
+  // Reset the once-per-message guard when switching conversations.
+  useEffect(() => { autoOpened.current = ''; observedWorking.current = null }, [id])
 
   useLayoutEffect(() => {
     const element = input.current

@@ -1,4 +1,5 @@
 import type { AgentActivity, Conversation, ConversationMessage, ConnectorStatus, Team } from '../api/types'
+import { pickEntry } from './preview'
 
 export interface WorkPresentation {
   activities: AgentActivity[]
@@ -50,6 +51,24 @@ export function voiceTranscript(markdown: string): string {
 
 export function shouldPoll(conversation: Conversation | null): boolean {
   return Boolean(conversation?.messages.some((message) => message.status === 'running'))
+}
+
+/**
+ * What the preview sidebar should show, if anything, once Ada finishes a reply.
+ * A page she wrote opens in the preview tab; other files open the file list.
+ */
+export function canvasForFinishedFiles(
+  files: string[] | undefined,
+  message: ConversationMessage,
+): { tab: 'preview' | 'files'; entry?: string } | null {
+  if (message.status !== 'complete' || !files?.length) return null
+  const page = pickEntry(files)
+  return page ? { tab: 'preview', entry: page } : { tab: 'files' }
+}
+
+/** True when this message finished with workspace files Ada wrote this reply. */
+export function wroteFreshFiles(message: ConversationMessage): boolean {
+  return Boolean(message.fileIDs?.length)
 }
 
 export function canApprove(message: ConversationMessage): boolean {
