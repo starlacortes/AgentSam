@@ -325,6 +325,79 @@ final class ConversationTests: XCTestCase {
         await engine.shutdown()
     }
 
+    func testSoloRunsAsAMissionWithAdaAsWorkerAndProducesFiles() async throws {
+        let store = MissionStore(root: directory)
+        await store.saveProviders([provider])
+        let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
+        try keys.set("test-key", for: provider.keyAccount)
+        let conversations = ConversationStore(root: directory)
+        let memory = WorkspaceMemoryStore(root: directory)
+        let root = directory!
+        let engine = engine(store, conversations, memory, keys: keys, completion: { _, _, _, system, messages, _ in
+            if system.contains("Summarize only durable") { return LLMReply(message: .assistant("## Notes"), inputTokens: 0, outputTokens: 0, model: "stub") }
+            if system.contains("Decide how to handle") {
+                return LLMReply(message: .assistant(#"{"action":"SOLO"}"#), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
+            if messages.contains(where: { ($0.content ?? "").contains("Produce one unified response") }) {
+                return LLMReply(message: .assistant("Here is what I made."), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
+            return LLMReply(message: .assistant("planning"), inputTokens: 0, outputTokens: 0, model: "stub")
+        }, missionRunner: { team, objective, _, _, _ in
+            // The solo team: Ada as coordinator and her worker copy, exactly one worker.
+            XCTAssertEqual(team.workers.count, 1)
+            XCTAssertEqual(team.coordinator?.name, "Ada")
+            XCTAssertEqual(team.workers.first?.name, "Ada")
+            XCTAssertEqual(team.id, ConversationEngine.soloTeamID)
+            // The solo team is persisted so its missions resolve in the UI.
+            let saved = await store.team(id: team.id)
+            XCTAssertNotNil(saved)
+            let store = MissionStore(root: root)
+            var mission = await store.createMission(team: team, objective: objective)
+            mission.status = .completed
+            mission.phase = .done
+            mission.finalReport = "Solo report"
+            await store.saveMission(mission)
+            return mission
+        })
+        let conversation = try await conversations.create(ownerID: "owner")
+        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Build and verify a page yourself", launchedBy: "Owner", language: "en")
+        let result = try await finishedConversation(conversations, id: conversation.id)
+        let answer = try XCTUnwrap(result.messages.last)
+        XCTAssertEqual(answer.text, "Here is what I made.")
+        XCTAssertEqual(answer.missionIDs.count, 1)
+        XCTAssertEqual(answer.teamIDs, [ConversationEngine.soloTeamID])
+        // The solo mission is linked and its activity shows Ada doing the work.
+        XCTAssertTrue(answer.activity.contains { $0.agentName == "Ada" && $0.summary == "Work completed" })
+        await engine.shutdown()
+    }
+
+    func testSoloTeamIsExcludedFromRoutingRoster() async throws {
+        let store = MissionStore(root: directory)
+        await store.saveProviders([provider])
+        let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
+        try keys.set("test-key", for: provider.keyAccount)
+        let conversations = ConversationStore(root: directory)
+        let memory = WorkspaceMemoryStore(root: directory)
+        // Seed the solo team, as a previous SOLO run would have.
+        let ada = AgentProfile.rosterTemplates[0]
+        await store.saveTeam(ConversationEngine.soloTeam(coordinator: ada, language: "en"))
+        var seenRoster = false
+        let engine = engine(store, conversations, memory, keys: keys, completion: { _, _, _, system, _, _ in
+            if system.contains("Decide how to handle") {
+                seenRoster = true
+                // The roster section lists teams by ID; the solo team must not appear.
+                XCTAssertFalse(system.contains(ConversationEngine.soloTeamID.uuidString))
+                return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
+            return LLMReply(message: .assistant("ok"), inputTokens: 0, outputTokens: 0, model: "stub")
+        })
+        let conversation = try await conversations.create(ownerID: "owner")
+        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Hello", launchedBy: "Owner", language: "en")
+        _ = try await finishedConversation(conversations, id: conversation.id)
+        XCTAssertTrue(seenRoster)
+        await engine.shutdown()
+    }
+
     func testDirectAnswerCanWriteWorkspaceFiles() async throws {
         let store = MissionStore(root: directory)
         await store.saveProviders([provider])

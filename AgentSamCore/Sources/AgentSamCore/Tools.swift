@@ -53,6 +53,24 @@ public enum AgentTools {
                 ])
             ),
             APIToolDef(
+                name: "run_program",
+                description: "Run code in a fresh throwaway sandbox and see its output. Languages: \"js\" (Node.js), \"python\", \"c\" (compiled with gcc). Nothing is saved; use write_file for deliverables. Run the program you wrote to verify it actually works before finishing.",
+                parameters: .object([
+                    ("type", .string("object")),
+                    ("properties", .object([
+                        ("language", .object([
+                            ("type", .string("string")),
+                            ("enum", .array([.string("js"), .string("python"), .string("c")])),
+                            ("description", .string("Language of the source code")),
+                        ])),
+                        ("source", .object([("type", .string("string")), ("description", .string("The program to run"))])),
+                        ("stdin", .object([("type", .string("string")), ("description", .string("Optional text piped to the program's standard input"))])),
+                        ("filename", .object([("type", .string("string")), ("description", .string("Optional name for the source file. Defaults by language"))])),
+                    ])),
+                    ("required", .array([.string("language"), .string("source")])),
+                ])
+            ),
+            APIToolDef(
                 name: "finish",
                 description: "Call this when your task is complete. Provide a short summary of what you produced for the coordinator.",
                 parameters: .object([
@@ -204,7 +222,7 @@ public enum AgentTools {
                 return ToolOutcome(resultText: "Invalid path: \(rawPath). Use a simple relative path with no .. or absolute paths.")
             }
             do {
-                try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try Data(content.utf8).write(to: url, options: [.atomic])
                 return ToolOutcome(
                     resultText: "Wrote \(rawPath) (\(content.utf8.count) bytes).",
@@ -213,6 +231,15 @@ public enum AgentTools {
             } catch {
                 return ToolOutcome(resultText: "Could not write \(rawPath): \(error.localizedDescription)")
             }
+
+        case "run_program":
+            guard let language = args["language"]?.stringValue,
+                  let source = args["source"]?.stringValue else {
+                return ToolOutcome(resultText: "run_program requires language and source.")
+            }
+            let stdin = args["stdin"]?.stringValue ?? ""
+            let filename = args["filename"]?.stringValue
+            return CodeRunner.run(language: language, source: source, stdin: stdin, filename: filename, sandbox: workspace)
 
         default:
             return ToolOutcome(resultText: "Unknown tool: \(call.function.name).")

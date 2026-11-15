@@ -263,6 +263,7 @@ public struct GuideState: Codable, Hashable, Sendable {
 
 public enum ConversationRoute: String, Codable, Sendable {
     case direct = "DIRECT"
+    case solo = "SOLO"
     case routeTeam = "ROUTE_TEAM"
     case proposeTeam = "PROPOSE_TEAM"
     case clarify = "CLARIFY"
