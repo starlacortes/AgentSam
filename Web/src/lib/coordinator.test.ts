@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentActivity, Conversation, ConversationMessage, Team } from '../api/types'
 import { intervalLabel } from '../api/types'
-import { canApprove, canvasForFinishedFiles, connectorLabel, groupedConversations, presentWork, shouldPoll, voiceTranscript, workspaceFileSource, wroteFreshFiles } from './coordinator'
+import { canApprove, canvasForFinishedFiles, connectorLabel, groupedConversations, pollDelay, presentWork, shouldPoll, voiceTranscript, workspaceFileSource, wroteFreshFiles } from './coordinator'
 
 const team: Team = { id: 'team-1', name: 'Research', emoji: 'R', goal: 'Research', agents: [], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' }
 const activity: AgentActivity = { id: 'activity-1', agentID: 'agent-1', agentName: 'Scout', summary: 'Reviewing the brief', state: 'working', updatedAt: '2026-01-01T00:00:00Z', teamID: 'team-1' }
@@ -22,6 +22,12 @@ describe('coordinator presentation', () => {
     expect(shouldPoll(conversation([message('complete')]))).toBe(false)
   })
 
+  it('polls quickly only once the answer is streaming in', () => {
+    expect(pollDelay(conversation([message('running', [activity])]))).toBe(900)
+    expect(pollDelay(conversation([{ ...message('running', [activity]), text: 'Partial answer' }]))).toBe(250)
+    expect(pollDelay(null)).toBe(900)
+  })
+
   it('keeps the latest completed team visible after a direct response', () => {
     const direct = presentWork(conversation([message('complete'), message('complete')]), [team])
     expect(direct).toMatchObject({ running: false, direct: true, activities: [] })
@@ -35,7 +41,7 @@ describe('coordinator presentation', () => {
   })
 
   it('describes Gmail configuration and availability distinctly', () => {
-    const base = { id: 'gmail' as const, name: 'Gmail', detail: '', permissions: { sendEmail: false, createDraft: false, dnsWrite: false, githubWrite: false }, oauthAvailable: true }
+    const base = { id: 'gmail' as const, name: 'Gmail', detail: '', permissions: { sendEmail: false, createDraft: false, dnsWrite: false, githubWrite: false, adsWrite: false }, oauthAvailable: true }
     expect(connectorLabel(undefined)).toBe('Connect Gmail')
     expect(connectorLabel({ ...base, configured: false, enabled: true })).toBe('Connect Gmail')
     expect(connectorLabel({ ...base, configured: true, enabled: false })).toBe('Gmail off')
@@ -44,7 +50,7 @@ describe('coordinator presentation', () => {
 
   it('does not permit team mutation from a pending or failed response', () => {
     const complete = message('complete')
-    const proposal = { id: 'proposal-1', team, rationale: 'A useful specialist', toolScope: { connectorIDs: [], permissions: { sendEmail: false, createDraft: false, dnsWrite: false, githubWrite: false } }, status: 'pending' as const, createdAt: '2026-01-01T00:00:00Z' }
+    const proposal = { id: 'proposal-1', team, rationale: 'A useful specialist', toolScope: { connectorIDs: [], permissions: { sendEmail: false, createDraft: false, dnsWrite: false, githubWrite: false, adsWrite: false } }, status: 'pending' as const, createdAt: '2026-01-01T00:00:00Z' }
     expect(canApprove({ ...complete, proposal })).toBe(true)
     expect(canApprove({ ...message('running'), proposal })).toBe(false)
     expect(canApprove({ ...complete, proposal: { ...proposal, status: 'applied' } })).toBe(false)

@@ -82,6 +82,7 @@ export interface ConnectorPermissions {
   createDraft: boolean
   dnsWrite: boolean
   githubWrite: boolean
+  adsWrite?: boolean
 }
 
 export type ConnectorId = 'gmail' | 'googleads' | 'cloudflare' | 'github' | 'web'

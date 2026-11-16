@@ -25,7 +25,7 @@ public enum ConnectorID: String, Codable, CaseIterable, Hashable, Sendable {
     public var detail: String {
         switch self {
         case .gmail: "Search, read, draft, and optionally send email through your Gmail account."
-        case .googleads: "Run read-only GAQL queries against your Google Ads accounts."
+        case .googleads: "Run read-only GAQL queries against your Google Ads accounts, with optional campaign pause/enable."
         case .cloudflare: "Inspect Cloudflare zones and DNS, with optional write access."
         case .github: "Read repositories, code, issues, and pull requests on GitHub, with optional write access to a branch."
         case .web: "Read public web pages, and search the web with a Brave Search key."
@@ -59,21 +59,40 @@ public struct ConnectorPermissions: Codable, Hashable, Sendable {
     public var dnsWrite: Bool
     /// GitHub: allow committing files to a non-default branch and commenting on issues/PRs.
     public var githubWrite: Bool
+    /// Google Ads: allow pausing and enabling campaigns.
+    public var adsWrite: Bool
 
-    public init(sendEmail: Bool = false, createDraft: Bool = false, dnsWrite: Bool = false, githubWrite: Bool = false) {
+    public init(sendEmail: Bool = false, createDraft: Bool = false, dnsWrite: Bool = false, githubWrite: Bool = false, adsWrite: Bool = false) {
         self.sendEmail = sendEmail
         self.createDraft = createDraft
         self.dnsWrite = dnsWrite
         self.githubWrite = githubWrite
+        self.adsWrite = adsWrite
     }
 
-    // Hand-written so configs saved before `githubWrite` existed still load.
+    /// Every write allowed. Only meaningful as a scope: it is always intersected with the
+    /// connector's own toggles, so this means "whatever the user switched on in Connections".
+    public static let all = ConnectorPermissions(sendEmail: true, createDraft: true, dnsWrite: true, githubWrite: true, adsWrite: true)
+
+    /// A permission is granted only when both sides allow it.
+    public func intersected(with other: ConnectorPermissions) -> ConnectorPermissions {
+        ConnectorPermissions(
+            sendEmail: sendEmail && other.sendEmail,
+            createDraft: createDraft && other.createDraft,
+            dnsWrite: dnsWrite && other.dnsWrite,
+            githubWrite: githubWrite && other.githubWrite,
+            adsWrite: adsWrite && other.adsWrite
+        )
+    }
+
+    // Hand-written so configs saved before newer permissions existed still load.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         sendEmail = try c.decodeIfPresent(Bool.self, forKey: .sendEmail) ?? false
         createDraft = try c.decodeIfPresent(Bool.self, forKey: .createDraft) ?? false
         dnsWrite = try c.decodeIfPresent(Bool.self, forKey: .dnsWrite) ?? false
         githubWrite = try c.decodeIfPresent(Bool.self, forKey: .githubWrite) ?? false
+        adsWrite = try c.decodeIfPresent(Bool.self, forKey: .adsWrite) ?? false
     }
 }
 
@@ -310,13 +329,7 @@ public struct ConnectorHub: Sendable {
             let config = await config(for: provider.id)
             guard config.enabled, provider.isConfigured(keyRing: keyRing) else { continue }
             if let scope, !scope.connectorIDs.contains(provider.id) { continue }
-            var permissions = config.permissions
-            if let scope {
-                permissions.sendEmail = permissions.sendEmail && scope.permissions.sendEmail
-                permissions.createDraft = permissions.createDraft && scope.permissions.createDraft
-                permissions.dnsWrite = permissions.dnsWrite && scope.permissions.dnsWrite
-                permissions.githubWrite = permissions.githubWrite && scope.permissions.githubWrite
-            }
+            let permissions = scope.map { config.permissions.intersected(with: $0.permissions) } ?? config.permissions
             if let web = provider as? WebConnector {
                 defs += web.toolDefs(keyRing: keyRing).filter { !readOnly || Self.readOnlyToolNames.contains($0.function.name) }
             } else {
@@ -343,13 +356,7 @@ public struct ConnectorHub: Sendable {
         guard provider.isConfigured(keyRing: keyRing) else {
             return .failure("The \(provider.id.displayName) connector is not connected. Connect it in Connections.")
         }
-        var permissions = config.permissions
-        if let scope {
-            permissions.sendEmail = permissions.sendEmail && scope.permissions.sendEmail
-            permissions.createDraft = permissions.createDraft && scope.permissions.createDraft
-            permissions.dnsWrite = permissions.dnsWrite && scope.permissions.dnsWrite
-            permissions.githubWrite = permissions.githubWrite && scope.permissions.githubWrite
-        }
+        let permissions = scope.map { config.permissions.intersected(with: $0.permissions) } ?? config.permissions
         if !readOnly && !Self.readOnlyToolNames.contains(call.function.name) && !approved {
             guard let approval else { return .failure("Connector writes require an explicit user approval.") }
             let decision = await approval(call)

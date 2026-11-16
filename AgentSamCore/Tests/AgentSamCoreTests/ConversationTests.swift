@@ -364,6 +364,62 @@ final class ConversationTests: XCTestCase {
         XCTAssertTrue(invalid.resultText.contains("requires zone_id"))
     }
 
+    func testDirectChatFollowsConnectionsWriteToggles() async throws {
+        final class Seen: @unchecked Sendable {
+            let lock = NSLock()
+            var tools: [String] = []
+            var system = ""
+        }
+        for dnsWrite in [false, true] {
+            let root = directory.appendingPathComponent("toggle-\(dnsWrite)")
+            let store = MissionStore(root: root)
+            await store.saveProviders([provider])
+            let keys = FileKeyRing(url: root.appendingPathComponent("keys.json"))
+            try keys.set("test-key", for: provider.keyAccount)
+            try keys.set("token", for: CloudflareConnector.tokenAccount)
+            await store.saveConnectorConfigs([ConnectorConfig(id: .cloudflare, enabled: true, permissions: ConnectorPermissions(dnsWrite: dnsWrite))])
+            let hub = ConnectorHub(store: store, keyRing: keys, google: GoogleOAuth(clientID: "", clientSecret: ""))
+            let conversations = ConversationStore(root: root)
+            let memory = WorkspaceMemoryStore(root: root)
+            let seen = Seen()
+            let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, connectors: hub, missions: MissionEngine(store: store, keyRing: keys)) { _, _, _, system, _, tools in
+                if system.contains("Summarize only durable") { return LLMReply(message: .assistant("## Notes"), inputTokens: 0, outputTokens: 0, model: "stub") }
+                if system.contains("Decide how to handle") { return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub") }
+                if let tools {
+                    seen.lock.lock(); seen.tools = tools.map(\.function.name); seen.system = system; seen.lock.unlock()
+                }
+                return LLMReply(message: .assistant("Done."), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
+            let conversation = try await conversations.create(ownerID: "owner")
+            _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Add a DNS record", launchedBy: "Owner", language: "en")
+            _ = try await finishedConversation(conversations, id: conversation.id)
+            seen.lock.lock(); let tools = seen.tools; let system = seen.system; seen.lock.unlock()
+            XCTAssertTrue(tools.contains("cloudflare_dns_list"))
+            XCTAssertEqual(tools.contains("cloudflare_dns_create"), dnsWrite)
+            XCTAssertEqual(system.contains("Connector write tools the user enabled in Connections: cloudflare_dns_create"), dnsWrite)
+            XCTAssertEqual(system.contains("You have no connector write tools right now"), !dnsWrite)
+            await engine.shutdown()
+        }
+    }
+
+    func testSoloTeamWritesFollowConnectionsToggles() async throws {
+        let solo = ConversationEngine.soloTeam(coordinator: agent("Ada", role: .coordinator), language: "en")
+        let scope = try XCTUnwrap(solo.toolScope)
+        XCTAssertEqual(scope.permissions, .all)
+        let store = MissionStore(root: directory)
+        let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
+        try keys.set("token", for: CloudflareConnector.tokenAccount)
+        try keys.set("token", for: GitHubConnector.tokenAccount)
+        await store.saveConnectorConfigs([
+            ConnectorConfig(id: .cloudflare, enabled: true, permissions: ConnectorPermissions(dnsWrite: false)),
+            ConnectorConfig(id: .github, enabled: true, permissions: ConnectorPermissions(githubWrite: true)),
+        ])
+        let hub = ConnectorHub(store: store, keyRing: keys, google: GoogleOAuth(clientID: "", clientSecret: ""))
+        let names = await hub.toolDefs(scope: scope).map(\.function.name)
+        XCTAssertFalse(names.contains("cloudflare_dns_create"), "a toggle left off in Connections stays off")
+        XCTAssertTrue(names.contains("github_write_file"))
+    }
+
     func testOlderMessagesDecodeWithoutInteractiveFields() throws {
         let json = #"{"id":"B556E20F-6A57-4661-9DD8-624E193382B7","role":"assistant","text":"Hi","createdAt":0,"status":"complete","missionIDs":[],"teamIDs":[],"activity":[]}"#
         let message = try JSONDecoder().decode(ConversationMessage.self, from: Data(json.utf8))

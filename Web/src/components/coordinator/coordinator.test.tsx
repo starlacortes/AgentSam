@@ -31,7 +31,7 @@ const knowledge: WorkspaceKnowledge = {
 function proposalMessage(status: ConversationMessage['status'] = 'complete'): ConversationMessage {
   return {
     id: 'message-1', role: 'assistant', text: 'Review this proposed team.', createdAt: '2026-01-01T00:00:00Z', status, missionIDs: [], teamIDs: [], activity: [],
-    proposal: { id: 'proposal-1', team, rationale: 'A focused research team.', toolScope: { connectorIDs: [], permissions: { sendEmail: false, createDraft: false, dnsWrite: false, githubWrite: false } }, status: 'pending', createdAt: '2026-01-01T00:00:00Z' },
+    proposal: { id: 'proposal-1', team, rationale: 'A focused research team.', toolScope: { connectorIDs: [], permissions: { sendEmail: false, createDraft: false, dnsWrite: false, githubWrite: false, adsWrite: false } }, status: 'pending', createdAt: '2026-01-01T00:00:00Z' },
   }
 }
 

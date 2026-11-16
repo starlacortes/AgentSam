@@ -26,8 +26,26 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
     // MARK: Tool definitions
 
     public func toolDefs(permissions: ConnectorPermissions) -> [APIToolDef] {
-        [Self.accountsTool, Self.campaignsTool, Self.queryTool]
+        var defs = [Self.accountsTool, Self.campaignsTool, Self.queryTool]
+        if permissions.adsWrite { defs.append(Self.setCampaignStatusTool) }
+        return defs
     }
+
+    static let setCampaignStatusTool = APIToolDef(
+        name: "googleads_set_campaign_status",
+        description: "Pause or enable one Google Ads campaign (requires Google Ads write permission). Changes live ad delivery and spend, so only do this when the user explicitly asked for this exact campaign.",
+        parameters: .object([
+            ("type", .string("object")),
+            ("properties", .object([
+                ("customer_id", .object([("type", .string("string")), ("description", .string("Customer account ID (with or without the customers/ prefix). Defaults to the configured login customer."))])),
+                ("campaign_id", .object([("type", .string("string")), ("description", .string("Numeric campaign ID, from googleads_campaigns."))])),
+                ("status", .object([("type", .string("string")), ("enum", .array([.string("PAUSED"), .string("ENABLED")])), ("description", .string("PAUSED to stop delivery, ENABLED to resume it."))])),
+            ])),
+            ("required", .array([.string("campaign_id"), .string("status")])),
+        ])
+    )
+
+    static let writesDisabled = "Campaign changes are disabled for the Google Ads connector. Enable Google Ads writes in Connections."
 
     static let accountsTool = APIToolDef(
         name: "googleads_accounts",
@@ -92,6 +110,18 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
                 let customerID = try resolveCustomerID(args["customer_id"]?.stringValue, context: context)
                 let text = try await search(customerID: customerID, query: query, pageToken: args["page_token"]?.stringValue, context: context, runtime: runtime)
                 return ToolOutcome.success(text)
+
+            case "googleads_set_campaign_status":
+                guard permissions.adsWrite else { return ToolOutcome(resultText: Self.writesDisabled) }
+                guard let campaignID = Self.cleanCampaignID(args["campaign_id"]?.stringValue) else {
+                    return ToolOutcome(resultText: "googleads_set_campaign_status requires a numeric campaign_id.")
+                }
+                guard let status = args["status"]?.stringValue?.uppercased(), ["PAUSED", "ENABLED"].contains(status) else {
+                    return ToolOutcome(resultText: "status must be PAUSED or ENABLED.")
+                }
+                let customerID = try resolveCustomerID(args["customer_id"]?.stringValue, context: context)
+                let text = try await setCampaignStatus(customerID: customerID, campaignID: campaignID, status: status, context: context, runtime: runtime)
+                return ToolOutcome(resultText: text)
 
             default:
                 return .failure("Unknown tool: \(name).")
@@ -216,6 +246,34 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
             }
         }
         return AgentTools.clip(lines.joined(separator: "\n"))
+    }
+
+    /// Accepts "123", "campaigns/123" or a full resource name; returns the bare numeric ID.
+    static func cleanCampaignID(_ raw: String?) -> String? {
+        guard let last = raw?.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "/").last else { return nil }
+        let id = String(last)
+        return !id.isEmpty && id.allSatisfy(\.isNumber) ? id : nil
+    }
+
+    static func campaignStatusBody(customerID: String, campaignID: String, status: String) -> [String: Any] {
+        [
+            "operations": [[
+                "update": ["resourceName": "customers/\(customerID)/campaigns/\(campaignID)", "status": status],
+                "updateMask": "status",
+            ]],
+        ]
+    }
+
+    private func setCampaignStatus(customerID: String, campaignID: String, status: String, context: APIContext, runtime: ConnectorRuntime) async throws -> String {
+        guard let url = ConnectorHTTP.url(Self.apiBase, "/\(Self.apiVersion)/customers/\(customerID)/campaigns:mutate") else {
+            throw ConnectorError("Bad Google Ads URL.")
+        }
+        let body = Self.campaignStatusBody(customerID: customerID, campaignID: campaignID, status: status)
+        let data = try await ConnectorHTTP.request(runtime.session, url: url, method: "POST", headers: headers(context), jsonBody: body)
+        let object = try ConnectorHTTP.jsonObject(data)
+        let resource = (object["results"] as? [[String: Any]])?.first?["resourceName"] as? String
+        guard let resource else { throw ConnectorError("Google Ads did not confirm the campaign change.") }
+        return "Campaign \(resource) is now \(status)."
     }
 
     struct SearchResults {

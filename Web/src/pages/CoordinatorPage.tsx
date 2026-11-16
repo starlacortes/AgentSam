@@ -14,7 +14,7 @@ import { VoiceMode, type VoiceReply } from '../components/coordinator/VoiceMode'
 import { WorkspacePanel } from '../components/coordinator/WorkspacePanels'
 import { ErrorBanner, Spinner } from '../components/ui'
 import { useI18n } from '../i18n'
-import { canvasForFinishedFiles, connectorLabel, shouldPoll, workspaceFileSource, wroteFreshFiles } from '../lib/coordinator'
+import { canvasForFinishedFiles, connectorLabel, pollDelay, shouldPoll, workspaceFileSource, wroteFreshFiles } from '../lib/coordinator'
 import { pickEntry } from '../lib/preview'
 import { transcribeConversation } from '../lib/voice'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
@@ -251,7 +251,7 @@ export function CoordinatorPage() {
       }).catch((err) => {
         if (mounted.current) setError(errorMessage(err))
       })
-    }, 900)
+    }, pollDelay(conversation))
     return () => window.clearTimeout(timer)
   }, [conversation, running, replaceConversation, refreshWorkspace])
 
@@ -318,15 +318,15 @@ export function CoordinatorPage() {
       replaceConversation(result)
       setDraft('')
       if (!waitForCompletion) return null
-      for (let attempt = 0; attempt < 240; attempt += 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, 900))
+      for (let attempt = 0; attempt < 700; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, attempt === 0 ? 150 : 350))
         if (!mounted.current) return null
         const next = await api<Conversation>(`conversations/${current.id}`)
         replaceConversation(next)
         const answer = next.messages.at(-1)
         if (answer && answer.status !== 'running') {
           await refreshWorkspace()
-          return answer.status === 'complete' ? { text: answer.text, speechURL: `/api/conversations/${current.id}/messages/${answer.id}/speech?lang=${lang}` } : null
+          return answer.status === 'complete' ? { text: answer.text, speechURL: `/api/conversations/${current.id}/messages/${answer.id}/speech?lang=${lang}&chunk=0` } : null
         }
       }
       setError(t('This response is taking longer than expected. Keep the chat open, or return to it later.'))

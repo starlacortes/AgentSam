@@ -68,7 +68,7 @@ In a direct chat, Ada can do more than answer. She has a private workspace for t
 
 When a task is Ada's to do herself but is a real job — several steps, deliverables to produce, code to verify — she routes it as **SOLO** instead of answering inline. A SOLO run is a full mission on the **Ada (solo)** team, her permanent one-agent roster: Ada as coordinator and only worker, with the mission workspace, the full step budget, `run_program`, and a final report. Readable files from the conversation workspace are copied into every SOLO or specialist mission before launch, so follow-up work starts from the actual files. Shared project text files are also copied under `project/`; after a linked mission completes, its readable deliverables are synchronized back into the same owner's shared project. The run appears in chat with the usual mission chips ("Watch work" console, deliverables, preview) and in mission history like any other run. Ada never routes specialist work to the solo team; it exists only for self-directed work.
 
-Connector reads remain available directly. Connector writes in direct chat and linked missions require an approval card showing the exact operation and arguments; nothing runs before approval. The same auto-open applies to a finished SOLO or team run: if the run produced an HTML page, the preview opens on it when the run completes.
+Connector reads remain available directly. Connector write tools (sending or drafting mail, committing to GitHub, DNS changes, pausing campaigns) follow the toggles on the Connectors page and require an approval card showing the exact operation and arguments, in direct chat and linked missions as well as for teams; nothing runs before approval. The same auto-open applies to a finished SOLO or team run: if the run produced an HTML page, the preview opens on it when the run completes.
 
 Workspace memory is compacted separately for each signed-in user and is never shared across accounts. Installations using the legacy shared server token retain the original shared-token memory files. Direct-chat, routing, consolidation, identity, and memory prompts use the same versioned `prompts.json` store as mission prompts; direct tool loops also compact oversized turns and retry provider context overflows.
 
@@ -192,7 +192,7 @@ Every connector write also needs a person's explicit, one-use approval, in direc
 | Connector | Agent tools | Off until you switch it on |
 |---|---|---|
 | **Gmail** | `gmail_search`, `gmail_read` | `gmail_draft`, `gmail_send` |
-| **Google Ads** | `googleads_accounts`, `googleads_campaigns`, `googleads_query` (GAQL SELECT) | none, read-only |
+| **Google Ads** | `googleads_accounts`, `googleads_campaigns`, `googleads_query` (GAQL SELECT) | `googleads_set_campaign_status` (pause or enable one campaign) |
 | **GitHub** | `github_repos`, `github_read` (files and directories), `github_search`, `github_issues`, `github_issue` | `github_write_file` (commit to an existing non-default branch), `github_comment` |
 | **Web** | `web_fetch` (public pages as text); `web_search` once a Brave Search key is saved | none |
 | **Cloudflare** | `cloudflare_zones`, `cloudflare_dns_list` | `cloudflare_dns_create/update/delete`, `cloudflare_purge_cache` |
@@ -216,7 +216,7 @@ Get a key from the [Brave Search API](https://brave.com/search/api/) and save it
 
 ```
 GET    /api/connectors                        (status for all connectors)
-PATCH  /api/connectors/:id                    { enabled, permissions }
+PATCH  /api/connectors/:id                    { enabled, permissions: { sendEmail, createDraft, dnsWrite, githubWrite, adsWrite } }
 POST   /api/connectors/:id/test
 POST   /api/connectors/:id/disconnect
 POST   /api/connectors/web/key                { key }  (Brave Search, verified before storing)
