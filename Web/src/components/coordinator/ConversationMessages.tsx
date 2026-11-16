@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom'
 import { api, errorMessage } from '../../api/client'
 import type { Conversation, ConversationMessage, MissionDetail, TeamProposal } from '../../api/types'
 import { useI18n } from '../../i18n'
-import { canApprove } from '../../lib/coordinator'
+import { canApprove, voiceTranscript } from '../../lib/coordinator'
+import { Speaker } from '../../lib/voice'
 import { isHTML, isPreviewableLanguage, pickEntry } from '../../lib/preview'
 import { Markdown, type CodeTools } from '../Markdown'
 import { ErrorBanner } from '../ui'
@@ -52,6 +53,29 @@ function useCopy(): [boolean, (text: string) => void] {
   return [copied, (text: string) => { void navigator.clipboard?.writeText(text).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 1500) }) }]
 }
 
+/** One speaker for the whole chat, so starting a reply stops whichever one was playing. */
+let sharedSpeaker: Speaker | null = null
+let sharedOwner: ((playing: boolean) => void) | null = null
+
+/** Reads a finished reply aloud with server speech, or the browser's voice when none is set up. */
+function useReadAloud(conversationID: string, message: ConversationMessage, language: string): [boolean, () => void] {
+  const [playing, setPlaying] = useState(false)
+  const mine = useRef<(playing: boolean) => void>(setPlaying)
+  useEffect(() => () => {
+    if (sharedOwner === mine.current) { sharedSpeaker?.stop(); sharedOwner = null }
+  }, [])
+  return [playing, () => {
+    if (playing) { sharedSpeaker?.stop(); return }
+    sharedSpeaker ??= new Speaker(language === 'es' ? 'es-ES' : 'en-US')
+    sharedSpeaker.stop()
+    sharedOwner?.(false)
+    sharedOwner = mine.current
+    sharedSpeaker.onChange = (speaking) => { sharedOwner?.(speaking) }
+    sharedSpeaker.unlock()
+    sharedSpeaker.enqueue(voiceTranscript(message.text), `/api/conversations/${conversationID}/messages/${message.id}/speech?lang=${language}&chunk=0`)
+  }]
+}
+
 function timeLabel(iso: string): string {
   const date = new Date(iso)
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleString([], { hour: '2-digit', minute: '2-digit', month: 'short', day: 'numeric' })
@@ -86,8 +110,9 @@ function UserMessage({ message, onEdit }: { message: ConversationMessage; onEdit
 }
 
 function Message({ conversationID, message, latest, busy, handlers, retry }: { conversationID: string; message: ConversationMessage; latest: boolean; busy: boolean; handlers: MessageHandlers; retry: () => void }) {
-  const { t } = useI18n()
+  const { t, lang } = useI18n()
   const [copied, copy] = useCopy()
+  const [playing, togglePlay] = useReadAloud(conversationID, message, lang)
   const { onOpenCanvas } = handlers
   const codeTools = useMemo<CodeTools>(() => ({
     copyLabel: t('Copy'),
@@ -114,6 +139,7 @@ function Message({ conversationID, message, latest, busy, handlers, retry }: { c
       {message.proposal ? <ProposalCard conversationID={conversationID} message={message} onUpdated={handlers.onUpdated} onRevise={handlers.onRevise} /> : null}
       {message.status === 'complete' ? <div className="co-message-actions">
         <button onClick={() => copy(message.text)}><Icon name={copied ? 'check' : 'copy'} size={12} />{copied ? t('Copied') : t('Copy')}</button>
+        <button onClick={togglePlay} aria-pressed={playing}><Icon name={playing ? 'stop' : 'play'} size={12} />{playing ? t('Stop') : t('Play')}</button>
         {latest ? <button onClick={retry} disabled={busy}><Icon name="retry" size={12} />{t('Retry')}</button> : null}
       </div> : null}
       {latest && message.status === 'complete' ? <QuickReplies replies={message.quickReplies ?? []} onPick={handlers.onQuickReply} disabled={busy} /> : null}

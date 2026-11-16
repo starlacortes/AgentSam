@@ -30,6 +30,18 @@ function renderUI(ui: React.ReactNode) {
 describe('interactive chat', () => {
   afterEach(() => { cleanup(); vi.clearAllMocks() })
 
+  it('reads a finished reply aloud with a Play button and stops it again', () => {
+    const synth = { speak: vi.fn(), cancel: vi.fn(), resume: vi.fn() }
+    Object.defineProperty(window, 'speechSynthesis', { value: synth, configurable: true })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 409 }))
+    renderUI(<ConversationMessages conversation={chat([assistant({ text: 'Hello there.' })])} handlers={handlers()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Play' }))
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+    expect(screen.getByRole('button', { name: 'Play' })).toBeTruthy()
+    vi.unstubAllGlobals()
+  })
+
   it('sends a quick reply with one click, only on the latest answer', () => {
     const h = handlers()
     const user: ConversationMessage = { ...assistant({ id: 'u1', role: 'user', text: 'Pitch?' }) }
