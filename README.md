@@ -49,12 +49,12 @@ Every turn, tool call, deliverable, finding, and cost is a `RunEvent`, appended 
 
 In a direct chat, Ada can do more than answer. She has a private workspace for the conversation:
 
-- `chat_write_file` / `chat_read_file` / `chat_list_files` — files live under `conversations/<uuid>/files/`, shown in the chat as chips that open the preview and files sidebar. Paths are jailed to that folder (no `..`, no absolute paths) and reads are limited to text formats, the same allowlist as mission deliverables.
+- `chat_write_file` / `chat_read_file` / `chat_list_files` — files live under `conversations/<uuid>/files/`, shown in the chat as chips that open the preview and files sidebar. When Ada finishes a reply that wrote files, the sidebar opens them itself: an HTML page goes straight to the live preview, anything else to the file list. (It opens once per reply, and only for replies you watched finish — not when reopening old chats.) Paths are jailed to that folder (no `..`, no absolute paths) and reads are limited to text formats, the same allowlist as mission deliverables.
 - `run_program` — runs JavaScript (Node), Python, or C (compiled with gcc) in a throwaway sandbox under the conversation's folder. Runs have a 20-second wall-clock timeout, capped output, at most 4 runs per reply, and a PATH-only environment so no server secrets reach the child. The sandbox is deleted after each run; the toolchains come from the Docker image.
 
 When a task is Ada's to do herself but is a real job — several steps, deliverables to produce, code to verify — she routes it as **SOLO** instead of answering inline. A SOLO run is a full mission on the **Ada (solo)** team, her permanent one-agent roster: Ada as coordinator and only worker, with the mission workspace, the full step budget, `run_program`, and a final report. It appears in chat with the usual mission chips ("Watch work" console, deliverables, preview) and in mission history like any other run. Ada never routes specialist work to the solo team; it exists only for self-directed work.
 
-Connector tools stay read-only in direct chat (write permissions like sending mail or committing to GitHub remain team-worker-only).
+Connector tools stay read-only in direct chat (write permissions like sending mail or committing to GitHub remain team-worker-only). The same auto-open applies to a finished SOLO or team run: if the run produced an HTML page, the preview opens on it when the run completes.
 
 ## Deploy on Railway
 
