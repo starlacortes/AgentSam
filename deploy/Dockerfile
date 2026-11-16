@@ -9,6 +9,21 @@ RUN npm run build
 # Server: Swift release build.
 FROM swift:6.4-noble AS build
 WORKDIR /build
+# Compile third-party dependencies (Vapor, NIO, swift-crypto...) in their own layer. Only the
+# manifests and empty stub sources are copied first, so this layer stays cached until Package.swift
+# or Package.resolved changes; editing app code then rebuilds just the two AgentSam modules.
+COPY AgentSamCore/Package.swift AgentSamCore/Package.swift
+COPY Server/Package.swift Server/Package.resolved Server/
+RUN mkdir -p AgentSamCore/Sources/AgentSamCore/Resources AgentSamCore/Tests/AgentSamCoreTests \
+             Server/Sources/AgentSamServer/Resources Server/Tests/AgentSamServerTests \
+    && touch AgentSamCore/Sources/AgentSamCore/Stub.swift AgentSamCore/Tests/AgentSamCoreTests/Stub.swift \
+             Server/Sources/AgentSamServer/main.swift Server/Tests/AgentSamServerTests/Stub.swift
+WORKDIR /build/Server
+RUN swift build -c release --static-swift-stdlib --product AgentSamServer
+
+# Now the real sources. Drop the stubs so they cannot end up in the build.
+WORKDIR /build
+RUN rm -rf AgentSamCore/Sources AgentSamCore/Tests Server/Sources Server/Tests
 COPY AgentSamCore/ AgentSamCore/
 COPY Server/ Server/
 WORKDIR /build/Server

@@ -32,6 +32,12 @@ jobs:
     container: swift:6.4-noble
     steps:
       - uses: actions/checkout@v4
+      - name: Cache SwiftPM build
+        uses: actions/cache@v4
+        with:
+          path: Server/.build
+          key: swiftpm-${{ runner.os }}-${{ hashFiles('Server/Package.resolved', 'Server/Package.swift', 'AgentSamCore/Package.swift') }}
+          restore-keys: swiftpm-${{ runner.os }}-
       - name: Build and test
         working-directory: Server
         run: swift test
@@ -40,5 +46,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
       - name: Build the Railway image
-        run: docker build -f deploy/Dockerfile -t agentsam:ci .
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          tags: agentsam:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
