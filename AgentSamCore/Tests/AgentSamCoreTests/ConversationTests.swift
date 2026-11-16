@@ -453,4 +453,174 @@ final class ConversationTests: XCTestCase {
         XCTAssertNil(png)
         XCTAssertNil(escape)
     }
+
+    // MARK: Schedules
+
+    func testScheduleValidationAcceptsAllowedIntervalsAndRejectsOthers() throws {
+        let valid = ConversationSchedule.validate(prompt: "  Refresh the list from Gmail and update the snapshot. ", intervalMinutes: 60)
+        XCTAssertEqual(valid?.prompt, "Refresh the list from Gmail and update the snapshot.")
+        XCTAssertEqual(valid?.intervalMinutes, 60)
+        XCTAssertEqual(valid?.intervalLabel, "hourly")
+        XCTAssertEqual(valid?.language, "en")
+        XCTAssertNil(ConversationSchedule.validate(prompt: "Refresh", intervalMinutes: 45))
+        XCTAssertNil(ConversationSchedule.validate(prompt: "", intervalMinutes: 60))
+        XCTAssertNil(ConversationSchedule.validate(prompt: String(repeating: "x", count: 4_001), intervalMinutes: 60))
+        XCTAssertEqual(ConversationSchedule(prompt: "Digest", intervalMinutes: 1440, language: "ES").language, "es")
+        XCTAssertEqual(ConversationSchedule(prompt: "Digest", intervalMinutes: 1440).intervalLabel, "daily")
+        XCTAssertEqual(ConversationSchedule(prompt: "Digest", intervalMinutes: 720).intervalLabel, "every 12 hours")
+        XCTAssertEqual(ConversationSchedule(prompt: "Digest", intervalMinutes: 30).intervalLabel, "every 30 minutes")
+    }
+
+    func testSchedulePersistsWithConversationAndDueScanFindsOnlyDueOnes() async throws {
+        let store = ConversationStore(root: directory)
+        let conversation = try await store.create(ownerID: "owner")
+        // No schedule on a new conversation; old conversations decode without one.
+        XCTAssertNil(conversation.schedule)
+        let past = ConversationSchedule(prompt: "Due already", intervalMinutes: 15, nextRunAt: Date().addingTimeInterval(-60))
+        let future = ConversationSchedule(prompt: "Not yet", intervalMinutes: 15, nextRunAt: Date().addingTimeInterval(3_600))
+        let second = try await store.create(ownerID: "owner")
+        _ = try await store.setSchedule(id: conversation.id, ownerID: "owner", schedule: past)
+        _ = try await store.setSchedule(id: second.id, ownerID: "owner", schedule: future)
+        let due = try await store.dueSchedules()
+        XCTAssertEqual(due.map(\.conversationID), [conversation.id])
+        XCTAssertEqual(due.first?.schedule.prompt, "Due already")
+        // Marking a run advances nextRunAt by the interval.
+        let run = try await store.markScheduleRun(id: conversation.id, ownerID: "owner")
+        XCTAssertNotNil(run.schedule?.lastRunAt)
+        let afterMark = try await store.dueSchedules()
+        XCTAssertTrue(afterMark.isEmpty)
+        // Clearing removes it.
+        _ = try await store.setSchedule(id: conversation.id, ownerID: "owner", schedule: nil)
+        let cleared = try await store.get(id: conversation.id, ownerID: "owner")
+        XCTAssertNil(cleared?.schedule)
+    }
+
+    func testSchedulerFiresDuePromptAsAScheduledMessageAndAdvancesIt() async throws {
+        let store = MissionStore(root: directory)
+        await store.saveProviders([provider])
+        let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
+        try keys.set("test-key", for: provider.keyAccount)
+        let conversations = ConversationStore(root: directory)
+        let memory = WorkspaceMemoryStore(root: directory)
+        let engine = engine(store, conversations, memory, keys: keys) { _, _, _, system, _, _ in
+            if system.contains("Summarize only durable") { return LLMReply(message: .assistant("## Notes"), inputTokens: 0, outputTokens: 0, model: "stub") }
+            if system.contains("Decide how to handle") {
+                return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
+            return LLMReply(message: .assistant("Refreshed with 3 new messages."), inputTokens: 0, outputTokens: 0, model: "stub")
+        }
+        let conversation = try await conversations.create(ownerID: "owner")
+        // Make the schedule due now.
+        _ = try await conversations.setSchedule(id: conversation.id, ownerID: "owner", schedule: ConversationSchedule(prompt: "Refresh the list", intervalMinutes: 60, nextRunAt: Date().addingTimeInterval(-1)))
+        let scheduler = ConversationScheduler(conversations: conversations, engine: engine)
+        await scheduler.tick()
+        let result = try await finishedConversation(conversations, id: conversation.id)
+        // The scheduled user message is flagged so the UI labels it, and Ada answered normally.
+        let scheduledMessage = try XCTUnwrap(result.messages.first { $0.role == .user })
+        XCTAssertTrue(scheduledMessage.scheduled)
+        XCTAssertEqual(scheduledMessage.text, "Refresh the list")
+        XCTAssertEqual(result.messages.last?.text, "Refreshed with 3 new messages.")
+        // The schedule advanced: not due again until the next interval.
+        let after = try await conversations.get(id: conversation.id, ownerID: "owner")
+        XCTAssertNotNil(after?.schedule?.lastRunAt)
+        let dueAgain = try await conversations.dueSchedules()
+        XCTAssertTrue(dueAgain.filter { $0.conversationID == conversation.id }.isEmpty)
+        await engine.shutdown()
+        await scheduler.shutdown()
+    }
+
+    func testAdaCanScheduleAndCancelThroughWorkspaceTools() async throws {
+        let store = MissionStore(root: directory)
+        await store.saveProviders([provider])
+        let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
+        try keys.set("test-key", for: provider.keyAccount)
+        let conversations = ConversationStore(root: directory)
+        let memory = WorkspaceMemoryStore(root: directory)
+        let engine = engine(store, conversations, memory, keys: keys) { _, _, _, system, messages, tools in
+            if system.contains("Summarize only durable") { return LLMReply(message: .assistant("## Notes"), inputTokens: 0, outputTokens: 0, model: "stub") }
+            if system.contains("Decide how to handle") {
+                return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
+            if messages.allSatisfy({ $0.role != "tool" }) {
+                XCTAssertTrue(tools?.map(\.function.name).contains("chat_schedule_run") ?? false)
+                return LLMReply(
+                    message: APIMessage(
+                        role: "assistant",
+                        content: nil,
+                        tool_calls: [APIToolCall(id: "s1", function: .init(name: "chat_schedule_run", arguments: #"{"prompt":"Refresh the list","intervalMinutes":60}"#))]
+                    ),
+                    inputTokens: 0, outputTokens: 0, model: "stub"
+                )
+            }
+            if messages.contains(where: { $0.role == "tool" && ($0.content ?? "").contains("Schedule set") })
+                && messages.allSatisfy({ $0.role != "tool" || !($0.content ?? "").contains("Schedule cancelled") }) {
+                return LLMReply(
+                    message: APIMessage(
+                        role: "assistant",
+                        content: nil,
+                        tool_calls: [APIToolCall(id: "s2", function: .init(name: "chat_schedule_cancel", arguments: "{}"))]
+                    ),
+                    inputTokens: 0, outputTokens: 0, model: "stub"
+                )
+            }
+            return LLMReply(message: .assistant("Set, then cancelled."), inputTokens: 0, outputTokens: 0, model: "stub")
+        }
+        let conversation = try await conversations.create(ownerID: "owner")
+        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Run the refresh every hour", launchedBy: "Owner", language: "en")
+        let result = try await finishedConversation(conversations, id: conversation.id)
+        XCTAssertEqual(result.messages.last?.text, "Set, then cancelled.")
+        // The cancel cleared what the run set; the persisted schedule is gone.
+        XCTAssertNil(result.schedule)
+        await engine.shutdown()
+    }
+
+    func testScheduleToolValidatesIntervalBeforeSaving() async throws {
+        let workspace = ChatWorkspaceStore(root: directory)
+        let conversationID = UUID()
+        actor Recorder {
+            var saved: [ConversationSchedule?] = []
+            func record(_ next: ConversationSchedule?) -> ConversationSchedule? {
+                saved.append(next)
+                return next
+            }
+            func snapshot(_ block: ([ConversationSchedule?]) -> Void) {
+                block(saved)
+            }
+        }
+        let recorder = Recorder()
+        let sink: @Sendable (ConversationSchedule?) async -> ConversationSchedule? = { next in
+            await recorder.record(next)
+        }
+        let bad = await ChatWorkspaceTools.run(
+            call: APIToolCall(id: "b", function: .init(name: "chat_schedule_run", arguments: #"{"prompt":"Refresh","intervalMinutes":45}"#)),
+            workspace: workspace,
+            conversationID: conversationID,
+            schedule: sink
+        )
+        XCTAssertTrue(bad.resultText.contains("Invalid schedule"))
+        var savedAfterBad: [ConversationSchedule?] = []
+        await recorder.snapshot { savedAfterBad = $0 }
+        XCTAssertTrue(savedAfterBad.isEmpty)
+        let good = await ChatWorkspaceTools.run(
+            call: APIToolCall(id: "g", function: .init(name: "chat_schedule_run", arguments: #"{"prompt":"Refresh","intervalMinutes":60}"#)),
+            workspace: workspace,
+            conversationID: conversationID,
+            schedule: sink
+        )
+        XCTAssertTrue(good.resultText.contains("hourly"))
+        var savedAfterGood: [ConversationSchedule?] = []
+        await recorder.snapshot { savedAfterGood = $0 }
+        XCTAssertEqual(savedAfterGood.count, 1)
+        let cancel = await ChatWorkspaceTools.run(
+            call: APIToolCall(id: "c", function: .init(name: "chat_schedule_cancel", arguments: "{}")),
+            workspace: workspace,
+            conversationID: conversationID,
+            schedule: sink
+        )
+        XCTAssertEqual(cancel.resultText, "Schedule cancelled.")
+        var savedAfterCancel: [ConversationSchedule?] = []
+        await recorder.snapshot { savedAfterCancel = $0 }
+        XCTAssertEqual(savedAfterCancel.count, 2)
+        XCTAssertNil(savedAfterCancel.last ?? nil)
+    }
 }

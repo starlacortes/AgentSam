@@ -80,7 +80,7 @@ function UserMessage({ message, onEdit }: { message: ConversationMessage; onEdit
   const { t } = useI18n()
   const [copied, copy] = useCopy()
   return <div className="co-user-message" title={timeLabel(message.createdAt)}>
-    <p>{message.text}</p>
+    {message.scheduled ? <p className="co-scheduled-message"><span className="co-scheduled-tag"><Icon name="refresh" size={11} />{t('Scheduled run')}</span>{message.text}</p> : <p>{message.text}</p>}
     <div className="co-user-actions"><button type="button" onClick={() => copy(message.text)} aria-label={t('Copy')}><Icon name={copied ? 'check' : 'copy'} size={11} /></button><button type="button" onClick={() => onEdit(message.text)} aria-label={t('Edit and resend')} title={t('Edit and resend')}><Icon name="edit" size={11} /></button></div>
   </div>
 }

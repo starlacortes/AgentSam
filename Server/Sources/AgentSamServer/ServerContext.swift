@@ -46,6 +46,7 @@ struct ServerContext: Sendable {
     let throttle: LoginThrottle
     let provisioning: ProvisioningStore
     let provisioningRunner: ProvisioningRunner
+    let scheduler: ConversationScheduler
     /// Compared against when an email isn't found, so failed logins take the same time either way.
     let dummyPasswordHash: String
 
@@ -104,6 +105,7 @@ struct ServerContext: Sendable {
             dailyLimit: Environment.get("AGENTSAM_PROVISIONING_DAILY_LIMIT").flatMap(Int.init) ?? 200
         )
         let provisioningRunner = ProvisioningRunner(store: provisioning, accounts: accounts)
+        let scheduler = ConversationScheduler(conversations: conversations, engine: conversationEngine)
         return ServerContext(
             store: store,
             engine: engine,
@@ -123,6 +125,7 @@ struct ServerContext: Sendable {
             throttle: LoginThrottle(),
             provisioning: provisioning,
             provisioningRunner: provisioningRunner,
+            scheduler: scheduler,
             dummyPasswordHash: (try? Bcrypt.hash(Secrets.randomToken())) ?? ""
         )
     }
@@ -158,6 +161,7 @@ struct ServerContext: Sendable {
     func shutdown() async {
         await conversationEngine.shutdown()
         await provisioningRunner.shutdown()
+        await scheduler.shutdown()
         for missionID in await engine.activeMissionIDs {
             await engine.stop(missionID: missionID)
         }
