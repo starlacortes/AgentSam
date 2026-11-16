@@ -7,6 +7,7 @@ public func configure(_ app: Application) async throws {
     await ctx.seedIfEmpty()
     await ctx.reconcileInterruptedMissions()
     await ctx.provisioningRunner.start()
+    await ctx.scheduler.start()
     await app.storage.setWithAsyncShutdown(ServerContextKey.self, to: ctx) { context in
         await context.shutdown()
     }

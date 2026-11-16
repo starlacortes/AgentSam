@@ -39,6 +39,19 @@ describe('interactive chat', () => {
     expect(h.onQuickReply).toHaveBeenCalledWith('Investors')
   })
 
+  it('labels a scheduled run instead of showing it as plain user text', () => {
+    const h = handlers()
+    const scheduled: ConversationMessage = { ...assistant({ id: 's1', role: 'user', text: 'Refresh the list', scheduled: true }) }
+    const plain: ConversationMessage = { ...assistant({ id: 'u1', role: 'user', text: 'Hello' }) }
+    const { unmount } = renderUI(<ConversationMessages conversation={chat([scheduled, plain, assistant({ text: 'Refreshed with 3 new messages.' })])} handlers={h} />)
+    expect(screen.getByText('Scheduled run')).toBeTruthy()
+    expect(screen.getByText('Refresh the list')).toBeTruthy()
+    expect(screen.getAllByText('Hello').length).toBe(1)
+    unmount()
+    renderUI(<ConversationMessages conversation={chat([plain])} handlers={h} />)
+    expect(screen.queryByText('Scheduled run')).toBeNull()
+  })
+
   it('lists files Ada wrote as chips that open the workspace preview', () => {
     const h = handlers()
     renderUI(<ConversationMessages conversation={chat([

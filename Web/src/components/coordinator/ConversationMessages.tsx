@@ -24,7 +24,7 @@ export function ProposalCard({ conversationID, message, onUpdated, onRevise }: {
       onUpdated('conversation' in result ? result.conversation : result)
     } catch (err) { setError(errorMessage(err)) } finally { setBusy(false) }
   }
-  const permissions = [proposal.toolScope.permissions.sendEmail ? t('Send email') : null, proposal.toolScope.permissions.createDraft ? t('Create drafts') : null, proposal.toolScope.permissions.dnsWrite ? t('DNS writes') : null, proposal.toolScope.permissions.githubWrite ? t('GitHub writes') : null].filter(Boolean)
+  const permissions = [proposal.toolScope.permissions.sendEmail ? t('Send email') : null, proposal.toolScope.permissions.createDraft ? t('Create drafts') : null, proposal.toolScope.permissions.dnsWrite ? t('DNS writes') : null, proposal.toolScope.permissions.githubWrite ? t('GitHub writes') : null, proposal.toolScope.permissions.adsWrite ? t('Campaign changes') : null].filter(Boolean)
   return <div className="co-team-proposal">
     <div className="co-proposal-head"><Icon name="users" /><div><b>{proposal.team.name}</b><span>{proposal.baseTeamID ? t('Team modification proposal') : t('New team proposal')}</span></div><span className="co-chip">{t(proposal.status)}</span></div>
     <p className="co-proposal-rationale">{proposal.rationale}</p>
@@ -80,7 +80,7 @@ function UserMessage({ message, onEdit }: { message: ConversationMessage; onEdit
   const { t } = useI18n()
   const [copied, copy] = useCopy()
   return <div className="co-user-message" title={timeLabel(message.createdAt)}>
-    <p>{message.text}</p>
+    {message.scheduled ? <p className="co-scheduled-message"><span className="co-scheduled-tag"><Icon name="refresh" size={11} />{t('Scheduled run')}</span>{message.text}</p> : <p>{message.text}</p>}
     <div className="co-user-actions"><button type="button" onClick={() => copy(message.text)} aria-label={t('Copy')}><Icon name={copied ? 'check' : 'copy'} size={11} /></button><button type="button" onClick={() => onEdit(message.text)} aria-label={t('Edit and resend')} title={t('Edit and resend')}><Icon name="edit" size={11} /></button></div>
   </div>
 }

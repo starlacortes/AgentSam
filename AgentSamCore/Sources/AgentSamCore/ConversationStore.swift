@@ -109,6 +109,41 @@ public actor ConversationStore {
         try FileManager.default.removeItem(at: url(id))
     }
 
+    /// Stores or clears the conversation's recurring schedule. Pass `nil` to cancel it.
+    @discardableResult
+    public func setSchedule(id: UUID, ownerID: String, schedule: ConversationSchedule?) throws -> Conversation {
+        guard var conversation = try get(id: id, ownerID: ownerID) else { throw ConversationError.notFound }
+        conversation.schedule = schedule
+        try save(conversation)
+        return conversation
+    }
+
+    /// Advances a schedule after the server fired it: records the run and computes the next due
+    /// time. The scheduler calls this right after dispatch, so a crash mid-run still counts.
+    @discardableResult
+    public func markScheduleRun(id: UUID, ownerID: String) throws -> Conversation {
+        guard var conversation = try get(id: id, ownerID: ownerID),
+              var schedule = conversation.schedule else { throw ConversationError.notFound }
+        schedule.lastRunAt = Date()
+        schedule.nextRunAt = Date().addingTimeInterval(TimeInterval(schedule.intervalMinutes) * 60)
+        conversation.schedule = schedule
+        try save(conversation)
+        return conversation
+    }
+
+    /// Every scheduled conversation that is due, across all owners. The scheduler polls this.
+    public func dueSchedules(now: Date = Date()) throws -> [(conversationID: UUID, ownerID: String, schedule: ConversationSchedule)] {
+        let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
+        var due: [(UUID, String, ConversationSchedule)] = []
+        for file in files where file.pathExtension == "json" {
+            guard let data = try? Data(contentsOf: file),
+                  let conversation = try? Self.decoder.decode(Conversation.self, from: data),
+                  let schedule = conversation.schedule, schedule.nextRunAt <= now else { continue }
+            due.append((conversation.id, conversation.ownerID, schedule))
+        }
+        return due
+    }
+
     public func guide(ownerID: String) -> GuideState {
         guard let data = try? Data(contentsOf: workspace.appendingPathComponent("guides.json")),
               let states = try? Self.decoder.decode([String: GuideState].self, from: data) else { return GuideState() }

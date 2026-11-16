@@ -44,7 +44,7 @@ public actor ConversationEngine {
     }
 
     @discardableResult
-    public func send(conversationID: UUID, ownerID: String, text rawText: String, launchedBy: String, language: String) async throws -> Conversation {
+    public func send(conversationID: UUID, ownerID: String, text rawText: String, launchedBy: String, language: String, scheduled: Bool = false) async throws -> Conversation {
         let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { throw ConversationError.emptyMessage }
         guard text.count <= 20_000 else { throw ConversationError.messageTooLong }
@@ -52,7 +52,7 @@ public actor ConversationEngine {
         guard let conversation = try await conversations.get(id: conversationID, ownerID: ownerID) else { throw ConversationError.notFound }
         guard !conversation.messages.contains(where: { $0.status == .running }) else { throw ConversationError.alreadyRunning }
         let lang = language.lowercased().hasPrefix("es") ? "es" : "en"
-        let userMessage = ConversationMessage(role: .user, text: text)
+        let userMessage = ConversationMessage(role: .user, text: text, scheduled: scheduled)
         let choosing = lang == "es" ? "Eligiendo la mejor forma de ayudar" : "Choosing how to help"
         let pending = ConversationMessage(role: .assistant, text: "", status: .running, activity: [AgentActivity(agentID: UUID(), agentName: "Ada", summary: choosing, state: "working")], steps: [MessageStep(label: choosing)])
         _ = try await conversations.append(id: conversationID, ownerID: ownerID, message: userMessage)
@@ -323,7 +323,8 @@ public actor ConversationEngine {
             emoji: "🧭",
             goal: language == "es" ? "Ada completa el trabajo ella sola." : "Ada completes the work on her own.",
             agents: [coordinator, worker],
-            toolScope: ToolScope()
+            // Ada's own work follows the Connections toggles, exactly like her direct chat.
+            toolScope: ToolScope(permissions: .all)
         )
     }
 
@@ -334,7 +335,7 @@ public actor ConversationEngine {
     }
 
     private func directAnswer(userText: String, coordinator: AgentProfile, history: [ConversationMessage], memory: String, language: String, proposal: TeamProposal? = nil, ref: ResponseRef? = nil, conversationID: UUID? = nil, writtenFiles: inout [String]) async throws -> String {
-        let connectorTools = await connectors?.toolDefs(readOnly: true) ?? []
+        let connectorTools = await connectors?.toolDefs() ?? []
         let tools = conversationID == nil ? connectorTools : connectorTools + ChatWorkspaceTools.definitions
         let system = ConversationPrompts.responseSystem(coordinator: coordinator, memory: memory, history: history, tools: tools, language: language)
         var text = userText
@@ -361,6 +362,13 @@ public actor ConversationEngine {
                             } else {
                                 outcome = await ChatWorkspaceTools.run(call: call, workspace: workspace, conversationID: conversationID)
                             }
+                        } else if call.function.name == "chat_schedule_run" || call.function.name == "chat_schedule_cancel" {
+                            let owner = ref?.ownerID
+                            outcome = await ChatWorkspaceTools.run(call: call, workspace: workspace, conversationID: conversationID) { next in
+                                guard let owner else { return nil }
+                                let saved = try? await self.conversations.setSchedule(id: conversationID, ownerID: owner, schedule: next)
+                                return saved?.schedule
+                            }
                         } else {
                             outcome = await ChatWorkspaceTools.run(call: call, workspace: workspace, conversationID: conversationID)
                         }
@@ -369,7 +377,7 @@ public actor ConversationEngine {
                         outcome = ToolOutcome(resultText: "Workspace tools are unavailable in this context.")
                     }
                 } else {
-                    outcome = await connectors?.run(call: call, readOnly: true) ?? ToolOutcome(resultText: "No connector is available for this tool.")
+                    outcome = await connectors?.run(call: call) ?? ToolOutcome(resultText: "No connector is available for this tool.")
                 }
                 messages.append(.tool(id: call.id, content: String(outcome.resultText.prefix(32_000))))
             }

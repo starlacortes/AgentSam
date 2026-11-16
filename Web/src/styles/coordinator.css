@@ -589,3 +589,25 @@
 @media (prefers-reduced-motion: reduce) {
   .co-thinking-label { animation: none; color: var(--ink2); background: none; }
 }
+
+/* Recurring schedule: header toggle and modal */
+.co-schedule-toggle.active { color: var(--em2); border-color: rgba(74,217,158,.22); }
+.co-schedule-toggle { position: relative; }
+.co-schedule-toggle.active::after { content: ''; position: absolute; top: 5px; right: 5px; width: 5px; height: 5px; border-radius: 50%; background: var(--em); }
+.co-schedule-modal { width: min(560px,94vw); max-height: 88dvh; overflow-y: auto; border: 1px solid var(--line2); border-radius: 16px; background: var(--panel); box-shadow: var(--shadow-pop); }
+.co-schedule-modal .co-drawer-head > svg { color: var(--em); flex: none; margin-top: 2px; }
+.co-schedule-body { display: flex; flex-direction: column; gap: 15px; padding: 18px 20px 22px; }
+.co-schedule-field > span { display: block; color: var(--mut); font-size: 11px; font-weight: 600; margin-bottom: 6px; }
+.co-schedule-field textarea { width: 100%; resize: vertical; min-height: 64px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel2); color: var(--ink); font: inherit; font-size: 12.5px; line-height: 1.5; }
+.co-schedule-field textarea:focus { outline: none; border-color: rgba(74,217,158,.4); }
+.co-schedule-intervals { display: flex; flex-wrap: wrap; gap: 7px; }
+.co-schedule-intervals button { padding: 7px 11px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--mut); font-size: 11px; transition: .15s; }
+.co-schedule-intervals button:hover { color: var(--ink); border-color: var(--line2); }
+.co-schedule-intervals button.active { color: var(--em2); border-color: rgba(74,217,158,.35); background: rgba(74,217,158,.12); }
+.co-schedule-actions { display: flex; align-items: center; gap: 10px; margin-top: 4px; }
+.co-schedule-actions > button:last-child { margin-left: auto; }
+.co-schedule-note { color: var(--dim); font-size: 10.5px; line-height: 1.5; }
+
+/* Scheduled-run messages in the chat */
+.co-scheduled-message { display: flex; flex-direction: column; gap: 6px; }
+.co-scheduled-tag { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; padding: 3px 8px; border: 1px solid rgba(74,217,158,.3); border-radius: 6px; background: rgba(74,217,158,.1); color: var(--em2); font-size: 10px; font-weight: 600; letter-spacing: .02em; }
