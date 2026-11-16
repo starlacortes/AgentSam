@@ -344,7 +344,8 @@ public actor ConversationEngine {
         var turns: [APIMessage] = []
         for message in history.suffix(limit) {
             let role = message.role == .user ? "user" : "assistant"
-            let body = String(message.text.prefix(characters))
+            // Raw tool-call markup from an earlier reply teaches the model to write calls as text again.
+            let body = String(DSMLToolCalls.strip(message.text).prefix(characters))
             if let last = turns.last, last.role == role {
                 turns[turns.count - 1] = APIMessage(role: role, content: (last.content ?? "") + "\n\n" + body)
             } else {
@@ -445,8 +446,18 @@ public actor ConversationEngine {
             }
             await beginStep(language == "es" ? "Redactando la respuesta" : "Writing the answer", in: ref)
         }
+        // The tool budget is spent. Say so, or some models keep "calling" tools by writing the calls as text.
+        messages.append(.user(language == "es"
+            ? "Ya no quedan pasos de herramientas para esta respuesta. Responde ahora con lo que ya sabes, sin llamar a herramientas, y di qué falta si no pudiste terminar."
+            : "No tool steps are left for this reply. Answer now with what you already have, without calling any tools, and say what is still missing if you could not finish."))
         let final = try await completeDirect(coordinator: coordinator, system: system, messages: messages, tools: nil, onDelta: streamer(for: ref)?.handler)
-        return final.message.content ?? ""
+        let answer = final.message.content ?? ""
+        if answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return language == "es"
+                ? "Usé todos los pasos de herramientas de esta respuesta antes de terminar. Pídeme que continúe y seguiré desde aquí."
+                : "I used all the tool steps for this reply before finishing. Ask me to continue and I will pick up from here."
+        }
+        return answer
     }
 
     /// Streams text into the running response, throttled so storage is not rewritten per token.
