@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentActivity, Conversation, ConversationMessage, Team } from '../api/types'
 import { intervalLabel } from '../api/types'
-import { canApprove, canvasForFinishedFiles, connectorLabel, groupedConversations, presentWork, shouldPoll, voiceTranscript, wroteFreshFiles } from './coordinator'
+import { canApprove, canvasForFinishedFiles, connectorLabel, groupedConversations, pollDelay, presentWork, shouldPoll, voiceTranscript, wroteFreshFiles } from './coordinator'
 
 const team: Team = { id: 'team-1', name: 'Research', emoji: 'R', goal: 'Research', agents: [], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' }
 const activity: AgentActivity = { id: 'activity-1', agentID: 'agent-1', agentName: 'Scout', summary: 'Reviewing the brief', state: 'working', updatedAt: '2026-01-01T00:00:00Z', teamID: 'team-1' }
@@ -20,6 +20,12 @@ describe('coordinator presentation', () => {
     expect(presentWork(running, [team])).toMatchObject({ running: true, direct: false, teamNames: ['Research'], activities: [activity] })
     expect(shouldPoll(running)).toBe(true)
     expect(shouldPoll(conversation([message('complete')]))).toBe(false)
+  })
+
+  it('polls quickly only once the answer is streaming in', () => {
+    expect(pollDelay(conversation([message('running', [activity])]))).toBe(900)
+    expect(pollDelay(conversation([{ ...message('running', [activity]), text: 'Partial answer' }]))).toBe(250)
+    expect(pollDelay(null)).toBe(900)
   })
 
   it('keeps the latest completed team visible after a direct response', () => {

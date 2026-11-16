@@ -14,7 +14,7 @@ import { VoiceMode, type VoiceReply } from '../components/coordinator/VoiceMode'
 import { WorkspacePanel } from '../components/coordinator/WorkspacePanels'
 import { ErrorBanner, Spinner } from '../components/ui'
 import { useI18n } from '../i18n'
-import { canvasForFinishedFiles, connectorLabel, shouldPoll, wroteFreshFiles } from '../lib/coordinator'
+import { canvasForFinishedFiles, connectorLabel, pollDelay, shouldPoll, wroteFreshFiles } from '../lib/coordinator'
 import { pickEntry } from '../lib/preview'
 import { transcribeConversation } from '../lib/voice'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
@@ -226,7 +226,7 @@ export function CoordinatorPage() {
       }).catch((err) => {
         if (mounted.current) setError(errorMessage(err))
       })
-    }, 900)
+    }, pollDelay(conversation))
     return () => window.clearTimeout(timer)
   }, [conversation, running, replaceConversation, refreshWorkspace])
 

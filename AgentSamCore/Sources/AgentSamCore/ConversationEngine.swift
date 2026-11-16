@@ -346,10 +346,13 @@ public actor ConversationEngine {
         var runs = 0
         for _ in 0..<8 {
             try Task.checkCancellation()
-            let reply = try await complete(coordinator: coordinator, system: system, messages: messages, tools: tools)
+            let stream = streamer(for: ref)
+            let reply = try await complete(coordinator: coordinator, system: system, messages: messages, tools: tools, onDelta: stream?.handler)
             messages.append(reply.message)
             let calls = reply.message.tool_calls ?? []
             if calls.isEmpty { return reply.message.content ?? "" }
+            // Text before a tool call is a preamble, not the answer; drop it so the next turn starts clean.
+            if stream != nil { await publishPartial("", in: ref) }
             for call in calls {
                 await beginStep(ConversationPrompts.toolStepLabel(call.function.name, language: language), in: ref)
                 let outcome: ToolOutcome
@@ -383,8 +386,27 @@ public actor ConversationEngine {
             }
             await beginStep(language == "es" ? "Redactando la respuesta" : "Writing the answer", in: ref)
         }
-        let final = try await complete(coordinator: coordinator, system: system, messages: messages, tools: nil)
+        let final = try await complete(coordinator: coordinator, system: system, messages: messages, tools: nil, onDelta: streamer(for: ref)?.handler)
         return final.message.content ?? ""
+    }
+
+    /// Streams text into the running response, throttled so storage is not rewritten per token.
+    private func streamer(for ref: ResponseRef?) -> PartialTextStream? {
+        guard let ref else { return nil }
+        return PartialTextStream { [weak self] text in
+            await self?.publishPartial(text, in: ref)
+        }
+    }
+
+    /// Shows in-progress text on the running response. Never touches a response that has finished.
+    private func publishPartial(_ text: String, in ref: ResponseRef?) async {
+        guard let ref else { return }
+        // The trailing suggestions block is metadata for quick replies, not part of what Ada says.
+        let visible = text.range(of: "```suggestions", options: .caseInsensitive).map { String(text[..<$0.lowerBound]) } ?? text
+        _ = try? await conversations.updateMessage(id: ref.conversationID, ownerID: ref.ownerID, messageID: ref.responseID) { message in
+            guard message.status == .running else { return }
+            message.text = visible
+        }
     }
 
     private func consolidate(userText: String, missions: [Mission], coordinator: AgentProfile, history: [ConversationMessage], memory: String, language: String) async throws -> String {
@@ -442,13 +464,13 @@ public actor ConversationEngine {
         }
     }
 
-    private func complete(coordinator: AgentProfile, system: String, messages: [APIMessage], tools: [APIToolDef]?) async throws -> LLMReply {
+    private func complete(coordinator: AgentProfile, system: String, messages: [APIMessage], tools: [APIToolDef]?, onDelta: TextDeltaHandler? = nil) async throws -> LLMReply {
         let registry = ProviderRegistry(providers: await store.loadProviders())
         guard let provider = registry.provider(id: coordinator.providerID) else { throw ConversationError.noProvider }
         if let completionOverride {
             return try await completionOverride(provider, keyRing.get(provider.keyAccount) ?? "", coordinator, system, messages, tools)
         }
-        return try await client.complete(provider: provider, key: keyRing.get(provider.keyAccount) ?? "", model: coordinator.model, system: system, messages: messages, tools: tools, temperature: coordinator.temperature)
+        return try await client.complete(provider: provider, key: keyRing.get(provider.keyAccount) ?? "", model: coordinator.model, system: system, messages: messages, tools: tools, temperature: coordinator.temperature, onDelta: onDelta)
     }
 
     private func remember(conversationID: UUID, ownerID: String, user: ConversationMessage, assistant: ConversationMessage, coordinator: AgentProfile) {
@@ -478,5 +500,60 @@ public actor ConversationEngine {
         let clean = (text ?? "").replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty else { return fallback }
         return String(clean.prefix(180))
+    }
+}
+
+/// Collects streamed text and hands the accumulated answer to `sink` at most every 150ms.
+/// A flush is always scheduled for the latest text, so the tail of a burst is never lost.
+final class PartialTextStream: @unchecked Sendable {
+    private let lock = NSLock()
+    private let sink: @Sendable (String) async -> Void
+    private let interval: TimeInterval
+    private var text = ""
+    private var lastFlush = Date.distantPast
+    private var flushing = false
+
+    init(interval: TimeInterval = 0.15, sink: @escaping @Sendable (String) async -> Void) {
+        self.interval = interval
+        self.sink = sink
+    }
+
+    var handler: TextDeltaHandler {
+        { [self] delta in push(delta) }
+    }
+
+    private func push(_ delta: String) {
+        guard let wait = reserveFlush(adding: delta) else { return }
+        Task {
+            if wait > 0 { try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000)) }
+            let snapshot = takeSnapshot()
+            await sink(snapshot)
+            if finishFlush(sent: snapshot) { push("") }
+        }
+    }
+
+    /// Appends text; returns how long to wait before flushing, or nil when a flush is already pending.
+    private func reserveFlush(adding delta: String) -> TimeInterval? {
+        lock.withLock {
+            text += delta
+            guard !flushing else { return nil }
+            flushing = true
+            return max(0, interval - Date().timeIntervalSince(lastFlush))
+        }
+    }
+
+    private func takeSnapshot() -> String {
+        lock.withLock {
+            lastFlush = Date()
+            return text
+        }
+    }
+
+    /// Ends a flush; returns true when more text arrived while it was in flight.
+    private func finishFlush(sent: String) -> Bool {
+        lock.withLock {
+            flushing = false
+            return text != sent
+        }
     }
 }

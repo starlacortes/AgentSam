@@ -53,6 +53,12 @@ export function shouldPoll(conversation: Conversation | null): boolean {
   return Boolean(conversation?.messages.some((message) => message.status === 'running'))
 }
 
+/** How long to wait before the next poll: quick while Ada's answer is streaming in, relaxed while she works. */
+export function pollDelay(conversation: Conversation | null): number {
+  const streaming = conversation?.messages.some((message) => message.status === 'running' && message.text.length > 0)
+  return streaming ? 250 : 900
+}
+
 /**
  * What the preview sidebar should show, if anything, once Ada finishes a reply.
  * A page she wrote opens in the preview tab; other files open the file list.
