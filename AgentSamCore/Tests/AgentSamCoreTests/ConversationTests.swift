@@ -382,7 +382,7 @@ final class ConversationTests: XCTestCase {
             let conversations = ConversationStore(root: root)
             let memory = WorkspaceMemoryStore(root: root)
             let seen = Seen()
-            let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, connectors: hub, missions: MissionEngine(store: store, keyRing: keys)) { _, _, _, system, _, tools in
+            let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, connectors: hub, missions: MissionEngine(store: store, keyRing: keys), access: ConversationAccess(root: root)) { _, _, _, system, _, tools in
                 if system.contains("Summarize only durable") { return LLMReply(message: .assistant("## Notes"), inputTokens: 0, outputTokens: 0, model: "stub") }
                 if system.contains("Decide how to handle") { return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub") }
                 if let tools {
@@ -396,8 +396,8 @@ final class ConversationTests: XCTestCase {
             seen.lock.lock(); let tools = seen.tools; let system = seen.system; seen.lock.unlock()
             XCTAssertTrue(tools.contains("cloudflare_dns_list"))
             XCTAssertEqual(tools.contains("cloudflare_dns_create"), dnsWrite)
-            XCTAssertEqual(system.contains("Connector write tools the user enabled in Connections: cloudflare_dns_create"), dnsWrite)
-            XCTAssertEqual(system.contains("You have no connector write tools right now"), !dnsWrite)
+            XCTAssertEqual(system.contains("Connector write tools: cloudflare_dns_create"), dnsWrite)
+            XCTAssertEqual(system.contains("Calling one creates an approval card"), dnsWrite)
             await engine.shutdown()
         }
     }
