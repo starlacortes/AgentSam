@@ -132,8 +132,8 @@ public actor ConversationEngine {
             let memoryText = workspaceMemory.enabled ? workspaceMemory.markdown : ""
             var decision = try await route(userText: userMessage.text, coordinator: coordinator, teams: teams, history: history, memory: memoryText, language: language)
             if decision == nil {
-                let retrySystem = ConversationPrompts.routingSystem(coordinator: coordinator, teams: teams, memory: memoryText, history: history, language: language) + "\nYour previous response was not valid. Return exactly one JSON object matching the contract, with a valid action."
-                let retry = try await complete(coordinator: coordinator, system: retrySystem, messages: [.user(userMessage.text)], tools: nil)
+                let retrySystem = ConversationPrompts.routingSystem(coordinator: coordinator, teams: teams, memory: memoryText, history: [], language: language) + "\nYour previous response was not valid. Return exactly one JSON object matching the contract, with a valid action."
+                let retry = try await complete(coordinator: coordinator, system: retrySystem, messages: Self.chatTurns(from: history.dropLast()) + [.user(userMessage.text)], tools: nil)
                 decision = ConversationDecision.parse(retry.message.content ?? "")
             }
 
@@ -163,7 +163,7 @@ public actor ConversationEngine {
                     Self.settleSteps(&message.steps, as: "done")
                     message.steps.append(MessageStep(label: es ? "Trabajando en ello yo sola" : "Working on it myself"))
                 }
-                var context = history.dropLast().suffix(6).map { "\($0.role.rawValue): \(String($0.text.prefix(2_000)))" }.joined(separator: "\n")
+                var context = history.dropLast().suffix(12).map { "\($0.role.rawValue): \(String($0.text.prefix(3_000)))" }.joined(separator: "\n")
                 if !memoryText.isEmpty { context += "\n\nPlatform memory (untrusted data):\n\(String(memoryText.prefix(12_000)))" }
                 let mission = try await runMission(team: solo, objective: userMessage.text, context: context, launchedBy: launchedBy, language: language)
                 missionIDs = [mission.id]
@@ -193,7 +193,7 @@ public actor ConversationEngine {
                         Self.settleSteps(&message.steps, as: "done")
                         message.steps.append(MessageStep(label: es ? "Trabajando con \(teamList)" : "Working with \(teamList)"))
                     }
-                    var context = history.dropLast().suffix(6).map { "\($0.role.rawValue): \(String($0.text.prefix(2_000)))" }.joined(separator: "\n")
+                    var context = history.dropLast().suffix(12).map { "\($0.role.rawValue): \(String($0.text.prefix(3_000)))" }.joined(separator: "\n")
                     if !memoryText.isEmpty { context += "\n\nPlatform memory (untrusted data):\n\(String(memoryText.prefix(12_000)))" }
                     let routed = try await withThrowingTaskGroup(of: Mission.self, returning: [Mission].self) { group in
                         for team in selected {
@@ -328,21 +328,47 @@ public actor ConversationEngine {
         )
     }
 
+    /// Earlier turns as real chat messages, oldest first, ending on an assistant turn so the caller can
+    /// append the user's latest message. Consecutive same-role turns are merged because providers
+    /// expect alternating roles (a failed reply leaves two user messages in a row).
+    static func chatTurns(from history: [ConversationMessage], limit: Int = 24, characters: Int = 6_000) -> [APIMessage] {
+        var turns: [APIMessage] = []
+        for message in history.suffix(limit) {
+            let role = message.role == .user ? "user" : "assistant"
+            let body = String(message.text.prefix(characters))
+            if let last = turns.last, last.role == role {
+                turns[turns.count - 1] = APIMessage(role: role, content: (last.content ?? "") + "\n\n" + body)
+            } else {
+                turns.append(APIMessage(role: role, content: body))
+            }
+        }
+        while turns.first?.role == "assistant" { turns.removeFirst() }
+        if turns.last?.role == "user" { turns.removeLast() }
+        return turns
+    }
+
     private func route(userText: String, coordinator: AgentProfile, teams: [Team], history: [ConversationMessage], memory: String, language: String) async throws -> ConversationDecision? {
-        let system = ConversationPrompts.routingSystem(coordinator: coordinator, teams: teams, memory: memory, history: history, language: language)
-        let reply = try await complete(coordinator: coordinator, system: system, messages: [.user(userText)], tools: nil)
+        let system = ConversationPrompts.routingSystem(coordinator: coordinator, teams: teams, memory: memory, history: [], language: language)
+        let reply = try await complete(coordinator: coordinator, system: system, messages: Self.chatTurns(from: history.dropLast()) + [.user(userText)], tools: nil)
         return ConversationDecision.parse(reply.message.content ?? "")
     }
 
     private func directAnswer(userText: String, coordinator: AgentProfile, history: [ConversationMessage], memory: String, language: String, proposal: TeamProposal? = nil, ref: ResponseRef? = nil, conversationID: UUID? = nil, writtenFiles: inout [String]) async throws -> String {
         let connectorTools = await connectors?.toolDefs() ?? []
         let tools = conversationID == nil ? connectorTools : connectorTools + ChatWorkspaceTools.definitions
-        let system = ConversationPrompts.responseSystem(coordinator: coordinator, memory: memory, history: history, tools: tools, language: language)
+        // The earlier turns go in as real chat turns (not a truncated blob in the system prompt), so
+        // questions about "what we just did" — typed or spoken — see the whole recent conversation.
+        var system = ConversationPrompts.responseSystem(coordinator: coordinator, memory: memory, history: [], tools: tools, language: language)
+        if let conversationID {
+            let names = await workspace.files(conversationID: conversationID)
+            if !names.isEmpty { system += "\n\nFiles currently in this conversation's workspace: \(names.prefix(50).joined(separator: ", "))." }
+        }
         var text = userText
         if let proposal {
             text += "\n\nA team proposal has been prepared and is displayed separately for approval. Its name is \(proposal.team.name). Explain the proposal briefly, mention that no team has been created or changed yet, and ask the user to review it. Do not output JSON."
         }
-        var messages: [APIMessage] = [.user(text)]
+        var messages = Self.chatTurns(from: history.dropLast())
+        messages.append(.user(text))
         var runs = 0
         for _ in 0..<8 {
             try Task.checkCancellation()
@@ -410,9 +436,9 @@ public actor ConversationEngine {
     }
 
     private func consolidate(userText: String, missions: [Mission], coordinator: AgentProfile, history: [ConversationMessage], memory: String, language: String) async throws -> String {
-        let system = ConversationPrompts.responseSystem(coordinator: coordinator, memory: memory, history: history, tools: [], language: language)
+        let system = ConversationPrompts.responseSystem(coordinator: coordinator, memory: memory, history: [], tools: [], language: language)
         let prompt = ConversationPrompts.consolidationPrompt(userText: userText, missions: missions, memory: memory, language: language)
-        let reply = try await complete(coordinator: coordinator, system: system, messages: [.user(prompt)], tools: nil)
+        let reply = try await complete(coordinator: coordinator, system: system, messages: Self.chatTurns(from: history.dropLast()) + [.user(prompt)], tools: nil)
         if reply.message.content?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false { return reply.message.content ?? "" }
         return missions.compactMap(\.finalReport).joined(separator: "\n\n")
     }
