@@ -1,5 +1,5 @@
 import type { AgentActivity, Conversation, ConversationMessage, ConnectorStatus, Team } from '../api/types'
-import { pickEntry } from './preview'
+import { pickEntry, type PreviewSource } from './preview'
 
 export interface WorkPresentation {
   activities: AgentActivity[]
@@ -64,6 +64,12 @@ export function canvasForFinishedFiles(
   if (message.status !== 'complete' || !files?.length) return null
   const page = pickEntry(files)
   return page ? { tab: 'preview', entry: page } : { tab: 'files' }
+}
+
+export function workspaceFileSource(conversationID: string, files: string[] | undefined): PreviewSource {
+  const project = files?.[0]?.startsWith('project:') ?? false
+  const names = (files ?? []).filter((name) => name.startsWith('project:') === project).map((name) => name.replace(/^project:/, ''))
+  return { kind: project ? 'project' : 'chat', conversationID, entry: pickEntry(names) ?? undefined }
 }
 
 /** True when this message finished with workspace files Ada wrote this reply. */

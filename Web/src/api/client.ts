@@ -57,6 +57,31 @@ export async function api<T>(path: string, options: { method?: Method; body?: un
   return (await response.text()) as unknown as T
 }
 
+export async function uploadProjectFile(conversationID: string, file: Blob, path: string): Promise<{ path: string; bytes: number }> {
+  const response = await fetch(`/api/conversations/${encodeURIComponent(conversationID)}/project/uploads`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {
+      Accept: 'application/json',
+      'Accept-Language': currentLanguage(),
+      'Content-Type': 'application/octet-stream',
+      'X-AgentSam-Request': '1',
+      'X-AgentSam-Path': encodeURIComponent(path),
+    },
+    body: file,
+  })
+  if (!response.ok) {
+    let reason = response.statusText || `Upload failed (${response.status})`
+    try {
+      const data = (await response.json()) as { reason?: string }
+      if (data.reason) reason = data.reason
+    } catch { /* Keep the HTTP status when the server did not return JSON. */ }
+    if (response.status === 401) onUnauthorized?.()
+    throw new ApiError(response.status, reason)
+  }
+  return (await response.json()) as { path: string; bytes: number }
+}
+
 export function errorMessage(error: unknown): string {
   if (error instanceof ApiError) return error.message
   if (error instanceof Error) return error.message

@@ -12,6 +12,7 @@ final class ConversationAPITests: XCTestCase {
     private let token = "conversation-test-token"
     private var directory: URL!
     private var app: Application!
+    private var hostDirectory: URL?
 
     override func setUp() async throws {
         directory = FileManager.default.temporaryDirectory.appendingPathComponent("agentsam-conversation-api-\(UUID().uuidString)")
@@ -25,6 +26,8 @@ final class ConversationAPITests: XCTestCase {
     override func tearDown() async throws {
         try await app.asyncShutdown()
         app = nil
+        if let hostDirectory { try? FileManager.default.removeItem(at: hostDirectory) }
+        hostDirectory = nil
         try? FileManager.default.removeItem(at: directory)
     }
 
@@ -132,7 +135,7 @@ final class ConversationAPITests: XCTestCase {
     func testGuideResetDoesNotChangeWorkspaceData() async throws {
         let conversation = try await createConversation()
         let memory = WorkspaceMemoryStore(root: directory)
-        _ = try await memory.setEnabled(true)
+        _ = try await memory.setEnabled(ownerID: "shared-server-token", true)
         try await app.test(.PATCH, "api/workspace/guide", beforeRequest: { req in
             self.authorize(&req)
             try req.content.encode(GuidePatchBody(completed: true), as: .json)
@@ -253,6 +256,169 @@ final class ConversationAPITests: XCTestCase {
             req.headers.replaceOrAdd(name: .cookie, value: "\(AuthConfig.cookieName)=\(cookie)")
         }, afterResponse: { res async throws in
             XCTAssertTrue(try res.content.decode(Conversation.self).messages.isEmpty)
+        })
+    }
+
+    func testProjectUploadDownloadAndOwnerIsolation() async throws {
+        let conversation = try await createConversation()
+        let id = conversation.id.uuidString
+        try await app.test(.POST, "api/conversations/\(id)/project/uploads", beforeRequest: { req in
+            self.authorize(&req)
+            req.headers.replaceOrAdd(name: "X-AgentSam-Path", value: "assets%2Fsample.bin")
+            req.headers.contentType = HTTPMediaType(type: "application", subType: "octet-stream")
+            req.body = ByteBuffer(bytes: [0, 1, 2, 255])
+        }, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .created, res.body.string)
+            XCTAssertEqual(try res.content.decode(UploadedProjectFile.self).path, "project:assets/sample.bin")
+        })
+        try await app.test(.POST, "api/conversations/\(id)/project/uploads", beforeRequest: { req in
+            self.authorize(&req)
+            req.headers.replaceOrAdd(name: "X-AgentSam-Path", value: "index.html")
+            req.body = ByteBuffer(string: "<h1>Shared</h1>")
+        }, afterResponse: { res async in XCTAssertEqual(res.status, .created, res.body.string) })
+        try await app.test(.GET, "api/conversations/\(id)/project/files/assets%2Fsample.bin", beforeRequest: authorize, afterResponse: { res async in
+            XCTAssertEqual(res.status, .notFound)
+        })
+        try await app.test(.GET, "api/conversations/\(id)/project/files/index.html", beforeRequest: authorize, afterResponse: { res async in
+            XCTAssertEqual(res.status, .ok)
+            XCTAssertEqual(res.body.string, "<h1>Shared</h1>")
+        })
+        try await app.test(.GET, "api/conversations/\(id)/project/download/assets%2Fsample.bin", beforeRequest: authorize, afterResponse: { res async in
+            XCTAssertEqual(res.status, .ok)
+            XCTAssertEqual(Array(res.body.readableBytesView), [0, 1, 2, 255])
+        })
+        let sameProject = try await createConversation()
+        try await app.test(.GET, "api/conversations/\(sameProject.id.uuidString)/project/files", beforeRequest: authorize, afterResponse: { res async throws in
+            XCTAssertEqual(try res.content.decode([String].self), ["assets/sample.bin", "index.html"])
+        })
+        let otherOwner = try await ConversationStore(root: directory).create(ownerID: "another-owner", projectName: "Launch")
+        try await app.test(.GET, "api/conversations/\(otherOwner.id.uuidString)/project/files", beforeRequest: authorize, afterResponse: { res async in
+            XCTAssertEqual(res.status, .notFound)
+        })
+        try await app.test(.POST, "api/conversations/\(id)/project/uploads", beforeRequest: { req in
+            self.authorize(&req)
+            req.headers.replaceOrAdd(name: "X-AgentSam-Path", value: "..%2Fescape.txt")
+            req.body = ByteBuffer(string: "no")
+        }, afterResponse: { res async in XCTAssertEqual(res.status, .badRequest) })
+    }
+
+    func testFileDeletionApprovalExecutesOnlyOnce() async throws {
+        let conversation = try await createConversation()
+        let workspace = ChatWorkspaceStore(root: directory)
+        _ = await workspace.write(conversationID: conversation.id, name: "remove.txt", content: "remove after approval")
+        _ = await workspace.write(conversationID: conversation.id, name: "keep.txt", content: "keep after denial")
+        let access = try XCTUnwrap(app.storage[ServerContextKey.self]).access
+        let deletion = await access.actions.request(AgentActionRequest(ownerID: conversation.ownerID, conversationID: conversation.id, kind: .fileDelete, title: "Delete remove.txt?", detail: "Test", toolName: "chat_delete_file", arguments: .object([("path", .string("remove.txt"))]), fileScope: .conversation))
+        let denied = await access.actions.request(AgentActionRequest(ownerID: conversation.ownerID, conversationID: conversation.id, kind: .fileDelete, title: "Delete keep.txt?", detail: "Test", toolName: "chat_delete_file", arguments: .object([("path", .string("keep.txt"))]), fileScope: .conversation))
+        let before = await workspace.read(conversationID: conversation.id, name: "remove.txt")
+        XCTAssertEqual(before, "remove after approval")
+        try await app.test(.POST, "api/conversations/\(conversation.id.uuidString)/actions/\(deletion.id.uuidString)", beforeRequest: { req in
+            self.authorize(&req)
+            try req.content.encode(ActionDecisionBody(approve: true), as: .json)
+        }, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok, res.body.string)
+            XCTAssertEqual(try res.content.decode([AgentActionRequest].self).first(where: { $0.id == deletion.id })?.status, .completed)
+        })
+        let removed = await workspace.read(conversationID: conversation.id, name: "remove.txt")
+        XCTAssertNil(removed)
+        try await app.test(.POST, "api/conversations/\(conversation.id.uuidString)/actions/\(deletion.id.uuidString)", beforeRequest: { req in
+            self.authorize(&req)
+            try req.content.encode(ActionDecisionBody(approve: true), as: .json)
+        }, afterResponse: { res async in XCTAssertEqual(res.status, .conflict) })
+        try await app.test(.POST, "api/conversations/\(conversation.id.uuidString)/actions/\(denied.id.uuidString)", beforeRequest: { req in
+            self.authorize(&req)
+            try req.content.encode(ActionDecisionBody(approve: false), as: .json)
+        }, afterResponse: { res async throws in
+            XCTAssertEqual(try res.content.decode([AgentActionRequest].self).first(where: { $0.id == denied.id })?.status, .denied)
+        })
+        let kept = await workspace.read(conversationID: conversation.id, name: "keep.txt")
+        XCTAssertEqual(kept, "keep after denial")
+    }
+
+    func testConnectorApprovalIsSingleUseAndDoesNotCallDisabledProvider() async throws {
+        let conversation = try await createConversation()
+        let context = try XCTUnwrap(app.storage[ServerContextKey.self])
+        var cloudflare = await context.connectors.config(for: .cloudflare)
+        cloudflare.enabled = false
+        await context.connectors.setConfig(cloudflare)
+        let access = context.access
+        let action = await access.actions.request(AgentActionRequest(ownerID: conversation.ownerID, conversationID: conversation.id, kind: .connectorWrite, title: "Approve Cloudflare write", detail: "Test", toolName: "cloudflare_dns_create", arguments: .object([("raw", .string("{}"))])))
+        try await app.test(.POST, "api/conversations/\(conversation.id.uuidString)/actions/\(action.id.uuidString)", beforeRequest: { req in
+            self.authorize(&req)
+            try req.content.encode(ActionDecisionBody(approve: true), as: .json)
+        }, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok, res.body.string)
+            let saved = try XCTUnwrap(try res.content.decode([AgentActionRequest].self).first(where: { $0.id == action.id }))
+            XCTAssertEqual(saved.status, .failed)
+            XCTAssertTrue(saved.result?.contains("disabled") == true)
+        })
+        try await app.test(.POST, "api/conversations/\(conversation.id.uuidString)/actions/\(action.id.uuidString)", beforeRequest: { req in
+            self.authorize(&req)
+            try req.content.encode(ActionDecisionBody(approve: true), as: .json)
+        }, afterResponse: { res async in XCTAssertEqual(res.status, .conflict) })
+    }
+
+    func testHostGrantRoutesAreAdminOnlyAndRevocable() async throws {
+        let host = FileManager.default.temporaryDirectory.appendingPathComponent("agentsam-host-grant-\(UUID().uuidString)")
+        hostDirectory = host
+        try FileManager.default.createDirectory(at: host, withIntermediateDirectories: true)
+        var grant: HostFolderGrant?
+        try await app.test(.POST, "api/access/host-grants", beforeRequest: { req in
+            self.authorize(&req)
+            try req.content.encode(HostGrantBody(path: host.path, canWrite: false), as: .json)
+        }, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .created, res.body.string)
+            grant = try res.content.decode(HostFolderGrant.self)
+        })
+        let id = try XCTUnwrap(grant?.id)
+        try await app.test(.GET, "api/access/host-grants", beforeRequest: authorize, afterResponse: { res async throws in
+            XCTAssertEqual(try res.content.decode([HostFolderGrant].self).map(\.id), [id])
+        })
+        let accounts = try XCTUnwrap(app.storage[ServerContextKey.self]).accounts
+        let member = try await accounts.createUser(email: "member@example.com", name: "Member", role: .member, passwordHash: try await Passwords.hash("member test password"))
+        let (_, memberToken) = try await accounts.createAPIToken(userID: member.id, name: "Member token")
+        try await app.test(.GET, "api/access/host-grants", beforeRequest: { req in
+            req.headers.bearerAuthorization = BearerAuthorization(token: memberToken)
+        }, afterResponse: { res async in XCTAssertEqual(res.status, .forbidden) })
+        try await app.test(.POST, "api/access/host-grants", beforeRequest: { req in
+            req.headers.bearerAuthorization = BearerAuthorization(token: memberToken)
+            try req.content.encode(HostGrantBody(path: host.path, canWrite: true), as: .json)
+        }, afterResponse: { res async in XCTAssertEqual(res.status, .forbidden) })
+        try await app.test(.POST, "api/access/host-grants", beforeRequest: { req in
+            self.authorize(&req)
+            try req.content.encode(HostGrantBody(path: directory.path, canWrite: true), as: .json)
+        }, afterResponse: { res async in XCTAssertEqual(res.status, .badRequest) })
+        try await app.test(.DELETE, "api/access/host-grants/\(id.uuidString)", beforeRequest: authorize, afterResponse: { res async in
+            XCTAssertEqual(res.status, .ok, res.body.string)
+        })
+    }
+
+    func testWorkspaceKnowledgeDiscoversRefreshesAndExportsDocuments() async throws {
+        _ = try await createConversation()
+        try await app.test(.GET, "api/workspace/knowledge", afterResponse: { res async in
+            XCTAssertEqual(res.status, .unauthorized)
+        })
+        try await app.test(.GET, "api/workspace/knowledge", beforeRequest: authorize, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok, res.body.string)
+            let knowledge = try res.content.decode(WorkspaceKnowledge.self)
+            XCTAssertEqual(knowledge.status, .ready)
+            XCTAssertEqual(knowledge.refreshCount, 1)
+            XCTAssertEqual(knowledge.documents.map(\.id), WorkspaceKnowledgeDocumentID.allCases)
+            XCTAssertTrue(knowledge.documents.first { $0.id == .projects }?.markdown.contains("Launch") == true)
+            XCTAssertFalse(knowledge.promptSummary.contains(token))
+        })
+        try await app.test(.POST, "api/workspace/knowledge/refresh", beforeRequest: authorize, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok, res.body.string)
+            XCTAssertEqual(try res.content.decode(WorkspaceKnowledge.self).refreshCount, 2)
+        })
+        try await app.test(.GET, "api/workspace/knowledge/connections/export", beforeRequest: authorize, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok)
+            XCTAssertEqual(res.headers.contentType?.description, "text/markdown; charset=utf-8")
+            XCTAssertTrue(res.body.string.contains("# Workspace connections"))
+            XCTAssertTrue(res.body.string.contains("Gmail"))
+        })
+        try await app.test(.GET, "api/workspace/knowledge/not-a-document/export", beforeRequest: authorize, afterResponse: { res async in
+            XCTAssertEqual(res.status, .notFound)
         })
     }
 }

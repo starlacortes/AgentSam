@@ -43,19 +43,36 @@ Every turn, tool call, deliverable, finding, and cost is a `RunEvent`, appended 
   conversations/
     <uuid>.json           chat history (the web app's conversations, with any recurring schedule)
     <uuid>/files/         files Ada wrote directly in chat (see below)
+  projects/<owner>/<project>/ files shared by that owner's chats and missions in a project
+  host-grants.json         owner-scoped, admin-managed server folder grants
+  access-audit.jsonl       project, host, terminal, and approval activity
+  action-requests/         expiring, one-use connector-write and file-delete approvals
+  workspace/knowledge/<user>/
+    state.json            discovery state, snapshot fingerprint, and refresh timestamps
+    capabilities.md       providers, direct tools, teams, and permissions
+    connections.md        connector state and active tools (never credentials or content)
+    projects.md           the user's project names, conversation counts, and activity
 ```
 
 ## Ada's chat workspace
 
 In a direct chat, Ada can do more than answer. She has a private workspace for the conversation:
 
-- `chat_write_file` / `chat_read_file` / `chat_list_files` — files live under `conversations/<uuid>/files/`, shown in the chat as chips that open the preview and files sidebar. When Ada finishes a reply that wrote files, the sidebar opens them itself: an HTML page goes straight to the live preview, anything else to the file list. (It opens once per reply, and only for replies you watched finish — not when reopening old chats.) Paths are jailed to that folder (no `..`, no absolute paths) and reads are limited to text formats, the same allowlist as mission deliverables.
-- `run_program` — runs JavaScript (Node), Python, or C (compiled with gcc) in a throwaway sandbox under the conversation's folder. Runs have a 20-second wall-clock timeout, capped output, at most 4 runs per reply, and a PATH-only environment so no server secrets reach the child. The sandbox is deleted after each run; the toolchains come from the Docker image.
+- `chat_write_file` / `chat_read_file` / `chat_list_files` — files live under `conversations/<uuid>/files/`, shown in the chat as chips that open the preview and files sidebar. Ada's router and direct-response prompts receive the project, schedule state, and a recursive file manifest with sizes; contents remain on demand. `chat_read_file` supports `start_line` for continued reads. When Ada finishes a reply that wrote files, the sidebar opens them itself: an HTML page goes straight to the live preview, anything else to the file list. (It opens once per reply, and only for replies you watched finish — not when reopening old chats.) Paths are jailed to that folder (no escaping the workspace with `..` or absolute paths) and reads are limited to text formats, the same allowlist as mission deliverables.
+- `mission_list_files` / `mission_read_file` — inspect text deliverables from missions already linked to the conversation. The engine authorizes only those referenced mission IDs; these tools cannot read arbitrary mission history.
+- `run_program` — runs JavaScript (Node), Python, or C (compiled with gcc) in a throwaway sandbox under the conversation's folder. Runs have a 20-second wall-clock timeout, capped output, and a scrubbed environment so no server secrets reach the child. The sandbox is deleted after each run; the toolchains come from the Docker image. There is a combined limit of 4 program and terminal executions per reply.
+- `project_list_files` / `project_read_file` / `project_write_file` — use a workspace shared by the signed-in owner's conversations in the same project, rather than one chat's private files. The upload button accepts non-empty files up to 5 MB; text previews and binary downloads are available in the files sidebar. Ada's text writes are limited to 200 KB. `chat_patch_file` / `project_patch_file` make unique text replacements, and `chat_move_file` / `project_move_file` rename without overwriting. Deleting a single file requires a one-use approval card. Uploads reject secret-like names, paths cannot escape the project, and project data is isolated by owner and project name.
+- `run_terminal` / `project_terminal` — run shell commands in a persistent session rooted at the conversation or shared project workspace. Files and the working directory persist across calls, but exported environment variables and long-running processes do not. Each command has a 30-second timeout, a 20,000-byte command limit, capped output, and a scrubbed environment. Writes are confined to the selected workspace; there is no host shell. macOS uses `sandbox-exec`, Linux uses `bubblewrap` (installed in the Docker image). If the OS sandbox is unavailable, no command runs.
+- `host_list_grants` / `host_list_files` / `host_read_file` / `host_write_file` — inspect and edit text files in a specific **server-side** folder granted by an admin in Settings. Grants and their audit entries are owner-scoped. Read/write grants are separate from read-only grants, writes are limited to 200 KB, and revoking a grant leaves existing files unchanged. Secret-like filenames, symlink escapes, the filesystem root, the whole home folder, and the AgentSam data folder are refused.
 - `chat_schedule_run` / `chat_schedule_cancel` — set or clear a **recurring schedule** for the conversation: a prompt the server sends automatically on a timer (every 15 or 30 minutes, hourly, every 6 or 12 hours, or daily). When a schedule is due, the scheduler fires the prompt into the conversation as a user message flagged `scheduled`, Ada runs it with her normal tools, and the reply lands in the chat labeled as a scheduled run — so "update this every hour without me asking" is real platform behavior, not something Ada has to be nudged for. The user can also set or stop a schedule from the clock button in the chat header (`PUT`/`DELETE` `/api/conversations/:id/schedule`). Schedules persist with the conversation; overdue schedules fire once on restart and then resume their interval.
 
-When a task is Ada's to do herself but is a real job — several steps, deliverables to produce, code to verify — she routes it as **SOLO** instead of answering inline. A SOLO run is a full mission on the **Ada (solo)** team, her permanent one-agent roster: Ada as coordinator and only worker, with the mission workspace, the full step budget, `run_program`, and a final report. It appears in chat with the usual mission chips ("Watch work" console, deliverables, preview) and in mission history like any other run. Ada never routes specialist work to the solo team; it exists only for self-directed work.
+When a task is Ada's to do herself but is a real job — several steps, deliverables to produce, code to verify — she routes it as **SOLO** instead of answering inline. A SOLO run is a full mission on the **Ada (solo)** team, her permanent one-agent roster: Ada as coordinator and only worker, with the mission workspace, the full step budget, `run_program`, and a final report. Readable files from the conversation workspace are copied into every SOLO or specialist mission before launch, so follow-up work starts from the actual files. Shared project text files are also copied under `project/`; after a linked mission completes, its readable deliverables are synchronized back into the same owner's shared project. The run appears in chat with the usual mission chips ("Watch work" console, deliverables, preview) and in mission history like any other run. Ada never routes specialist work to the solo team; it exists only for self-directed work.
 
-Connector tools stay read-only in direct chat (write permissions like sending mail or committing to GitHub remain team-worker-only). The same auto-open applies to a finished SOLO or team run: if the run produced an HTML page, the preview opens on it when the run completes.
+Connector reads remain available directly. Connector writes in direct chat and linked missions require an approval card showing the exact operation and arguments; nothing runs before approval. The same auto-open applies to a finished SOLO or team run: if the run produced an HTML page, the preview opens on it when the run completes.
+
+Workspace memory is compacted separately for each signed-in user and is never shared across accounts. Installations using the legacy shared server token retain the original shared-token memory files. Direct-chat, routing, consolidation, identity, and memory prompts use the same versioned `prompts.json` store as mission prompts; direct tool loops also compact oversized turns and retry provider context overflows.
+
+Workspace knowledge is discovered on each user's first launch and maintained as three per-user Markdown documents: `capabilities.md`, `connections.md`, and `projects.md`. Open **Knowledge** in any project's sidebar to inspect, refresh, or export them. Discovery reads the actual provider, team, tool, connector, and project registries without a model call, without testing external services, and without reading connector content. Credentials and private agent prompts are excluded. Ada receives a compact version in direct chats and mission handoffs. A background scheduler checks for changes every minute and reconciles documents at least daily; unchanged snapshots are not rewritten. Users can also force a refresh with `POST /api/workspace/knowledge/refresh`.
 
 ## Deploy on Railway
 
@@ -106,6 +123,8 @@ cd Server && AGENTSAM_TOKEN=dev AGENTSAM_INSECURE_COOKIES=1 swift run   # API on
 cd Web && npm install && npm run dev                                     # UI on :5173, proxies /api
 ```
 
+The persistent terminal uses macOS's built-in `sandbox-exec` or Linux `bubblewrap`. The Docker image installs `bubblewrap`; install it separately on other Linux hosts. Without a supported OS sandbox, terminal calls report that no command ran.
+
 ### API sketch
 
 ```
@@ -130,6 +149,18 @@ GET    /api/missions/:id/events?afterSeq=N
 GET    /api/missions/:id/deliverables/:name
 GET    /api/conversations/:id/files             (Ada's chat workspace)
 GET    /api/conversations/:id/files/:name       (one chat workspace file, text only)
+GET    /api/conversations/:id/project/files     (shared project file list)
+GET    /api/conversations/:id/project/files/:name (one shared project text file)
+POST   /api/conversations/:id/project/uploads   (raw bytes; X-AgentSam-Path; at most 5 MB)
+GET    /api/conversations/:id/project/download/:name (shared project file download)
+GET    /api/conversations/:id/actions           (owner-scoped approval requests)
+POST   /api/conversations/:id/actions/:actionID { approve } (one use; expires after 15 minutes)
+GET    /api/access/audit                       (owner-scoped recent access activity)
+GET    /api/access/host-grants                 POST /api/access/host-grants (admin)
+DELETE /api/access/host-grants/:grantID         (admin; revoke without deleting files)
+GET    /api/workspace/knowledge                 (discover or read maintained workspace docs)
+POST   /api/workspace/knowledge/refresh         (force a workspace knowledge refresh)
+GET    /api/workspace/knowledge/:id/export      (capabilities, connections, or projects Markdown)
 PUT    /api/conversations/:id/schedule          (set a recurring schedule)
 DELETE /api/conversations/:id/schedule          (cancel it)
 WS     /api/missions/:id/live       (live RunEvent stream; closes on missionEnd)
@@ -150,11 +181,13 @@ GET    /api/users    PATCH/DELETE /api/users/:id                    (admin)
 GET    /api/invites  POST /api/invites  DELETE /api/invites/:id     (admin)
 ```
 
-All other `/api/*` routes require either `Authorization: Bearer <AGENTSAM_TOKEN>` (the WebSocket also accepts `?token=`) or a signed-in session cookie. Cookie-authenticated writes must send `X-AgentSam-Request: 1`. Provider changes, key storage, connection tests and mission deletion are admin-only. Client-visible API messages follow the request's `Accept-Language` header (`en` | `es`).
+All other `/api/*` routes require either `Authorization: Bearer <AGENTSAM_TOKEN>` (the WebSocket also accepts `?token=`) or a signed-in session cookie. Cookie-authenticated writes must send `X-AgentSam-Request: 1`. Provider changes, key storage, connection tests, host-folder grants and mission deletion are admin-only. Project files, approvals and access-audit entries are scoped to their owner; admins manage only their own owner's host grants. Client-visible API messages follow the request's `Accept-Language` header (`en` | `es`).
 
 ## Connectors
 
-Connectors give mission agents tools beyond their own files. Set them up on the **Connectors** page (admins only). Anything that sends or changes something is off until you switch it on.
+Connectors give Ada and mission agents tools beyond their own files. Set them up on the **Connectors** page (admins only). Anything that sends or changes something is off until you switch it on.
+
+Every connector write also needs a person's explicit, one-use approval, in direct chat as well as in a linked mission. The approval card shows the tool and exact arguments, expires after 15 minutes, and cannot be approved twice. Denial and expiry perform no external action; a refused or failed operation is not marked completed. The connector must remain enabled and configured, its relevant write permission must be on, and mission team scopes still apply. Read-only connector tools do not require approval.
 
 | Connector | Agent tools | Off until you switch it on |
 |---|---|---|
@@ -201,12 +234,19 @@ AgentSamCore/            the engine (Swift package)
   Models.swift             teams, agents, missions, run events, verification
   LLMClient.swift          OpenAI-compatible chat completions + retries + tool calling
   AnthropicClient.swift    native Anthropic /v1/messages adapter (tool use)
-  CoordinatorChat.swift    the coordinator chat and its tools
+  CoordinatorChat.swift    the legacy team-coordinator chat and its tools
+  ConversationEngine.swift Ada's routing, direct tools, mission handoffs, and memory
+  ConversationPrompts.swift shared Ada context and versioned prompt rendering
+  AgentAccess.swift        owner-scoped host grants, access audit, and one-use approvals
+  ExtendedWorkspaceTools.swift shared project files, scoped host files, and terminal tools
+  WorkspaceTerminal.swift  persistent macOS/Linux-sandboxed terminal sessions
+  WorkspaceKnowledge.swift first-launch discovery, maintained docs, and refresh scheduler
   Speech.swift             speech-to-text and text-to-speech providers
   KeyRing.swift            file + env key storage
   Tools.swift              sandboxed agent file tools
   Connectors.swift, Gmail*, GoogleAds*, Web*, Cloudflare*   connectors (outside tools for agents)
-  PromptBuilder.swift      every prompt in one place, output contracts
+  PromptBuilder.swift      mission prompt rendering and typed context
+  PromptStore.swift        versioned Ada and mission prompt templates
   MissionEngine.swift      the orchestrator: plan → parallel work → verify → report
   MissionStore.swift       file persistence, JSONL ledger, live event bus
   Parsers.swift            plan parser + verifier line protocol

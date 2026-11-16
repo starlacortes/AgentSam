@@ -120,28 +120,28 @@ public struct CloudflareConnector: ConnectorToolProvider {
             switch name {
             case "cloudflare_zones":
                 let filter = args["name"]?.stringValue
-                return ToolOutcome(resultText: try await listZones(nameFilter: filter, runtime: runtime))
+                return ToolOutcome.success(try await listZones(nameFilter: filter, runtime: runtime))
 
             case "cloudflare_dns_list":
                 guard let zone = args["zone_id"]?.stringValue else {
-                    return ToolOutcome(resultText: "cloudflare_dns_list requires zone_id (a zone name is also accepted).")
+                    return .failure("cloudflare_dns_list requires zone_id (a zone name is also accepted).")
                 }
                 let text = try await listDNS(zone: zone, nameFilter: args["name"]?.stringValue, typeFilter: args["type"]?.stringValue, runtime: runtime)
-                return ToolOutcome(resultText: text)
+                return ToolOutcome.success(text)
 
             case "cloudflare_dns_create":
-                guard permissions.dnsWrite else { return ToolOutcome(resultText: "DNS writes are disabled for the Cloudflare connector. Enable them in Settings.") }
+                guard permissions.dnsWrite else { return .failure("DNS writes are disabled for the Cloudflare connector. Enable them in Settings.") }
                 guard let zone = args["zone_id"]?.stringValue, let type = args["type"]?.stringValue,
                       let name = args["name"]?.stringValue, let content = args["content"]?.stringValue else {
-                    return ToolOutcome(resultText: "cloudflare_dns_create requires zone_id, type, name, and content.")
+                    return .failure("cloudflare_dns_create requires zone_id, type, name, and content.")
                 }
                 let text = try await createDNS(zone: zone, type: type, name: name, content: content, ttl: args["ttl"]?.numberValue, proxied: args["proxied"]?.boolValue, runtime: runtime)
-                return ToolOutcome(resultText: text)
+                return ToolOutcome.success(text)
 
             case "cloudflare_dns_update":
-                guard permissions.dnsWrite else { return ToolOutcome(resultText: "DNS writes are disabled for the Cloudflare connector. Enable them in Settings.") }
+                guard permissions.dnsWrite else { return .failure("DNS writes are disabled for the Cloudflare connector. Enable them in Settings.") }
                 guard let zone = args["zone_id"]?.stringValue else {
-                    return ToolOutcome(resultText: "cloudflare_dns_update requires zone_id.")
+                    return .failure("cloudflare_dns_update requires zone_id.")
                 }
                 let text = try await updateDNS(
                     zone: zone,
@@ -153,29 +153,29 @@ public struct CloudflareConnector: ConnectorToolProvider {
                     proxied: args["proxied"]?.boolValue,
                     runtime: runtime
                 )
-                return ToolOutcome(resultText: text)
+                return ToolOutcome.success(text)
 
             case "cloudflare_dns_delete":
-                guard permissions.dnsWrite else { return ToolOutcome(resultText: "DNS writes are disabled for the Cloudflare connector. Enable them in Settings.") }
+                guard permissions.dnsWrite else { return .failure("DNS writes are disabled for the Cloudflare connector. Enable them in Settings.") }
                 guard let zone = args["zone_id"]?.stringValue else {
-                    return ToolOutcome(resultText: "cloudflare_dns_delete requires zone_id.")
+                    return .failure("cloudflare_dns_delete requires zone_id.")
                 }
                 let text = try await deleteDNS(zone: zone, recordID: args["record_id"]?.stringValue, name: args["name"]?.stringValue, runtime: runtime)
-                return ToolOutcome(resultText: text)
+                return ToolOutcome.success(text)
 
             case "cloudflare_purge_cache":
-                guard permissions.dnsWrite else { return ToolOutcome(resultText: "DNS writes are disabled for the Cloudflare connector. Enable them in Settings.") }
+                guard permissions.dnsWrite else { return .failure("DNS writes are disabled for the Cloudflare connector. Enable them in Settings.") }
                 guard let zone = args["zone_id"]?.stringValue else {
-                    return ToolOutcome(resultText: "cloudflare_purge_cache requires zone_id.")
+                    return .failure("cloudflare_purge_cache requires zone_id.")
                 }
                 let text = try await purgeCache(zone: zone, everything: args["purge_everything"]?.boolValue, urls: args["urls"]?.arrayValue?.compactMap(\.stringValue), runtime: runtime)
-                return ToolOutcome(resultText: text)
+                return ToolOutcome.success(text)
 
             default:
-                return ToolOutcome(resultText: "Unknown tool: \(name).")
+                return .failure("Unknown tool: \(name).")
             }
         } catch {
-            return ToolOutcome(resultText: "Cloudflare error: \(error.localizedDescription)")
+            return .failure("Cloudflare error: \(error.localizedDescription)")
         }
     }
 

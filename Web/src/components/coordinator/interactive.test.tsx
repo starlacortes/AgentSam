@@ -64,6 +64,17 @@ describe('interactive chat', () => {
     expect(h.onOpenCanvas).toHaveBeenCalledWith(expect.objectContaining({ tab: 'files', source: { kind: 'chat', conversationID: 'chat-1', entry: undefined } }))
   })
 
+  it('opens shared project files from the project workspace', () => {
+    const h = handlers()
+    renderUI(<ConversationMessages conversation={chat([
+      assistant({ fileIDs: ['project:index.html', 'project:notes.md'] }),
+    ])} handlers={h} />)
+    fireEvent.click(screen.getByRole('button', { name: 'project:index.html' }))
+    expect(h.onOpenCanvas).toHaveBeenCalledWith(expect.objectContaining({ tab: 'preview', source: { kind: 'project', conversationID: 'chat-1', entry: 'index.html' } }))
+    fireEvent.click(screen.getByRole('button', { name: 'project:notes.md' }))
+    expect(h.onOpenCanvas).toHaveBeenCalledWith(expect.objectContaining({ tab: 'files', source: { kind: 'project', conversationID: 'chat-1', entry: undefined } }))
+  })
+
   it('opens an HTML code block in the preview panel', () => {
     const h = handlers()
     renderUI(<ConversationMessages conversation={chat([assistant({ text: '```html\n<h1>Hi</h1>\n```' })])} handlers={h} />)

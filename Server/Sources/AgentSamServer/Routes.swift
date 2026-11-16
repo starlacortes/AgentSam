@@ -8,6 +8,7 @@ public func configure(_ app: Application) async throws {
     await ctx.reconcileInterruptedMissions()
     await ctx.provisioningRunner.start()
     await ctx.scheduler.start()
+    await ctx.knowledgeScheduler.start()
     await app.storage.setWithAsyncShutdown(ServerContextKey.self, to: ctx) { context in
         await context.shutdown()
     }
@@ -80,6 +81,7 @@ func routes(_ app: Application, ctx: ServerContext) {
     provisioningRoutes(app, ctx: ctx, admin: adminAPI)
     templateRoutes(api, ctx: ctx)
     conversationRoutes(api, ctx: ctx)
+    accessRoutes(api, ctx: ctx)
     chatRoutes(api, admin: adminAPI, ctx: ctx)
 
     api.get("info") { req async throws -> Response in

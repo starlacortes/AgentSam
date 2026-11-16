@@ -15,8 +15,9 @@ WORKDIR /build/Server
 RUN swift build -c release --static-swift-stdlib --product AgentSamServer
 
 FROM ubuntu:noble
-# nodejs/python3/gcc run the programs Ada writes with the run_program chat tool. Each language is
-# a separate layer so a registry that already cached the base still only pulls what changed.
+# nodejs/python3/gcc run the programs Ada writes with the run_program chat tool. bubblewrap
+# sandboxes persistent terminal sessions. Each language is a separate layer so a registry that
+# already cached the base still only pulls what changed.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates libcurl4t64 tzdata \
     && rm -rf /var/lib/apt/lists/*
@@ -28,6 +29,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 RUN apt-get update \
     && apt-get install -y --no-install-recommends gcc libc6-dev \
+    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends bubblewrap \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /build/Server/.build/release/AgentSamServer .

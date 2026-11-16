@@ -32,6 +32,7 @@ struct ServerContext: Sendable {
     let engine: MissionEngine
     let conversations: ConversationStore
     let memory: WorkspaceMemoryStore
+    let knowledge: WorkspaceKnowledgeStore
     let chatWorkspace: ChatWorkspaceStore
     let conversationEngine: ConversationEngine
     let keyRing: CompositeKeyRing
@@ -40,6 +41,7 @@ struct ServerContext: Sendable {
     let dataDir: URL
     let maloon: MaloonIntegration
     let connectors: ConnectorHub
+    let access: ConversationAccess
     let oauthStates: OAuthStateStore
     let accounts: AccountStore
     let sessions: SessionStore
@@ -47,6 +49,7 @@ struct ServerContext: Sendable {
     let provisioning: ProvisioningStore
     let provisioningRunner: ProvisioningRunner
     let scheduler: ConversationScheduler
+    let knowledgeScheduler: WorkspaceKnowledgeScheduler
     /// Compared against when an email isn't found, so failed logins take the same time either way.
     let dummyPasswordHash: String
 
@@ -61,6 +64,7 @@ struct ServerContext: Sendable {
             rs256Signer: GoogleRS256.sign
         )
         let connectors = ConnectorHub(store: store, keyRing: keyRing, google: google)
+        let access = ConversationAccess(root: store.root)
         let prompts = PromptStore(
             builtins: PromptStore.builtins,
             fileURL: store.root.appendingPathComponent("prompts.json")
@@ -70,10 +74,23 @@ struct ServerContext: Sendable {
             keyRing: keyRing,
             connectors: connectors,
             config: MissionEngine.Config(maxParallel: 4, maxSteps: 14, verifyWithAgent: true),
-            promptStore: prompts
+            promptStore: prompts,
+            connectorWrite: { missionID, call, scope in
+                guard let owner = await access.actions.owner(missionID: missionID) else {
+                    return .failure("This mission is not linked to a user-owned conversation. No external write was performed.")
+                }
+                let decision = await access.actions.awaitConnectorApproval(missionID: missionID, call: call, scope: scope)
+                guard decision.hasPrefix("approved:"), let id = UUID(uuidString: String(decision.dropFirst("approved:".count))) else {
+                    return .failure(decision)
+                }
+                let outcome = await connectors.run(call: call, scope: scope, approved: true)
+                await access.actions.finish(ownerID: owner, id: id, result: outcome.resultText, succeeded: outcome.succeeded)
+                return outcome
+            }
         )
         let conversations = ConversationStore(root: store.root)
         let memory = WorkspaceMemoryStore(root: store.root)
+        let knowledge = WorkspaceKnowledgeStore(store: store, conversations: conversations, connectors: connectors, keyRing: keyRing, includeExtendedTools: true)
         let chatWorkspace = ChatWorkspaceStore(root: store.root)
         let conversationEngine = ConversationEngine(
             store: store,
@@ -82,7 +99,10 @@ struct ServerContext: Sendable {
             workspace: chatWorkspace,
             keyRing: keyRing,
             connectors: connectors,
-            missions: engine
+            missions: engine,
+            promptStore: prompts,
+            access: access,
+            knowledge: knowledge
         )
 
         var token = (Environment.get("AGENTSAM_TOKEN") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -106,11 +126,13 @@ struct ServerContext: Sendable {
         )
         let provisioningRunner = ProvisioningRunner(store: provisioning, accounts: accounts)
         let scheduler = ConversationScheduler(conversations: conversations, engine: conversationEngine)
+        let knowledgeScheduler = WorkspaceKnowledgeScheduler(knowledge: knowledge)
         return ServerContext(
             store: store,
             engine: engine,
             conversations: conversations,
             memory: memory,
+            knowledge: knowledge,
             chatWorkspace: chatWorkspace,
             conversationEngine: conversationEngine,
             keyRing: keyRing,
@@ -119,6 +141,7 @@ struct ServerContext: Sendable {
             dataDir: store.root,
             maloon: MaloonIntegration(),
             connectors: connectors,
+            access: access,
             oauthStates: OAuthStateStore(),
             accounts: accounts,
             sessions: SessionStore(dataDir: store.root, lifetime: AuthConfig.sessionLifetime),
@@ -126,6 +149,7 @@ struct ServerContext: Sendable {
             provisioning: provisioning,
             provisioningRunner: provisioningRunner,
             scheduler: scheduler,
+            knowledgeScheduler: knowledgeScheduler,
             dummyPasswordHash: (try? Bcrypt.hash(Secrets.randomToken())) ?? ""
         )
     }
@@ -162,6 +186,7 @@ struct ServerContext: Sendable {
         await conversationEngine.shutdown()
         await provisioningRunner.shutdown()
         await scheduler.shutdown()
+        await knowledgeScheduler.shutdown()
         for missionID in await engine.activeMissionIDs {
             await engine.stop(missionID: missionID)
         }

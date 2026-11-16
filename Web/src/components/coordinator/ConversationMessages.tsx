@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, errorMessage } from '../../api/client'
-import type { Conversation, ConversationMessage, MissionDetail, TeamProposal } from '../../api/types'
+import type { AgentActionRequest, Conversation, ConversationMessage, MissionDetail, TeamProposal } from '../../api/types'
 import { useI18n } from '../../i18n'
 import { canApprove } from '../../lib/coordinator'
 import { isHTML, isPreviewableLanguage, pickEntry } from '../../lib/preview'
@@ -35,6 +35,38 @@ export function ProposalCard({ conversationID, message, onUpdated, onRevise }: {
     {canApprove(message) ? <div className="co-proposal-actions"><button className="co-primary-button" disabled={busy} onClick={() => void act('apply')}><Icon name="check" size={14} />{t('Approve team')}</button><button className="co-secondary-button" disabled={busy} onClick={onRevise}>{t('Request changes')}</button><button className="co-secondary-button" disabled={busy} onClick={() => void act('dismiss')}>{t('Not now')}</button></div> : null}
     <ErrorBanner message={error} />
   </div>
+}
+
+export function formatActionArguments(action: AgentActionRequest): string {
+  const raw = action.arguments.raw
+  if (action.kind === 'connectorWrite' && typeof raw === 'string') {
+    try { return JSON.stringify(JSON.parse(raw), null, 2) } catch { return raw }
+  }
+  return JSON.stringify(action.arguments, null, 2)
+}
+
+export function ActionApprovalCard({ action, onResolved }: { action: AgentActionRequest; onResolved: (actions: AgentActionRequest[]) => void }) {
+  const { t } = useI18n()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const pending = action.status === 'pending'
+  const expired = pending && Date.parse(action.expiresAt) <= Date.now()
+  const decide = async (approve: boolean) => {
+    setBusy(true)
+    setError(null)
+    try {
+      onResolved(await api<AgentActionRequest[]>(`conversations/${action.conversationID}/actions/${action.id}`, { method: 'POST', body: { approve } }))
+    } catch (err) { setError(errorMessage(err)) } finally { setBusy(false) }
+  }
+  return <section className="co-team-proposal co-action-card" aria-label={t('Action approval')}>
+    <div className="co-proposal-head"><Icon name="shield" /><div><b>{action.title}</b><span>{action.toolName}</span></div><span className="co-chip">{expired ? t('expired') : t(action.status)}</span></div>
+    <p className="co-proposal-rationale">{action.detail}</p>
+    <pre className="co-action-arguments">{formatActionArguments(action)}</pre>
+    {action.result ? <pre className="co-action-result">{action.result}</pre> : null}
+    {pending ? <p className="co-proposal-warning">{expired ? t('This request has expired. No action was performed.') : `${t('Approval runs this action once. It expires')} ${new Date(action.expiresAt).toLocaleString()}.`}</p> : null}
+    {pending && !expired ? <div className="co-proposal-actions"><button className="co-primary-button" disabled={busy} onClick={() => void decide(true)}><Icon name="check" size={14} />{t('Approve once')}</button><button className="co-secondary-button" disabled={busy} onClick={() => void decide(false)}>{t('Deny')}</button></div> : null}
+    <ErrorBanner message={error} />
+  </section>
 }
 
 export interface MessageHandlers {
@@ -109,7 +141,11 @@ function Message({ conversationID, message, latest, busy, handlers, retry }: { c
         {!running ? message.missionIDs.map((id) => <SitePreviewChip key={`preview-${id}`} missionID={id} onOpen={(entry) => onOpenCanvas({ tab: 'preview', missionID: id, source: { kind: 'mission', missionID: id, entry } })} />) : null}
       </div> : null}
       {message.fileIDs?.length ? <div className="co-source-row">
-        {message.fileIDs.map((name) => <button key={name} type="button" className="co-source-chip" onClick={() => onOpenCanvas({ tab: isHTML(name) ? 'preview' : 'files', source: { kind: 'chat', conversationID, entry: isHTML(name) ? name : undefined } })}><Icon name="file" size={12} />{name}</button>)}
+        {message.fileIDs.map((name) => {
+          const project = name.startsWith('project:')
+          const entry = name.replace(/^project:/, '')
+          return <button key={name} type="button" className="co-source-chip" onClick={() => onOpenCanvas({ tab: isHTML(name) ? 'preview' : 'files', source: { kind: project ? 'project' : 'chat', conversationID, entry: isHTML(name) ? entry : undefined } })}><Icon name="file" size={12} />{name}</button>
+        })}
       </div> : null}
       {message.proposal ? <ProposalCard conversationID={conversationID} message={message} onUpdated={handlers.onUpdated} onRevise={handlers.onRevise} /> : null}
       {message.status === 'complete' ? <div className="co-message-actions">
@@ -121,7 +157,7 @@ function Message({ conversationID, message, latest, busy, handlers, retry }: { c
   </article>
 }
 
-export function ConversationMessages({ conversation, busy = false, handlers }: { conversation: Conversation | null; busy?: boolean; handlers: MessageHandlers }) {
+export function ConversationMessages({ conversation, busy = false, handlers, actions = [], onActions = () => {} }: { conversation: Conversation | null; busy?: boolean; handlers: MessageHandlers; actions?: AgentActionRequest[]; onActions?: (actions: AgentActionRequest[]) => void }) {
   const { t } = useI18n()
   const box = useRef<HTMLDivElement>(null)
   const pinned = useRef(true)
@@ -131,7 +167,7 @@ export function ConversationMessages({ conversation, busy = false, handlers }: {
     const element = box.current
     if (element && pinned.current) element.scrollTop = element.scrollHeight
   }, [conversation?.messages.length, last?.status, last?.steps?.length, last?.text])
-  if (!conversation?.messages.length) return <div className="co-messages" ref={box}><div className="co-empty-chat"><span className="co-empty-orb">A</span><h1>{t('What can Ada help with?')}</h1><p>{t('Ask directly, or describe the outcome you need. Ada will bring in a team only when it helps.')}</p><div className="co-starters">
+  if (!conversation || (!conversation.messages.length && !actions.length)) return <div className="co-messages" ref={box}><div className="co-empty-chat"><span className="co-empty-orb">A</span><h1>{t('What can Ada help with?')}</h1><p>{t('Ask directly, or describe the outcome you need. Ada will bring in a team only when it helps.')}</p><div className="co-starters">
     <button onClick={() => handlers.onStarter(t('What can you help me accomplish?'))}><Icon name="spark" /><b>{t('Start with a question')}</b><span>{t('Get a direct answer, without assembling a team.')}</span></button>
     <button onClick={() => handlers.onStarter(t('Build me a simple landing page for '))}><Icon name="monitor" /><b>{t('Build a web page')}</b><span>{t('Preview it live beside the chat as it takes shape.')}</span></button>
     <button onClick={() => handlers.onStarter(t('Create a team for customer research and feedback analysis.'))}><Icon name="plus" /><b>{t('Describe your ideal team')}</b><span>{t('Ada proposes a roster for your approval.')}</span></button>
@@ -141,6 +177,7 @@ export function ConversationMessages({ conversation, busy = false, handlers }: {
   return <div className="co-messages-wrap">
     <div className="co-messages" ref={box} onScroll={(event) => { const el = event.currentTarget; const near = el.scrollHeight - el.scrollTop - el.clientHeight < 70; pinned.current = near; setAway(!near) }}><div className="co-message-inner">
       {conversation.messages.map((message, index) => <Message key={message.id} conversationID={conversation.id} message={message} latest={index === lastAssistant} busy={busy} handlers={handlers} retry={() => { const previous = conversation.messages.slice(0, index).reverse().find((item) => item.role === 'user'); if (previous) handlers.onRetry(previous.text) }} />)}
+      {actions.slice(0, 10).map((action) => <ActionApprovalCard key={action.id} action={action} onResolved={onActions} />)}
     </div></div>
     {away ? <button type="button" className="co-jump-latest" onClick={jump} aria-label={t('Jump to latest')}><Icon name="arrowDown" size={14} />{last?.status === 'running' ? t('Ada is working') : t('Latest')}</button> : null}
   </div>

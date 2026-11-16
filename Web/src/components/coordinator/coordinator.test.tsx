@@ -2,10 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { api } from '../../api/client'
-import type { Conversation, ConversationMessage, Team } from '../../api/types'
+import type { AgentActionRequest, Conversation, ConversationMessage, Team, WorkspaceKnowledge } from '../../api/types'
 import { I18nProvider } from '../../i18n'
 import { Guide } from './Guide'
-import { ProposalCard } from './ConversationMessages'
+import { ActionApprovalCard, ProposalCard } from './ConversationMessages'
 import { WorkspacePanel } from './WorkspacePanels'
 
 vi.mock('../../api/client', async (importOriginal) => ({ ...await importOriginal<typeof import('../../api/client')>(), api: vi.fn() }))
@@ -16,6 +16,15 @@ const team: Team = {
   agents: [
     { id: 'ada-1', name: 'Ada', emoji: 'A', title: 'Coordinator', role: 'coordinator', systemPrompt: 'Coordinate', providerID: 'openai', model: 'gpt-test' },
     { id: 'scout-1', name: 'Scout', emoji: 'S', title: 'Researcher', role: 'worker', systemPrompt: 'Research', providerID: 'openai', model: 'gpt-test' },
+  ],
+}
+
+const knowledge: WorkspaceKnowledge = {
+  status: 'ready', refreshCount: 1, updatedAt: '2026-01-01T00:00:00Z',
+  documents: [
+    { id: 'capabilities', title: 'Workspace capabilities', markdown: '# Workspace capabilities\n- web_fetch', updatedAt: '2026-01-01T00:00:00Z' },
+    { id: 'connections', title: 'Workspace connections', markdown: '# Workspace connections\n- Gmail: not connected', updatedAt: '2026-01-01T00:00:00Z' },
+    { id: 'projects', title: 'Workspace projects', markdown: '# Workspace projects\n- Launch', updatedAt: '2026-01-01T00:00:00Z' },
   ],
 }
 
@@ -57,6 +66,67 @@ describe('team proposal', () => {
   })
 })
 
+describe('action approvals', () => {
+  afterEach(() => { cleanup(); vi.clearAllMocks() })
+
+  const action: AgentActionRequest = {
+    id: 'action-1', ownerID: 'owner', conversationID: 'chat-1', kind: 'connectorWrite',
+    title: 'Create DNS record?', detail: 'Create this record only after approval.', toolName: 'cloudflare_dns_create',
+    arguments: { raw: '{"zone_id":"example.test","type":"TXT","name":"status","content":"ready"}' },
+    status: 'pending', createdAt: '2026-01-01T00:00:00Z', expiresAt: new Date(Date.now() + 60_000).toISOString(),
+  }
+
+  it('shows exact arguments and executes an approval only once', async () => {
+    const resolved = { ...action, status: 'completed' as const, result: 'Created DNS record.' }
+    vi.mocked(api).mockResolvedValue([resolved])
+    const onResolved = vi.fn()
+    renderUI(<ActionApprovalCard action={action} onResolved={onResolved} />)
+    expect(api).not.toHaveBeenCalled()
+    expect(screen.getByText(/"zone_id": "example.test"/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Approve once' }))
+    await waitFor(() => expect(api).toHaveBeenCalledWith('conversations/chat-1/actions/action-1', { method: 'POST', body: { approve: true } }))
+    await waitFor(() => expect(onResolved).toHaveBeenCalledWith([resolved]))
+    expect(api).toHaveBeenCalledTimes(1)
+  })
+
+  it('denies without running the connector operation', async () => {
+    const resolved = { ...action, status: 'denied' as const }
+    vi.mocked(api).mockResolvedValue([resolved])
+    const onResolved = vi.fn()
+    renderUI(<ActionApprovalCard action={action} onResolved={onResolved} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Deny' }))
+    await waitFor(() => expect(api).toHaveBeenCalledWith('conversations/chat-1/actions/action-1', { method: 'POST', body: { approve: false } }))
+    await waitFor(() => expect(onResolved).toHaveBeenCalledWith([resolved]))
+    expect(api).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not offer approval for an expired or completed action', () => {
+    renderUI(<ActionApprovalCard action={{ ...action, expiresAt: '2020-01-01T00:00:00Z' }} onResolved={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: 'Approve once' })).toBeNull()
+    cleanup()
+    renderUI(<ActionApprovalCard action={{ ...action, status: 'completed', result: 'Done' }} onResolved={vi.fn()} />)
+    expect(screen.queryByRole('button', { name: 'Approve once' })).toBeNull()
+    expect(api).not.toHaveBeenCalled()
+  })
+})
+
+describe('workspace knowledge', () => {
+  afterEach(() => { cleanup(); vi.clearAllMocks() })
+
+  it('shows maintained documents, switches tabs, and refreshes on request', async () => {
+    vi.mocked(api).mockResolvedValue(knowledge)
+    const onKnowledge = vi.fn()
+    renderUI(<WorkspacePanel panel="knowledge" teams={[team]} connectors={[]} memory={null} knowledge={knowledge} onConnectors={vi.fn()} onMemory={vi.fn()} onKnowledge={onKnowledge} onClose={vi.fn()} onNewTeam={vi.fn()} onRestartGuide={vi.fn()} />)
+    expect(screen.getByText(/# Workspace capabilities/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Connections' }))
+    expect(screen.getByText(/# Workspace connections/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh now' }))
+    await waitFor(() => expect(api).toHaveBeenCalledWith('workspace/knowledge/refresh', { method: 'POST' }))
+    await waitFor(() => expect(onKnowledge).toHaveBeenCalledWith(knowledge))
+    expect(screen.getByRole('link', { name: 'Export connections.md' }).getAttribute('href')).toBe('/api/workspace/knowledge/connections/export')
+  })
+})
+
 describe('resettable guide', () => {
   afterEach(() => { cleanup(); vi.clearAllMocks() })
 
@@ -73,7 +143,7 @@ describe('resettable guide', () => {
 
   it('restarts the guide through its isolated preference action', async () => {
     const restart = vi.fn().mockResolvedValue(undefined)
-    renderUI(<WorkspacePanel panel="settings" teams={[team]} connectors={[]} memory={null} onConnectors={vi.fn()} onMemory={vi.fn()} onClose={vi.fn()} onNewTeam={vi.fn()} onRestartGuide={restart} />)
+    renderUI(<WorkspacePanel panel="settings" teams={[team]} connectors={[]} memory={null} knowledge={null} onConnectors={vi.fn()} onMemory={vi.fn()} onKnowledge={vi.fn()} onClose={vi.fn()} onNewTeam={vi.fn()} onRestartGuide={restart} />)
     fireEvent.click(screen.getByRole('button', { name: 'Restart the guide' }))
     await waitFor(() => expect(restart).toHaveBeenCalledTimes(1))
     expect(api).not.toHaveBeenCalled()

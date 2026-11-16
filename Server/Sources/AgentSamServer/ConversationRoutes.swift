@@ -128,7 +128,8 @@ func conversationRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
     }
 
     api.get("workspace", "memory") { req async throws -> Response in
-        try req.json(await ctx.memory.state())
+        let owner = try req.requirePrincipal().conversationOwnerID
+        return try req.json(await ctx.memory.state(ownerID: owner))
     }
 
     // Ada's per-conversation workspace: files she wrote with the chat tools.
@@ -159,16 +160,43 @@ func conversationRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
     }
 
     api.patch("workspace", "memory") { req async throws -> Response in
+        let owner = try req.requirePrincipal().conversationOwnerID
         let body = try req.decodeJSON(MemoryPatchBody.self)
-        return try req.json(try await ctx.memory.setEnabled(body.enabled))
+        return try req.json(try await ctx.memory.setEnabled(ownerID: owner, body.enabled))
     }
 
     api.get("workspace", "memory", "export") { req async throws -> Response in
-        let memory = await ctx.memory.state()
+        let owner = try req.requirePrincipal().conversationOwnerID
+        let memory = await ctx.memory.state(ownerID: owner)
         var headers = HTTPHeaders()
         headers.replaceOrAdd(name: .contentType, value: "text/markdown; charset=utf-8")
         headers.replaceOrAdd(name: .contentDisposition, value: "attachment; filename=agentsam-memory.md")
         return Response(status: .ok, headers: headers, body: .init(string: memory.markdown))
+    }
+
+    api.get("workspace", "knowledge") { req async throws -> Response in
+        let owner = try req.requirePrincipal().conversationOwnerID
+        return try req.json(await ctx.knowledge.refresh(ownerID: owner))
+    }
+
+    api.post("workspace", "knowledge", "refresh") { req async throws -> Response in
+        let owner = try req.requirePrincipal().conversationOwnerID
+        return try req.json(await ctx.knowledge.refresh(ownerID: owner, force: true))
+    }
+
+    api.get("workspace", "knowledge", ":id", "export") { req async throws -> Response in
+        let owner = try req.requirePrincipal().conversationOwnerID
+        guard let id = req.parameters.get("id").flatMap(WorkspaceKnowledgeDocumentID.init(rawValue:)) else {
+            throw Abort(.notFound, reason: "Unknown workspace knowledge document.")
+        }
+        let knowledge = await ctx.knowledge.refresh(ownerID: owner)
+        guard let document = knowledge.documents.first(where: { $0.id == id }) else {
+            throw Abort(.notFound, reason: "Workspace knowledge document not found.")
+        }
+        var headers = HTTPHeaders()
+        headers.replaceOrAdd(name: .contentType, value: "text/markdown; charset=utf-8")
+        headers.replaceOrAdd(name: .contentDisposition, value: "attachment; filename=agentsam-\(id.rawValue).md")
+        return Response(status: .ok, headers: headers, body: .init(string: document.markdown))
     }
 
     api.get("workspace", "guide") { req async throws -> Response in

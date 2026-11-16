@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentActivity, Conversation, ConversationMessage, Team } from '../api/types'
 import { intervalLabel } from '../api/types'
-import { canApprove, canvasForFinishedFiles, connectorLabel, groupedConversations, presentWork, shouldPoll, voiceTranscript, wroteFreshFiles } from './coordinator'
+import { canApprove, canvasForFinishedFiles, connectorLabel, groupedConversations, presentWork, shouldPoll, voiceTranscript, workspaceFileSource, wroteFreshFiles } from './coordinator'
 
 const team: Team = { id: 'team-1', name: 'Research', emoji: 'R', goal: 'Research', agents: [], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' }
 const activity: AgentActivity = { id: 'activity-1', agentID: 'agent-1', agentName: 'Scout', summary: 'Reviewing the brief', state: 'working', updatedAt: '2026-01-01T00:00:00Z', teamID: 'team-1' }
@@ -60,6 +60,11 @@ describe('coordinator presentation', () => {
     expect(canvasForFinishedFiles(undefined, complete)).toBeNull()
     expect(wroteFreshFiles({ ...complete, fileIDs: ['index.html'] })).toBe(true)
     expect(wroteFreshFiles(complete)).toBe(false)
+  })
+
+  it('selects shared project files and keeps chat files in separate sources', () => {
+    expect(workspaceFileSource('chat-1', ['project:index.html', 'project:styles.css', 'notes.md'])).toEqual({ kind: 'project', conversationID: 'chat-1', entry: 'index.html' })
+    expect(workspaceFileSource('chat-1', ['notes.md', 'project:index.html'])).toEqual({ kind: 'chat', conversationID: 'chat-1', entry: undefined })
   })
 
   it('names the schedule intervals users can pick', () => {

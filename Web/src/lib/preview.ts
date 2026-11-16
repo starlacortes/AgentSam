@@ -9,6 +9,7 @@ export type PreviewSource =
   | { kind: 'code'; title: string; language: string; code: string }
   | { kind: 'mission'; missionID: string; entry?: string }
   | { kind: 'chat'; conversationID: string; entry?: string }
+  | { kind: 'project'; conversationID: string; entry?: string }
 
 export type ConsoleLevel = 'log' | 'info' | 'warn' | 'error' | 'debug'
 
@@ -26,6 +27,11 @@ export const FRAME_LOAD_TAG = '__agentsamPreviewLoad'
 
 /** Extensions the preview reads from a mission's files. */
 export const PREVIEW_TEXT_EXTENSIONS = new Set(['html', 'htm', 'css', 'js', 'mjs', 'json', 'svg', 'txt', 'md', 'csv', 'xml'])
+export const READABLE_TEXT_EXTENSIONS = new Set([...PREVIEW_TEXT_EXTENSIONS, 'markdown', 'tsv', 'yaml', 'yml', 'ts', 'tsx', 'jsx', 'py', 'rb', 'go', 'rs', 'swift', 'java', 'kt', 'c', 'h', 'cpp', 'sh', 'sql', 'log', 'toml', 'ini'])
+
+export function isTextFile(name: string): boolean {
+  return READABLE_TEXT_EXTENSIONS.has(extensionOf(name))
+}
 
 export function extensionOf(name: string): string {
   const dot = name.lastIndexOf('.')

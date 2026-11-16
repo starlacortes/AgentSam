@@ -55,6 +55,7 @@ public actor MissionEngine {
     private let connectors: ConnectorHub?
     private let config: Config
     private let promptBuilder: PromptBuilder
+    private let connectorWrite: (@Sendable (UUID, APIToolCall, ToolScope?) async -> ToolOutcome)?
     private var runningTasks: [UUID: Task<Void, Never>] = [:]
 
     public init(
@@ -63,13 +64,15 @@ public actor MissionEngine {
         client: LLMClient = LLMClient(),
         connectors: ConnectorHub? = nil,
         config: Config = Config(),
-        promptStore: PromptStore? = nil
+        promptStore: PromptStore? = nil,
+        connectorWrite: (@Sendable (UUID, APIToolCall, ToolScope?) async -> ToolOutcome)? = nil
     ) {
         self.store = store
         self.keyRing = keyRing
         self.client = client
         self.connectors = connectors
         self.config = config
+        self.connectorWrite = connectorWrite
         self.promptBuilder = PromptBuilder(store: promptStore ?? PromptStore(
             builtins: PromptStore.builtins,
             fileURL: store.root.appendingPathComponent("prompts.json")
@@ -409,7 +412,11 @@ public actor MissionEngine {
                 for call in calls {
                     let outcome: ToolOutcome
                     if let connectors, connectors.owns(call.function.name) {
-                        outcome = await connectors.run(call: call, scope: team.toolScope)
+                        if let connectorWrite, !ConnectorHub.readOnlyToolNames.contains(call.function.name) {
+                            outcome = await connectorWrite(mission.id, call, team.toolScope)
+                        } else {
+                            outcome = await connectors.run(call: call, scope: team.toolScope)
+                        }
                     } else {
                         outcome = AgentTools.run(call: call, workspace: workspace)
                     }

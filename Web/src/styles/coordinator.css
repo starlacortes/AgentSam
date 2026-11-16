@@ -250,6 +250,11 @@
 .co-memory-meta { color: var(--dim); font-family: var(--mono); font-size: 8.5px; }
 .co-memory-doc { max-height: 48vh; overflow: auto; margin-top: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: #0a120d; color: var(--mut); font-family: var(--mono); font-size: 10px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
 .co-download { margin-top: 12px; }
+.co-knowledge-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.co-knowledge-toolbar .co-secondary-button { flex: none; }
+.co-knowledge-tabs { display: flex; gap: 5px; margin: 12px 0; padding: 4px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); }
+.co-knowledge-tabs button { flex: 1; padding: 7px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--mut); font-size: 10px; cursor: pointer; }
+.co-knowledge-tabs button.active { background: var(--panel2); color: var(--ink); box-shadow: 0 1px 4px rgba(0,0,0,.18); }
 
 .co-modal-overlay { z-index: 80; display: grid; place-items: center; padding: 20px; }
 .co-guide { width: min(740px,96vw); max-height: 92dvh; overflow: auto; border: 1px solid var(--line2); border-radius: 18px; background: var(--panel); box-shadow: var(--shadow-pop); }
@@ -611,3 +616,16 @@
 /* Scheduled-run messages in the chat */
 .co-scheduled-message { display: flex; flex-direction: column; gap: 6px; }
 .co-scheduled-tag { display: inline-flex; align-items: center; gap: 5px; align-self: flex-start; padding: 3px 8px; border: 1px solid rgba(74,217,158,.3); border-radius: 6px; background: rgba(74,217,158,.1); color: var(--em2); font-size: 10px; font-weight: 600; letter-spacing: .02em; }
+
+.co-upload-button { flex: none; }
+.co-action-arguments, .co-action-result { max-height: 260px; margin: 12px 14px; padding: 11px; overflow: auto; border: 1px solid var(--line); border-radius: 7px; background: var(--bg); color: var(--ink); font: 10px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+.co-action-result { color: var(--mut); }
+.co-host-access { margin-top: 12px; }
+.co-host-access form { display: grid; gap: 10px; }
+.co-host-write { display: flex; align-items: center; gap: 8px; color: var(--mut); font-size: 11px; }
+.co-host-access .co-permission-row b { overflow-wrap: anywhere; }
+.co-access-audit { margin-top: 14px; color: var(--mut); font-size: 10px; }
+.co-access-audit summary { cursor: pointer; }
+.co-access-audit ul { padding: 0; list-style: none; }
+.co-access-audit li { display: grid; gap: 3px; padding: 8px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.co-access-audit time { color: var(--dim); font-size: 9px; }
