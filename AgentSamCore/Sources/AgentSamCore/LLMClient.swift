@@ -40,20 +40,26 @@ public struct LLMClient: Sendable {
         maxTokens: Int? = nil,
         onDelta: TextDeltaHandler? = nil
     ) async throws -> LLMReply {
+        // Some models (DeepSeek in particular) write tool calls into the text as DSML markup. Keep that markup
+        // off the screen while it streams, and turn it into real tool calls once the reply is complete.
+        let filtered = onDelta.map { DSMLStreamFilter(downstream: $0).handler }
+        var reply: LLMReply
         switch provider.kind {
         case .anthropic:
-            return try await AnthropicClient(session: session).complete(
+            reply = try await AnthropicClient(session: session).complete(
                 provider: provider, key: key, model: model, system: system,
                 messages: messages, tools: tools, temperature: temperature,
-                maxTokens: maxTokens, onDelta: onDelta
+                maxTokens: maxTokens, onDelta: filtered
             )
         case .openAICompatible:
-            return try await OpenAICompatClient(session: session).complete(
+            reply = try await OpenAICompatClient(session: session).complete(
                 provider: provider, key: key, model: model, system: system,
                 messages: messages, tools: tools, temperature: temperature,
-                maxTokens: maxTokens, onDelta: onDelta
+                maxTokens: maxTokens, onDelta: filtered
             )
         }
+        reply.message = DSMLToolCalls.normalize(reply.message, toolsOffered: !(tools ?? []).isEmpty)
+        return reply
     }
 
     public func testConnection(provider: ProviderConfig, key: String) async -> (ok: Bool, message: String) {
