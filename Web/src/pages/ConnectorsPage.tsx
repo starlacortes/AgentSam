@@ -206,11 +206,11 @@ function ConnectorCard({ status, onChanged }: { status: ConnectorStatus; onChang
         ) : null}
         {status.id === 'googleads' ? (
           <Toggle
-            label="Pause and enable campaigns"
+            label="Make Google Ads changes (campaigns, budgets, ad groups, ads, assets)"
             checked={p.adsWrite ?? false}
             disabled={busy !== null}
             onChange={(adsWrite) => {
-              if (!adsWrite || window.confirm('Let agents pause and enable Google Ads campaigns when you ask them to?')) void patch({ permissions: { ...p, adsWrite } })
+              if (!adsWrite || window.confirm('Let agents change Google Ads campaigns, budgets, ad groups, ads and assets? These affect real spend. You still approve each change on a card before it runs.')) void patch({ permissions: { ...p, adsWrite } })
             }}
           />
         ) : null}

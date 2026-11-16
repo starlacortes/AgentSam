@@ -27,25 +27,92 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
 
     public func toolDefs(permissions: ConnectorPermissions) -> [APIToolDef] {
         var defs = [Self.accountsTool, Self.campaignsTool, Self.queryTool]
-        if permissions.adsWrite { defs.append(Self.setCampaignStatusTool) }
+        if permissions.adsWrite {
+            defs += [Self.setStatusTool, Self.setBudgetTool, Self.mutateTool, Self.validateTool]
+        }
         return defs
     }
 
-    static let setCampaignStatusTool = APIToolDef(
-        name: "googleads_set_campaign_status",
-        description: "Pause or enable one Google Ads campaign (requires Google Ads write permission). Changes live ad delivery and spend, so only do this when the user explicitly asked for this exact campaign.",
+    static let writesDisabled = "Google Ads changes are turned off. Turn on \"Make Google Ads changes\" for the Google Ads connector in Connections."
+
+    private static let customerIDProperty: (String, JSONValue) = ("customer_id", .object([("type", .string("string")), ("description", .string("Customer account ID (with or without the customers/ prefix or dashes). Defaults to the configured login customer."))]))
+
+    /// Entities `googleads_set_status` can pause or enable, mapped to their mutate service.
+    static let statusEntities: [String: String] = [
+        "campaign": "campaigns",
+        "ad_group": "adGroups",
+        "ad": "adGroupAds",
+        "asset_group": "assetGroups",
+        "keyword": "adGroupCriteria",
+    ]
+
+    static let setStatusTool = APIToolDef(
+        name: "googleads_set_status",
+        description: "Pause or enable a Google Ads campaign, ad group, ad, asset group or keyword. Changes live ad delivery and spend; the user approves each call on a card before it runs.",
         parameters: .object([
             ("type", .string("object")),
             ("properties", .object([
-                ("customer_id", .object([("type", .string("string")), ("description", .string("Customer account ID (with or without the customers/ prefix). Defaults to the configured login customer."))])),
-                ("campaign_id", .object([("type", .string("string")), ("description", .string("Numeric campaign ID, from googleads_campaigns."))])),
+                customerIDProperty,
+                ("entity", .object([("type", .string("string")), ("enum", .array(statusEntities.keys.sorted().map { JSONValue.string($0) })), ("description", .string("What to change. Defaults to campaign."))])),
+                ("id", .object([("type", .string("string")), ("description", .string("Numeric ID or full resource name. For ad and keyword use adGroupId~adId or adGroupId~criterionId (or the resource name)."))])),
+                ("campaign_id", .object([("type", .string("string")), ("description", .string("Same as id with entity campaign; kept for older calls."))])),
                 ("status", .object([("type", .string("string")), ("enum", .array([.string("PAUSED"), .string("ENABLED")])), ("description", .string("PAUSED to stop delivery, ENABLED to resume it."))])),
             ])),
-            ("required", .array([.string("campaign_id"), .string("status")])),
+            ("required", .array([.string("status")])),
         ])
     )
 
-    static let writesDisabled = "Campaign changes are disabled for the Google Ads connector. Enable Google Ads writes in Connections."
+    static let setBudgetTool = APIToolDef(
+        name: "googleads_set_budget",
+        description: "Change a campaign's daily budget, in the account's currency (for example 25 means 25.00 per day). Pass campaign_id to change the budget that campaign uses, or budget_id for a specific (possibly shared) budget. Affects spend; the user approves each call on a card before it runs.",
+        parameters: .object([
+            ("type", .string("object")),
+            ("properties", .object([
+                customerIDProperty,
+                ("campaign_id", .object([("type", .string("string")), ("description", .string("Campaign whose budget to change."))])),
+                ("budget_id", .object([("type", .string("string")), ("description", .string("Campaign budget ID or resource name, instead of campaign_id."))])),
+                ("amount", .object([("type", .string("number")), ("description", .string("New daily amount in account currency units, not micros."))])),
+            ])),
+            ("required", .array([.string("amount")])),
+        ])
+    )
+
+    /// Mutate services agents may call. `googleAds` is the multi-resource GoogleAdsService.Mutate,
+    /// used for atomic creates with temporary negative IDs (budget + campaign + asset group).
+    static let mutateResources: [String] = [
+        "googleAds",
+        "campaigns", "campaignBudgets", "campaignCriteria", "campaignAssets", "campaignLabels", "campaignSharedSets",
+        "adGroups", "adGroupAds", "adGroupCriteria", "adGroupAssets", "adGroupLabels", "ads",
+        "assetGroups", "assetGroupAssets", "assetGroupSignals", "assetGroupListingGroupFilters", "assets", "assetSets", "assetSetAssets",
+        "customerAssets", "biddingStrategies", "sharedSets", "sharedCriteria", "labels", "conversionActions", "customerNegativeCriteria",
+    ]
+
+    private static let mutateProperties: [(String, JSONValue)] = [
+        customerIDProperty,
+        ("resource", .object([("type", .string("string")), ("enum", .array(mutateResources.map { JSONValue.string($0) })), ("description", .string("Mutate service in REST form, e.g. campaigns for CampaignService.MutateCampaigns. Use googleAds for GoogleAdsService.Mutate, whose operations are MutateOperation objects like {\"campaignBudgetOperation\": {...}}."))])),
+        ("operations", .object([("type", .string("array")), ("items", .object([("type", .string("object"))])), ("description", .string("Google Ads API REST operations, e.g. [{\"update\": {\"resourceName\": \"customers/123/adGroups/456\", \"cpcBidMicros\": \"1500000\"}, \"updateMask\": \"cpcBidMicros\"}] or [{\"create\": {...}}]. Money is in micros (1.00 = 1000000). Use temporary negative IDs to link new resources in one googleAds call."))])),
+        ("partial_failure", .object([("type", .string("boolean")), ("description", .string("Apply the operations that succeed even if others fail. Default false: all or nothing."))])),
+    ]
+
+    static let mutateTool = APIToolDef(
+        name: "googleads_mutate",
+        description: "Create, update or remove Google Ads resources: campaigns, budgets, ad groups, ads, keywords, asset groups, assets and more. Follows the Google Ads API REST mutate format. Changes live ads and spend, and remove cannot be undone; run googleads_validate with the same arguments first, then call this. The user approves each call on a card before it runs.",
+        parameters: .object([
+            ("type", .string("object")),
+            ("properties", .object(mutateProperties)),
+            ("required", .array([.string("resource"), .string("operations")])),
+        ])
+    )
+
+    static let validateTool = APIToolDef(
+        name: "googleads_validate",
+        description: "Dry-run a googleads_mutate call: Google Ads checks the operations and reports errors, but changes nothing. Takes the same arguments as googleads_mutate and needs no approval.",
+        parameters: .object([
+            ("type", .string("object")),
+            ("properties", .object(mutateProperties)),
+            ("required", .array([.string("resource"), .string("operations")])),
+        ])
+    )
 
     static let accountsTool = APIToolDef(
         name: "googleads_accounts",
@@ -69,7 +136,7 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
 
     static let queryTool = APIToolDef(
         name: "googleads_query",
-        description: "Run a raw GAQL query against a Google Ads customer account (read-only SELECT queries).",
+        description: "Run a raw GAQL query against a Google Ads customer account (read-only SELECT queries). Use it to look up IDs and current values before a change.",
         parameters: .object([
             ("type", .string("object")),
             ("properties", .object([
@@ -111,17 +178,66 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
                 let text = try await search(customerID: customerID, query: query, pageToken: args["page_token"]?.stringValue, context: context, runtime: runtime)
                 return ToolOutcome.success(text)
 
-            case "googleads_set_campaign_status":
+            case "googleads_set_status", "googleads_set_campaign_status":
                 guard permissions.adsWrite else { return ToolOutcome(resultText: Self.writesDisabled) }
-                guard let campaignID = Self.cleanCampaignID(args["campaign_id"]?.stringValue) else {
-                    return ToolOutcome(resultText: "googleads_set_campaign_status requires a numeric campaign_id.")
+                let entity = (args["entity"]?.stringValue ?? "campaign").lowercased()
+                guard let service = Self.statusEntities[entity] else {
+                    return ToolOutcome(resultText: "entity must be one of \(Self.statusEntities.keys.sorted().joined(separator: ", ")).")
+                }
+                guard let id = Self.cleanEntityID(args["id"]?.stringValue ?? args["campaign_id"]?.stringValue, composite: service == "adGroupAds" || service == "adGroupCriteria") else {
+                    return ToolOutcome(resultText: "\(name) requires a valid id for the \(entity).")
                 }
                 guard let status = args["status"]?.stringValue?.uppercased(), ["PAUSED", "ENABLED"].contains(status) else {
                     return ToolOutcome(resultText: "status must be PAUSED or ENABLED.")
                 }
                 let customerID = try resolveCustomerID(args["customer_id"]?.stringValue, context: context)
-                let text = try await setCampaignStatus(customerID: customerID, campaignID: campaignID, status: status, context: context, runtime: runtime)
-                return ToolOutcome(resultText: text)
+                let body = Self.statusBody(customerID: customerID, service: service, id: id, status: status)
+                let resources = try await mutate(customerID: customerID, service: service, body: body, context: context, runtime: runtime)
+                guard let resource = resources.first else { throw ConnectorError("Google Ads did not confirm the change.") }
+                return ToolOutcome(resultText: "\(resource) is now \(status).")
+
+            case "googleads_set_budget":
+                guard permissions.adsWrite else { return ToolOutcome(resultText: Self.writesDisabled) }
+                guard let amount = args["amount"]?.numberValue ?? args["amount"]?.stringValue.flatMap(Double.init), amount > 0, amount.isFinite else {
+                    return ToolOutcome(resultText: "googleads_set_budget requires a positive amount in account currency.")
+                }
+                let customerID = try resolveCustomerID(args["customer_id"]?.stringValue, context: context)
+                let budgetID: String
+                if let raw = args["budget_id"]?.stringValue, !raw.isEmpty {
+                    guard let id = Self.cleanEntityID(raw, composite: false) else { return ToolOutcome(resultText: "budget_id must be a numeric ID or resource name.") }
+                    budgetID = id
+                } else if let campaignID = Self.cleanCampaignID(args["campaign_id"]?.stringValue) {
+                    budgetID = try await campaignBudgetID(customerID: customerID, campaignID: campaignID, context: context, runtime: runtime)
+                } else {
+                    return ToolOutcome(resultText: "googleads_set_budget requires campaign_id or budget_id.")
+                }
+                let micros = Self.micros(amount)
+                let body = Self.budgetBody(customerID: customerID, budgetID: budgetID, amountMicros: micros)
+                let resources = try await mutate(customerID: customerID, service: "campaignBudgets", body: body, context: context, runtime: runtime)
+                guard let resource = resources.first else { throw ConnectorError("Google Ads did not confirm the budget change.") }
+                return ToolOutcome(resultText: "\(resource) now has a daily amount of \(String(format: "%.2f", Double(micros) / 1_000_000)).")
+
+            case "googleads_mutate", "googleads_validate":
+                guard permissions.adsWrite else { return ToolOutcome(resultText: Self.writesDisabled) }
+                let validateOnly = name == "googleads_validate"
+                guard let service = args["resource"]?.stringValue, Self.mutateResources.contains(service) else {
+                    return ToolOutcome(resultText: "resource must be one of: \(Self.mutateResources.joined(separator: ", ")).")
+                }
+                guard let operations = args["operations"]?.arrayValue, !operations.isEmpty, operations.allSatisfy({ $0.objectValue != nil }) else {
+                    return ToolOutcome(resultText: "\(name) requires a non-empty operations array of objects.")
+                }
+                let customerID = try resolveCustomerID(args["customer_id"]?.stringValue, context: context)
+                let body = Self.mutateBody(service: service, operations: operations, validateOnly: validateOnly, partialFailure: args["partial_failure"]?.boolValue ?? false)
+                let (resources, partialError) = try await mutateRaw(customerID: customerID, service: service, body: body, context: context, runtime: runtime)
+                var lines: [String] = []
+                if validateOnly {
+                    lines.append("Validation passed for \(operations.count) operation(s) on \(service). Nothing was changed; call googleads_mutate with the same arguments to apply.")
+                } else {
+                    lines.append("Applied \(operations.count) operation(s) on \(service) for customer \(customerID).")
+                    lines += resources.map { "- \($0)" }
+                }
+                if let partialError { lines.append("Some operations failed: \(partialError)") }
+                return ToolOutcome(resultText: AgentTools.clip(lines.joined(separator: "\n")))
 
             default:
                 return .failure("Unknown tool: \(name).")
@@ -255,25 +371,99 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
         return !id.isEmpty && id.allSatisfy(\.isNumber) ? id : nil
     }
 
+    /// Accepts a numeric ID or a resource name. Composite IDs (ads, keywords) look like 123~456.
+    static func cleanEntityID(_ raw: String?, composite: Bool) -> String? {
+        guard let last = raw?.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "/").last else { return nil }
+        let id = String(last)
+        let parts = id.split(separator: "~", omittingEmptySubsequences: false)
+        guard parts.count == (composite ? 2 : 1) else { return nil }
+        return parts.allSatisfy({ !$0.isEmpty && $0.allSatisfy(\.isNumber) }) ? id : nil
+    }
+
     static func campaignStatusBody(customerID: String, campaignID: String, status: String) -> [String: Any] {
+        statusBody(customerID: customerID, service: "campaigns", id: campaignID, status: status)
+    }
+
+    static func statusBody(customerID: String, service: String, id: String, status: String) -> [String: Any] {
         [
             "operations": [[
-                "update": ["resourceName": "customers/\(customerID)/campaigns/\(campaignID)", "status": status],
+                "update": ["resourceName": "customers/\(customerID)/\(service)/\(id)", "status": status],
                 "updateMask": "status",
             ]],
         ]
     }
 
-    private func setCampaignStatus(customerID: String, campaignID: String, status: String, context: APIContext, runtime: ConnectorRuntime) async throws -> String {
-        guard let url = ConnectorHTTP.url(Self.apiBase, "/\(Self.apiVersion)/customers/\(customerID)/campaigns:mutate") else {
+    /// Currency units to micros, rounded to the cent so the API does not reject odd fractions.
+    static func micros(_ amount: Double) -> Int64 {
+        Int64((amount * 100).rounded()) * 10_000
+    }
+
+    static func budgetBody(customerID: String, budgetID: String, amountMicros: Int64) -> [String: Any] {
+        [
+            "operations": [[
+                // int64 fields are strings in the REST API.
+                "update": ["resourceName": "customers/\(customerID)/campaignBudgets/\(budgetID)", "amountMicros": String(amountMicros)],
+                "updateMask": "amountMicros",
+            ]],
+        ]
+    }
+
+    static func mutateBody(service: String, operations: [JSONValue], validateOnly: Bool, partialFailure: Bool) -> [String: Any] {
+        var body: [String: Any] = [service == "googleAds" ? "mutateOperations" : "operations": operations.map(Self.foundationValue)]
+        if validateOnly { body["validateOnly"] = true }
+        if partialFailure { body["partialFailure"] = true }
+        return body
+    }
+
+    /// JSONValue to a JSONSerialization-ready value. Whole numbers stay integers so IDs and
+    /// micros are not sent as 1.5e+06.
+    static func foundationValue(_ value: JSONValue) -> Any {
+        switch value {
+        case .string(let s): return s
+        case .bool(let b): return b
+        case .null: return NSNull()
+        case .number(let n):
+            if n.rounded() == n, abs(n) < 9.0e15 { return Int(n) }
+            return n
+        case .array(let items): return items.map(foundationValue)
+        case .object(let pairs): return pairs.mapValues(foundationValue)
+        }
+    }
+
+    private func campaignBudgetID(customerID: String, campaignID: String, context: APIContext, runtime: ConnectorRuntime) async throws -> String {
+        let query = "SELECT campaign.campaign_budget FROM campaign WHERE campaign.id = \(campaignID)"
+        let results = try await searchRaw(customerID: customerID, query: query, pageToken: nil, context: context, runtime: runtime)
+        guard let resource = (results.results.first?["campaign"] as? [String: Any])?["campaignBudget"] as? String,
+              let id = Self.cleanEntityID(resource, composite: false) else {
+            throw ConnectorError("Could not find the budget for campaign \(campaignID).")
+        }
+        return id
+    }
+
+    private func mutate(customerID: String, service: String, body: [String: Any], context: APIContext, runtime: ConnectorRuntime) async throws -> [String] {
+        try await mutateRaw(customerID: customerID, service: service, body: body, context: context, runtime: runtime).resources
+    }
+
+    private func mutateRaw(customerID: String, service: String, body: [String: Any], context: APIContext, runtime: ConnectorRuntime) async throws -> (resources: [String], partialError: String?) {
+        let path = service == "googleAds" ? "googleAds:mutate" : "\(service):mutate"
+        guard let url = ConnectorHTTP.url(Self.apiBase, "/\(Self.apiVersion)/customers/\(customerID)/\(path)") else {
             throw ConnectorError("Bad Google Ads URL.")
         }
-        let body = Self.campaignStatusBody(customerID: customerID, campaignID: campaignID, status: status)
         let data = try await ConnectorHTTP.request(runtime.session, url: url, method: "POST", headers: headers(context), jsonBody: body)
-        let object = try ConnectorHTTP.jsonObject(data)
-        let resource = (object["results"] as? [[String: Any]])?.first?["resourceName"] as? String
-        guard let resource else { throw ConnectorError("Google Ads did not confirm the campaign change.") }
-        return "Campaign \(resource) is now \(status)."
+        let object: [String: Any] = try data.isEmpty ? [:] : ConnectorHTTP.jsonObject(data)
+        return (Self.resourceNames(in: object), (object["partialFailureError"] as? [String: Any])?["message"] as? String)
+    }
+
+    /// Resource names from a mutate response. GoogleAdsService.Mutate nests them one level
+    /// deeper, e.g. {"mutateOperationResponses": [{"campaignResult": {"resourceName": ...}}]}.
+    static func resourceNames(in object: [String: Any]) -> [String] {
+        if let results = object["results"] as? [[String: Any]] {
+            return results.compactMap { $0["resourceName"] as? String }
+        }
+        let responses = object["mutateOperationResponses"] as? [[String: Any]] ?? []
+        return responses.compactMap { response in
+            response.values.compactMap { ($0 as? [String: Any])?["resourceName"] as? String }.first
+        }
     }
 
     struct SearchResults {

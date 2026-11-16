@@ -187,6 +187,7 @@ public enum ConversationPrompts {
         case "googleads_accounts": return es ? "Revisando cuentas de Google Ads" : "Checking Google Ads accounts"
         case "googleads_campaigns": return es ? "Revisando campañas" : "Reviewing campaigns"
         case "googleads_query": return es ? "Consultando Google Ads" : "Querying Google Ads"
+        case "googleads_validate": return es ? "Validando cambios en Google Ads" : "Checking Google Ads changes"
         case "cloudflare_zones": return es ? "Leyendo zonas de Cloudflare" : "Reading Cloudflare zones"
         case "cloudflare_dns_list": return es ? "Leyendo registros DNS" : "Reading DNS records"
         case "web_search": return es ? "Buscando en la web" : "Searching the web"
