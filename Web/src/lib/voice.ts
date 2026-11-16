@@ -160,9 +160,18 @@ interface SpeechItem {
   text: string
   /** Legacy: a GET URL for a whole stored message, played through an <audio> element. */
   url?: string
-  /** Server audio for one sentence, already being fetched. */
+  /** Server audio for one sentence. Resolves once `begin()` has fetched it. */
   audio?: Promise<SpeechAudio | null>
+  /** Starts fetching `audio`. Sentences are fetched one at a time, in order, ahead of playback. */
+  begin?: () => void
 }
+
+/**
+ * How many sentences may be with the voice server at once. One keeps the first sentence from
+ * competing with the rest (a local Kokoro server makes them one after another anyway), and
+ * each later sentence is made while the one before it plays.
+ */
+const MAX_SPEECH_REQUESTS = 1
 
 interface SpeechAudio {
   data: ArrayBuffer
@@ -187,6 +196,10 @@ export class Speaker {
   private pumping = false
   private playing = false
   private generation = 0
+  /** Sentences waiting for their turn with the voice server, oldest first. */
+  private unfetched: SpeechItem[] = []
+  private requests = 0
+  private aborter = new AbortController()
   onChange: (speaking: boolean) => void = () => undefined
 
   constructor(private language?: string) {}
@@ -232,7 +245,26 @@ export class Speaker {
    * `postURL` is the server's text-to-speech endpoint; without it the browser voice reads the text.
    */
   enqueueText(text: string, postURL?: string): void {
-    this.push({ text, audio: postURL ? fetchSpeech(postURL, text) : undefined })
+    if (!postURL) return this.push({ text })
+    const item: SpeechItem = { text }
+    item.audio = new Promise((resolve) => {
+      item.begin = () => {
+        item.begin = undefined
+        this.requests += 1
+        void fetchSpeech(postURL, text, this.aborter.signal).then(resolve, () => resolve(null)).finally(() => {
+          this.requests -= 1
+          this.fetchAhead()
+        })
+      }
+    })
+    this.unfetched.push(item)
+    this.fetchAhead()
+    this.push(item)
+  }
+
+  /** Starts the next sentences' audio, oldest first, while keeping the voice server to a few requests. */
+  private fetchAhead(): void {
+    while (this.requests < MAX_SPEECH_REQUESTS && this.unfetched.length > 0) this.unfetched.shift()?.begin?.()
   }
 
   private push(item: SpeechItem): void {
@@ -243,6 +275,9 @@ export class Speaker {
   stop(): void {
     this.generation += 1
     this.queue = []
+    this.unfetched = []
+    this.aborter.abort()
+    this.aborter = new AbortController()
     this.pumping = false
     for (const source of this.sources) {
       source.onended = null
@@ -410,10 +445,11 @@ export class Speaker {
 }
 
 /** Asks the server to speak `text`; null means it couldn't, so the caller can use the browser voice. */
-async function fetchSpeech(path: string, text: string): Promise<SpeechAudio | null> {
+async function fetchSpeech(path: string, text: string, signal?: AbortSignal): Promise<SpeechAudio | null> {
   try {
     const response = await fetch(path, {
       method: 'POST',
+      signal,
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', 'X-AgentSam-Request': '1' },
       body: JSON.stringify({ text }),

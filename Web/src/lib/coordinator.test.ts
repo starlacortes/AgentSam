@@ -108,3 +108,21 @@ describe('takeSpeakable', () => {
     expect(takeSpeakable('Intro sentence that is long enough to be spoken. ```swift\nlet a = 1. ', 0, false)?.text).toBe('Intro sentence that is long enough to be spoken.')
   })
 })
+
+describe('takeSpeakable first piece', () => {
+  const long = 'I went through the whole quarterly report this morning, compared it against last year’s numbers and the forecast you sent, and the short version is that revenue is up. '
+  it('cuts a long opening sentence at a pause so speech starts sooner', () => {
+    const one = takeSpeakable(long, 0, true)!
+    expect(one.text).toBe('I went through the whole quarterly report this morning, compared it against last year’s numbers and the forecast you sent,')
+    const two = takeSpeakable(long, one.end, true)!
+    expect(two.text).toBe('and the short version is that revenue is up.')
+  })
+  it('can start a long opening sentence before it is finished', () => {
+    const partial = long.slice(0, 150)
+    expect(takeSpeakable(partial, 0, false)?.text).toBe('I went through the whole quarterly report this morning, compared it against last year’s numbers and the forecast you sent,')
+  })
+  it('leaves later sentences whole', () => {
+    const first = 'Here is the first full sentence of the answer. '
+    expect(takeSpeakable(first + long, first.length, true)?.text).toBe(long.trim())
+  })
+})

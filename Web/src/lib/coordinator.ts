@@ -54,22 +54,48 @@ export function voiceTranscript(markdown: string): string {
  * `from` is where the last call stopped (an offset into the speakable text, as returned in `end`).
  * Unfinished code blocks and the trailing suggestions block are never spoken, and short
  * sentences are joined so each request to the voice has a useful amount to say.
+ *
+ * The very first piece is kept short: if the opening sentence runs past `clauseLimit`
+ * characters, it is cut at a comma or similar pause so Ada can start talking sooner.
  */
-export function takeSpeakable(raw: string, from: number, final: boolean, minLength = 40): { text: string; end: number } | null {
+export function takeSpeakable(raw: string, from: number, final: boolean, minLength = 40, clauseLimit = from === 0 ? FIRST_CLAUSE_LIMIT : 0): { text: string; end: number } | null {
   let body = raw
   const suggestions = body.indexOf('```suggestions')
   if (suggestions >= 0) body = body.slice(0, suggestions)
   if (!final && (body.match(/```/g)?.length ?? 0) % 2 === 1) body = body.slice(0, body.lastIndexOf('```'))
   body = body.replace(/```[\s\S]*?```/g, ' Code example omitted from speech. ').replace(/```[\s\S]*$/, '')
+  const clause = (limit: number) => takeClause(body, from, minLength, limit)
   const boundary = final ? /[.!?]+["')\]]*(?:\s+|$)|\n+/g : /[.!?]+["')\]]*\s+|\n+/g
   boundary.lastIndex = from
   for (let match = boundary.exec(body); match; match = boundary.exec(body)) {
     const end = match.index + match[0].length
     const text = voiceTranscript(body.slice(from, end))
-    if (text.length >= minLength) return { text, end }
+    if (text.length < minLength) continue
+    return (clauseLimit && text.length > clauseLimit && clause(Math.min(end, from + clauseLimit))) || { text, end }
+  }
+  // No sentence end yet: a long opening sentence can still start at its first pause.
+  if (clauseLimit && body.length - from > clauseLimit) {
+    const early = clause(from + clauseLimit)
+    if (early) return early
   }
   if (!final || from >= body.length) return null
   return { text: voiceTranscript(body.slice(from)), end: body.length }
+}
+
+/** How long the first spoken piece may get before it is cut at a pause, so the first words play quickly. */
+export const FIRST_CLAUSE_LIMIT = 140
+
+/** The longest run of `body` from `from` that ends at a pause (comma, semicolon, colon or dash) before `limit`. */
+function takeClause(body: string, from: number, minLength: number, limit: number): { text: string; end: number } | null {
+  const pause = /[,;:]\s+|\s[–—]\s+/g
+  pause.lastIndex = from
+  let best: { text: string; end: number } | null = null
+  for (let match = pause.exec(body); match && match.index < limit; match = pause.exec(body)) {
+    const end = match.index + match[0].length
+    const text = voiceTranscript(body.slice(from, end))
+    if (text.length >= minLength) best = { text, end }
+  }
+  return best
 }
 
 export function shouldPoll(conversation: Conversation | null): boolean {
