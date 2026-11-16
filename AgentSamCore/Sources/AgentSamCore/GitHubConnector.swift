@@ -133,54 +133,54 @@ public struct GitHubConnector: ConnectorToolProvider {
         do {
             switch name {
             case "github_repos":
-                return ToolOutcome(resultText: try await listRepos(owner: args["owner"]?.stringValue, filter: args["filter"]?.stringValue, runtime: runtime))
+                return ToolOutcome.success(try await listRepos(owner: args["owner"]?.stringValue, filter: args["filter"]?.stringValue, runtime: runtime))
 
             case "github_read":
                 guard let repo = args["repo"]?.stringValue else {
-                    return ToolOutcome(resultText: "github_read requires repo (owner/name).")
+                    return .failure("github_read requires repo (owner/name).")
                 }
-                return ToolOutcome(resultText: try await read(repo: repo, path: args["path"]?.stringValue, ref: args["ref"]?.stringValue, runtime: runtime))
+                return ToolOutcome.success(try await read(repo: repo, path: args["path"]?.stringValue, ref: args["ref"]?.stringValue, runtime: runtime))
 
             case "github_search":
                 guard let query = args["query"]?.stringValue, !query.trimmingCharacters(in: .whitespaces).isEmpty else {
-                    return ToolOutcome(resultText: "github_search requires query.")
+                    return .failure("github_search requires query.")
                 }
-                return ToolOutcome(resultText: try await search(query: query, kind: args["kind"]?.stringValue, runtime: runtime))
+                return ToolOutcome.success(try await search(query: query, kind: args["kind"]?.stringValue, runtime: runtime))
 
             case "github_issues":
                 guard let repo = args["repo"]?.stringValue else {
-                    return ToolOutcome(resultText: "github_issues requires repo (owner/name).")
+                    return .failure("github_issues requires repo (owner/name).")
                 }
-                return ToolOutcome(resultText: try await listIssues(repo: repo, state: args["state"]?.stringValue, labels: args["labels"]?.stringValue, runtime: runtime))
+                return ToolOutcome.success(try await listIssues(repo: repo, state: args["state"]?.stringValue, labels: args["labels"]?.stringValue, runtime: runtime))
 
             case "github_issue":
                 guard let repo = args["repo"]?.stringValue, let number = args["number"]?.numberValue else {
-                    return ToolOutcome(resultText: "github_issue requires repo (owner/name) and number.")
+                    return .failure("github_issue requires repo (owner/name) and number.")
                 }
-                return ToolOutcome(resultText: try await readIssue(repo: repo, number: Int(number), runtime: runtime))
+                return ToolOutcome.success(try await readIssue(repo: repo, number: Int(number), runtime: runtime))
 
             case "github_write_file":
-                guard permissions.githubWrite else { return ToolOutcome(resultText: Self.writesDisabled) }
+                guard permissions.githubWrite else { return .failure(Self.writesDisabled) }
                 guard let repo = args["repo"]?.stringValue, let branch = args["branch"]?.stringValue,
                       let path = args["path"]?.stringValue, let content = args["content"]?.stringValue,
                       let message = args["message"]?.stringValue else {
-                    return ToolOutcome(resultText: "github_write_file requires repo, branch, path, content, and message.")
+                    return .failure("github_write_file requires repo, branch, path, content, and message.")
                 }
-                return ToolOutcome(resultText: try await writeFile(repo: repo, branch: branch, path: path, content: content, message: message, runtime: runtime))
+                return ToolOutcome.success(try await writeFile(repo: repo, branch: branch, path: path, content: content, message: message, runtime: runtime))
 
             case "github_comment":
-                guard permissions.githubWrite else { return ToolOutcome(resultText: Self.writesDisabled) }
+                guard permissions.githubWrite else { return .failure(Self.writesDisabled) }
                 guard let repo = args["repo"]?.stringValue, let number = args["number"]?.numberValue,
                       let body = args["body"]?.stringValue, !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    return ToolOutcome(resultText: "github_comment requires repo, number, and body.")
+                    return .failure("github_comment requires repo, number, and body.")
                 }
-                return ToolOutcome(resultText: try await comment(repo: repo, number: Int(number), body: body, runtime: runtime))
+                return ToolOutcome.success(try await comment(repo: repo, number: Int(number), body: body, runtime: runtime))
 
             default:
-                return ToolOutcome(resultText: "Unknown tool: \(name).")
+                return .failure("Unknown tool: \(name).")
             }
         } catch {
-            return ToolOutcome(resultText: "GitHub error: \(error.localizedDescription)")
+            return .failure("GitHub error: \(error.localizedDescription)")
         }
     }
 

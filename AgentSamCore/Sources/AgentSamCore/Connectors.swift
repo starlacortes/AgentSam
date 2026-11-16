@@ -236,6 +236,8 @@ public struct ConnectorRuntime: Sendable {
 
 /// Central registry used by the engine (and by the apps/server to manage connectors).
 public struct ConnectorHub: Sendable {
+    public typealias WriteApproval = @Sendable (APIToolCall) async -> String
+
     public let store: MissionStore
     public let keyRing: KeyRing
     public let session: URLSession
@@ -337,24 +339,29 @@ public struct ConnectorHub: Sendable {
         return defs
     }
 
-    public func run(call: APIToolCall, scope: ToolScope? = nil, readOnly: Bool = false) async -> ToolOutcome {
+    public func run(call: APIToolCall, scope: ToolScope? = nil, readOnly: Bool = false, approval: WriteApproval? = nil, approved: Bool = false) async -> ToolOutcome {
         guard let provider = Self.providers.first(where: { $0.owns(call.function.name) }) else {
-            return ToolOutcome(resultText: "Unknown tool: \(call.function.name).")
+            return .failure("Unknown tool: \(call.function.name).")
         }
         guard !readOnly || Self.readOnlyToolNames.contains(call.function.name) else {
-            return ToolOutcome(resultText: "Ada only has read-only connector access in this conversation.")
+            return .failure("Ada only has read-only connector access in this conversation.")
         }
         if let scope, !scope.connectorIDs.contains(provider.id) {
-            return ToolOutcome(resultText: "This team does not have access to \(provider.id.displayName).")
+            return .failure("This team does not have access to \(provider.id.displayName).")
         }
         let config = await config(for: provider.id)
         guard config.enabled else {
-            return ToolOutcome(resultText: "The \(provider.id.displayName) connector is disabled. Enable it in Connections.")
+            return .failure("The \(provider.id.displayName) connector is disabled. Enable it in Connections.")
         }
         guard provider.isConfigured(keyRing: keyRing) else {
-            return ToolOutcome(resultText: "The \(provider.id.displayName) connector is not connected. Connect it in Connections.")
+            return .failure("The \(provider.id.displayName) connector is not connected. Connect it in Connections.")
         }
         let permissions = scope.map { config.permissions.intersected(with: $0.permissions) } ?? config.permissions
+        if !readOnly && !Self.readOnlyToolNames.contains(call.function.name) && !approved {
+            guard let approval else { return .failure("Connector writes require an explicit user approval.") }
+            let decision = await approval(call)
+            guard decision.hasPrefix("approved:") else { return .failure(decision) }
+        }
         let args = AgentTools.arguments(of: call)
         return await provider.run(call.function.name, args: args, permissions: permissions, runtime: runtime)
     }

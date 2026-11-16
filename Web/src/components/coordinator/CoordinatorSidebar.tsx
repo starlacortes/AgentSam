@@ -6,7 +6,7 @@ import { useI18n } from '../../i18n'
 import { groupedConversations } from '../../lib/coordinator'
 import { Icon } from './Icon'
 
-export type PanelName = 'teams' | 'connections' | 'memory' | 'settings'
+export type PanelName = 'teams' | 'connections' | 'knowledge' | 'memory' | 'settings'
 
 interface Props {
   conversations: ConversationSummary[]
@@ -61,6 +61,7 @@ export function CoordinatorSidebar({ conversations, teams, selectedID, open, onC
       <div className="co-sidebar-foot">
         <button className="co-side-item" onClick={() => onPanel('teams')}><Icon name="users" size={15} />{t('Teams')}</button>
         <button className="co-side-item" onClick={() => onPanel('connections')}><Icon name="plug" size={15} />{t('Connections')}</button>
+        <button className="co-side-item" onClick={() => onPanel('knowledge')}><Icon name="memory" size={15} />{t('Knowledge')}</button>
         <button className="co-side-item" onClick={() => onPanel('settings')}><Icon name="settings" size={15} />{t('Settings & guide')}</button>
         <button className="co-profile" onClick={() => onPanel('memory')}><span className="co-profile-avatar">{(me?.name.trim()[0] ?? 'A').toUpperCase()}</span><span><b>{me?.name}</b><small>{memoryEnabled ? t('Workspace memory on') : t('Workspace memory paused')}</small></span><i className={memoryEnabled ? 'co-online-dot' : 'co-offline-dot'} /></button>
       </div>

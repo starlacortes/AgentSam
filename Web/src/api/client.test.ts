@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { api, ApiError, setUnauthorizedHandler } from './client'
+import { api, ApiError, setUnauthorizedHandler, uploadProjectFile } from './client'
 
 function mockFetch(status: number, body: unknown) {
   const fn = vi.fn(async () =>
@@ -30,6 +30,22 @@ describe('api', () => {
     await expect(api('users/1', { method: 'PATCH', body: {} })).rejects.toEqual(
       new ApiError(409, 'There must be at least one active admin'),
     )
+  })
+
+  it('uploads raw project bytes with the encoded relative path', async () => {
+    const fetchMock = mockFetch(201, { path: 'project:notes/todo.md', bytes: 7 })
+    const file = new Blob(['content'], { type: 'text/markdown' })
+    await expect(uploadProjectFile('chat 1', file, 'notes/todo.md')).resolves.toEqual({ path: 'project:notes/todo.md', bytes: 7 })
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('/api/conversations/chat%201/project/uploads')
+    expect(init.method).toBe('POST')
+    expect(init.credentials).toBe('same-origin')
+    expect(init.body).toBe(file)
+    expect(init.headers).toMatchObject({
+      'Content-Type': 'application/octet-stream',
+      'X-AgentSam-Request': '1',
+      'X-AgentSam-Path': 'notes%2Ftodo.md',
+    })
   })
 
   it('reports an expired session, except on auth endpoints', async () => {

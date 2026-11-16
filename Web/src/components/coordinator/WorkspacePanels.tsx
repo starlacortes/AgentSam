@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, errorMessage } from '../../api/client'
-import type { ConnectorPermissions, ConnectorStatus, Team, WorkspaceMemory } from '../../api/types'
+import type { AccessAuditEntry, ConnectorPermissions, ConnectorStatus, HostFolderGrant, Team, WorkspaceKnowledge, WorkspaceKnowledgeDocumentID, WorkspaceMemory } from '../../api/types'
 import type { VoiceInfo } from '../../api/chatTypes'
 import { useAuth } from '../../auth/AuthContext'
 import { useI18n } from '../../i18n'
@@ -86,6 +86,25 @@ function ConnectorCard({ connector, onChange }: { connector: ConnectorStatus; on
   </article>
 }
 
+function KnowledgePanel({ knowledge, onChange }: { knowledge: WorkspaceKnowledge | null; onChange: (knowledge: WorkspaceKnowledge) => void }) {
+  const { t } = useI18n()
+  const [selected, setSelected] = useState<WorkspaceKnowledgeDocumentID>('capabilities')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const document = knowledge?.documents.find((item) => item.id === selected) ?? knowledge?.documents[0]
+  const refresh = async () => {
+    if (busy) return
+    setBusy(true); setError(null)
+    try { onChange(await api<WorkspaceKnowledge>('workspace/knowledge/refresh', { method: 'POST' })) } catch (err) { setError(errorMessage(err)) } finally { setBusy(false) }
+  }
+  return <section><div className="co-setting-card"><div className="co-knowledge-toolbar"><div><b>{t('Workspace knowledge')}</b><div className="co-memory-meta">{knowledge?.updatedAt ? `${t('{count} refreshes', { count: knowledge.refreshCount })} · ${new Date(knowledge.updatedAt).toLocaleString()}` : t('Discovering your workspace…')}</div></div><button className="co-secondary-button" disabled={busy} onClick={() => void refresh()}><Icon name="refresh" size={14} />{busy ? t('Refreshing…') : t('Refresh now')}</button></div>
+    <p className="co-panel-note">{t('Built from live teams, providers, tools, connections, and projects. Refreshed on first launch, when changes are detected, and at least daily. No credentials or connected content are included.')}</p>
+    <div className="co-knowledge-tabs" aria-label={t('Knowledge documents')}>{knowledge?.documents.map((item) => <button key={item.id} className={document?.id === item.id ? 'active' : ''} aria-pressed={document?.id === item.id} onClick={() => setSelected(item.id)}>{item.id === 'capabilities' ? t('Capabilities') : item.id === 'connections' ? t('Connections') : t('Projects')}</button>)}</div>
+    <pre className="co-memory-doc">{document?.markdown ?? t('Discovering your workspace…')}</pre>
+    {document ? <a className="co-secondary-button co-download" href={`/api/workspace/knowledge/${document.id}/export`} download><Icon name="download" size={14} />{t('Export {name}.md', { name: document.id })}</a> : null}
+    <ErrorBanner message={error ?? knowledge?.lastError ?? null} /></div></section>
+}
+
 function MemoryPanel({ memory, onChange }: { memory: WorkspaceMemory | null; onChange: (memory: WorkspaceMemory) => void }) {
   const { t } = useI18n()
   const [error, setError] = useState<string | null>(null)
@@ -94,6 +113,49 @@ function MemoryPanel({ memory, onChange }: { memory: WorkspaceMemory | null; onC
     try { onChange(await api<WorkspaceMemory>('workspace/memory', { method: 'PATCH', body: { enabled: !memory.enabled } })); setError(null) } catch (err) { setError(errorMessage(err)) }
   }
   return <section><div className="co-setting-card"><div className="co-setting-row"><div><b>{t('Workspace memory')}</b><p>{t('A continuously compacted Markdown summary shared across your chats.')}</p></div><Switch checked={memory?.enabled ?? false} label={t('Workspace memory enabled')} onChange={() => void toggle()} /></div><div className="co-memory-meta">{memory ? `${t('{count} compactions', { count: memory.compactionCount })} · ${t('{count} source exchanges', { count: memory.sources.length })}${memory.pendingEntries ? ` · ${t('{count} pending', { count: memory.pendingEntries })}` : ''}` : t('Loading')}</div><p className="co-panel-note">{t('Pausing stops new memories from being recorded. It does not delete the existing summary. Memory contains concise facts, not private reasoning.')}</p><pre className="co-memory-doc">{memory?.markdown ?? t('Loading')}</pre><a className="co-secondary-button co-download" href="/api/workspace/memory/export" download><Icon name="file" size={14} />{t('Export memory.md')}</a><ErrorBanner message={error} /></div></section>
+}
+
+function HostAccessPanel() {
+  const { t } = useI18n()
+  const { isAdmin } = useAuth()
+  const [grants, setGrants] = useState<HostFolderGrant[]>([])
+  const [audit, setAudit] = useState<AccessAuditEntry[]>([])
+  const [path, setPath] = useState('')
+  const [canWrite, setCanWrite] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const refresh = async () => {
+    if (!isAdmin) return
+    try {
+      const [nextGrants, entries] = await Promise.all([api<HostFolderGrant[]>('access/host-grants'), api<AccessAuditEntry[]>('access/audit')])
+      setGrants(nextGrants); setAudit(entries); setError(null)
+    } catch (err) { setError(errorMessage(err)) }
+  }
+  useEffect(() => { void refresh() }, [isAdmin])
+  const grant = async () => {
+    setBusy(true); setError(null)
+    try {
+      await api<HostFolderGrant>('access/host-grants', { method: 'POST', body: { path, canWrite } })
+      setPath(''); setCanWrite(false); await refresh()
+    } catch (err) { setError(errorMessage(err)) } finally { setBusy(false) }
+  }
+  const revoke = async (id: string) => {
+    if (!window.confirm(t('Revoke Ada’s access to this folder? Existing files are unchanged.'))) return
+    setBusy(true)
+    try { await api(`access/host-grants/${id}`, { method: 'DELETE' }); await refresh() } catch (err) { setError(errorMessage(err)) } finally { setBusy(false) }
+  }
+  if (!isAdmin) return null
+  return <div className="co-setting-card co-host-access"><h3>{t('Host folder access')}</h3>
+    <p className="co-panel-note">{t('Grant a specific folder on the server, not your whole home folder. Ada can list and read its text files. Writes require read/write access; there is no host shell access.')}</p>
+    <form onSubmit={(event) => { event.preventDefault(); void grant() }}>
+      <label className="field"><span>{t('Absolute server folder path')}</span><input className="input" value={path} onChange={(event) => setPath(event.target.value)} placeholder="/srv/my-project" required /></label>
+      <label className="co-host-write"><input type="checkbox" checked={canWrite} onChange={(event) => setCanWrite(event.target.checked)} /><span>{t('Allow Ada to write text files in this folder')}</span></label>
+      <button className="co-secondary-button" disabled={busy || !path.trim()}><Icon name="folder" size={13} />{t('Grant folder access')}</button>
+    </form>
+    {grants.map((item) => <div className="co-permission-row" key={item.id}><div><b>{item.path}</b><small>{item.canWrite ? t('Read/write') : t('Read only')}</small></div><button className="co-text-button danger" disabled={busy} onClick={() => void revoke(item.id)}>{t('Revoke')}</button></div>)}
+    {audit.length ? <details className="co-access-audit"><summary>{t('Recent access activity')}</summary><ul>{audit.slice(0, 8).map((entry) => <li key={entry.id}><code>{entry.action}</code><span>{entry.detail}</span><time>{new Date(entry.timestamp).toLocaleString()}</time></li>)}</ul></details> : null}
+    <ErrorBanner message={error} />
+  </div>
 }
 
 function SettingsPanel({ onRestartGuide }: { onRestartGuide: () => Promise<void> }) {
@@ -107,27 +169,30 @@ function SettingsPanel({ onRestartGuide }: { onRestartGuide: () => Promise<void>
     void api<VoiceInfo>('voice').then(setVoiceInfo).catch((err) => setError(errorMessage(err)))
   }, [isAdmin])
   return <section><div className="co-setting-card"><h3>{t('Your preferences')}</h3><div className="co-setting-row"><span>{t('Language')}</span><LanguageToggle /></div><Link className="co-setting-link" to="/account">{t('Account & app tokens')} →</Link>{isAdmin ? <><Link className="co-setting-link" to="/settings">{t('Model providers')} →</Link><Link className="co-setting-link" to="/people">{t('People & invitations')} →</Link></> : null}<Link className="co-setting-link" to="/missions">{t('Mission history & files')} →</Link>{voiceInfo ? <VoiceSettingsPanel info={voiceInfo} onSaved={setVoiceInfo} onError={setError} /> : null}</div>
+    <HostAccessPanel />
     <div className="co-guide-reset"><h3>{t('A quick guide, whenever you need it')}</h3><p>{t('Three short steps explain chat, teams, and connections. Restarting changes only the guide—not your chats, teams, providers, connections, or memory.')}</p><button className="co-secondary-button" disabled={busy} onClick={() => { setBusy(true); setError(null); void onRestartGuide().catch((err) => setError(errorMessage(err))).finally(() => setBusy(false)) }}><Icon name="memory" size={14} />{t('Restart the guide')}</button><ErrorBanner message={error} /></div>
     <button className="co-secondary-button co-signout" onClick={() => void signOut()}>{t('Sign out')}</button>
   </section>
 }
 
-export function WorkspacePanel({ panel, teams, connectors, memory, onConnectors, onMemory, onClose, onNewTeam, onRestartGuide }: { panel: PanelName; teams: Team[]; connectors: ConnectorStatus[]; memory: WorkspaceMemory | null; onConnectors: (connectors: ConnectorStatus[]) => void; onMemory: (memory: WorkspaceMemory) => void; onClose: () => void; onNewTeam: () => void; onRestartGuide: () => Promise<void> }) {
+export function WorkspacePanel({ panel, teams, connectors, memory, knowledge, onConnectors, onMemory, onKnowledge, onClose, onNewTeam, onRestartGuide }: { panel: PanelName; teams: Team[]; connectors: ConnectorStatus[]; memory: WorkspaceMemory | null; knowledge: WorkspaceKnowledge | null; onConnectors: (connectors: ConnectorStatus[]) => void; onMemory: (memory: WorkspaceMemory) => void; onKnowledge: (knowledge: WorkspaceKnowledge) => void; onClose: () => void; onNewTeam: () => void; onRestartGuide: () => Promise<void> }) {
   const { t } = useI18n()
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
-    if (panel !== 'connections') return
-    api<ConnectorStatus[]>('connectors').then(onConnectors).catch((err) => setError(errorMessage(err)))
-  }, [panel, onConnectors])
+    if (panel === 'connections') api<ConnectorStatus[]>('connectors').then(onConnectors).catch((err) => setError(errorMessage(err)))
+    if (panel === 'knowledge') api<WorkspaceKnowledge>('workspace/knowledge').then(onKnowledge).catch((err) => setError(errorMessage(err)))
+  }, [panel, onConnectors, onKnowledge])
   const content = {
     teams: { title: t('Teams'), eyebrow: t('Your specialist workspace'), description: t('One coordinator, the right specialists, one clear response.') },
     connections: { title: t('Connections'), eyebrow: t('Bring your tools'), description: t('Give Ada and your teams access to the services you choose.') },
+    knowledge: { title: t('Workspace knowledge'), eyebrow: t('Discovered and kept current'), description: t('The live guide to your capabilities, connections, and projects, available to Ada in every chat.') },
     memory: { title: t('Workspace memory'), eyebrow: t('Context that carries forward'), description: t('Inspect the actual Markdown Ada uses across your workspace.') },
     settings: { title: t('Settings & guide'), eyebrow: t('Make it yours'), description: t('Simple controls, without resetting your work.') },
   }[panel]
   return <Drawer {...content} onClose={onClose}>
     {panel === 'teams' ? <TeamsPanel teams={teams} onNewTeam={onNewTeam} /> : null}
-    {panel === 'connections' ? <section><ErrorBanner message={error} />{connectors.map((connector) => <ConnectorCard key={connector.id} connector={connector} onChange={(updated) => onConnectors(connectors.map((item) => item.id === updated.id ? updated : item))} />)}<div className="co-safety-note"><Icon name="shield" /><p>{t('Ada and your teams can only read until you switch on a write permission above. Ada acts on a write only when you ask for that exact action.')}</p></div></section> : null}
+    {panel === 'connections' ? <section><ErrorBanner message={error} />{connectors.map((connector) => <ConnectorCard key={connector.id} connector={connector} onChange={(updated) => onConnectors(connectors.map((item) => item.id === updated.id ? updated : item))} />)}<div className="co-safety-note"><Icon name="shield" /><p>{t('External writes always need your explicit, one-use approval. Connector permissions still apply. Review the exact arguments before approving; read tools do not need approval.')}</p></div></section> : null}
+    {panel === 'knowledge' ? <KnowledgePanel knowledge={knowledge} onChange={onKnowledge} /> : null}
     {panel === 'memory' ? <MemoryPanel memory={memory} onChange={onMemory} /> : null}
     {panel === 'settings' ? <SettingsPanel onRestartGuide={onRestartGuide} /> : null}
   </Drawer>

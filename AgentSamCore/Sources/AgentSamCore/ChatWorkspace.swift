@@ -1,4 +1,9 @@
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
@@ -45,6 +50,58 @@ public actor ChatWorkspaceStore {
         return names.sorted()
     }
 
+    public func manifest(conversationID: UUID) -> [String] {
+        files(conversationID: conversationID).map { name in
+            guard let url = AgentTools.resolve(name, in: directory(conversationID)),
+                  let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize else { return name }
+            return "\(name) — \(size)"
+        }
+    }
+
+    public func copyFiles(conversationID: UUID, to destination: URL) -> [String] {
+        ScopedFiles.copy(from: directory(conversationID), to: destination)
+    }
+
+    public nonisolated func projectDirectory(_ scope: ProjectScope) -> URL {
+        root
+            .appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent(Self.storageKey(scope.ownerID), isDirectory: true)
+            .appendingPathComponent(Self.storageKey(scope.projectName.lowercased()), isDirectory: true)
+    }
+
+    public func projectManifest(_ scope: ProjectScope) -> String {
+        ScopedFiles.manifest(in: projectDirectory(scope))
+    }
+
+    public func projectFiles(_ scope: ProjectScope) -> [String] {
+        ScopedFiles.files(in: projectDirectory(scope))
+    }
+
+    public func copyProject(_ scope: ProjectScope, to destination: URL) -> [String] {
+        ScopedFiles.copy(from: projectDirectory(scope), to: destination, prefix: "project/")
+    }
+
+    public func importMission(_ mission: MissionStore, missionID: UUID, to scope: ProjectScope) async -> [String] {
+        var imported: [String] = []
+        for name in await mission.deliverables(missionID: missionID) {
+            guard let text = await mission.deliverable(missionID: missionID, name: name) else { continue }
+            let destination = name.hasPrefix("project/") ? String(name.dropFirst("project/".count)) : name
+            if ScopedFiles.write(destination, content: text, in: projectDirectory(scope)) != nil { imported.append(destination) }
+        }
+        return imported.sorted()
+    }
+
+    public func upload(_ scope: ProjectScope, name: String, data: Data) -> String? {
+        ScopedFiles.upload(name, data: data, in: projectDirectory(scope))
+    }
+
+    private static func storageKey(_ value: String) -> String {
+        Data(value.utf8).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
     private static func nestedFiles(in folder: URL, relativeTo base: URL) -> [String] {
         guard let items = try? FileManager.default.contentsOfDirectory(
             at: folder,
@@ -70,12 +127,16 @@ public actor ChatWorkspaceStore {
         return path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : item.lastPathComponent
     }
     /// credentials someone might drop in the workspace (`.env`, `.pem`) never leave the server.
-    public func read(conversationID: UUID, name: String) -> String? {
-        guard let url = AgentTools.resolve(name, in: directory(conversationID)),
+    public func read(conversationID: UUID, name: String, startLine: Int = 1) -> String? {
+        guard startLine >= 1,
+              let url = AgentTools.resolve(name, in: directory(conversationID)),
               MissionStore.readableDeliverableExtensions.contains(url.pathExtension.lowercased()),
               let data = try? Data(contentsOf: url) else { return nil }
-        guard data.count <= AgentTools.maxFileBytes else { return nil }
-        return String(data: data, encoding: .utf8)
+        guard data.count <= AgentTools.maxFileBytes,
+              let text = String(data: data, encoding: .utf8) else { return nil }
+        let lines = text.components(separatedBy: "\n")
+        guard startLine <= lines.count else { return nil }
+        return lines[(startLine - 1)...].joined(separator: "\n")
     }
 
     @discardableResult
@@ -119,11 +180,12 @@ public enum ChatWorkspaceTools {
             ),
             APIToolDef(
                 name: "chat_read_file",
-                description: "Read a file from this conversation's workspace.",
+                description: "Read a file from this conversation's workspace. Use start_line to continue a clipped read.",
                 parameters: .object([
                     ("type", .string("object")),
                     ("properties", .object([
                         ("path", .object([("type", .string("string")), ("description", .string("Relative file path"))])),
+                        ("start_line", .object([("type", .string("integer")), ("description", .string("Optional 1-based first line to return"))])),
                     ])),
                     ("required", .array([.string("path")])),
                 ])
@@ -234,10 +296,12 @@ public enum ChatWorkspaceTools {
             guard let rawPath = args["path"]?.stringValue else {
                 return ToolOutcome(resultText: "chat_read_file requires a path.")
             }
-            guard let text = await workspace.read(conversationID: conversationID, name: rawPath) else {
-                return ToolOutcome(resultText: "File not found (or not a readable text file): \(rawPath)")
+            let startLine = args["start_line"]?.numberValue.map(Int.init) ?? 1
+            guard startLine >= 1,
+                  let text = await workspace.read(conversationID: conversationID, name: rawPath, startLine: startLine) else {
+                return ToolOutcome(resultText: "File not found, invalid start_line, or not a readable text file: \(rawPath)")
             }
-            return ToolOutcome(resultText: AgentTools.clip(text))
+            return ToolOutcome(resultText: AgentTools.clip(text, startLine: startLine))
 
         case "chat_write_file":
             guard let rawPath = args["path"]?.stringValue,
@@ -271,6 +335,75 @@ public enum ChatWorkspaceTools {
             return ToolOutcome(resultText: "Running programs is not supported on this device.")
             #endif
 
+        default:
+            return ToolOutcome(resultText: "Unknown tool: \(call.function.name).")
+        }
+    }
+}
+
+// MARK: - Linked mission files
+
+public enum ConversationMissionTools {
+    private static func schema(_ properties: [(String, JSONValue)], required: [String]) -> JSONValue {
+        .object([
+            ("type", .string("object")),
+            ("properties", .object(properties)),
+            ("required", .array(required.map(JSONValue.string))),
+        ])
+    }
+
+    private static func prop(_ type: String, _ description: String) -> JSONValue {
+        .object([("type", .string(type)), ("description", .string(description))])
+    }
+
+    public static var definitions: [APIToolDef] {
+        [
+            APIToolDef(
+                name: "mission_list_files",
+                description: "List deliverables from a mission linked to this conversation.",
+                parameters: schema([("mission_id", prop("string", "Full mission UUID from the conversation context"))], required: ["mission_id"])
+            ),
+            APIToolDef(
+                name: "mission_read_file",
+                description: "Read a text deliverable from a mission linked to this conversation. Use start_line to continue a clipped read.",
+                parameters: schema([
+                    ("mission_id", prop("string", "Full mission UUID from the conversation context")),
+                    ("path", prop("string", "Relative deliverable path")),
+                    ("start_line", prop("integer", "Optional 1-based first line to return")),
+                ], required: ["mission_id", "path"])
+            ),
+        ]
+    }
+
+    public static func owns(_ name: String) -> Bool {
+        name == "mission_list_files" || name == "mission_read_file"
+    }
+
+    public static func run(call: APIToolCall, store: MissionStore, allowedMissionIDs: Set<UUID>) async -> ToolOutcome {
+        let args = AgentTools.arguments(of: call)
+        guard let rawID = args["mission_id"]?.stringValue,
+              let missionID = UUID(uuidString: rawID),
+              allowedMissionIDs.contains(missionID) else {
+            return ToolOutcome(resultText: "Mission not found in this conversation's linked mission references.")
+        }
+        switch call.function.name {
+        case "mission_list_files":
+            let files = await store.deliverables(missionID: missionID)
+            return ToolOutcome(resultText: files.isEmpty ? "The mission workspace is empty." : files.joined(separator: "\n"))
+        case "mission_read_file":
+            guard let path = args["path"]?.stringValue else {
+                return ToolOutcome(resultText: "mission_read_file requires a path.")
+            }
+            let startLine = args["start_line"]?.numberValue.map(Int.init) ?? 1
+            guard startLine >= 1, let text = await store.deliverable(missionID: missionID, name: path) else {
+                return ToolOutcome(resultText: "File not found (or not a readable text file): \(path)")
+            }
+            let lines = text.components(separatedBy: "\n")
+            guard startLine <= lines.count else {
+                return ToolOutcome(resultText: "start_line \(startLine) is beyond the end of \(path).")
+            }
+            let slice = lines[(startLine - 1)...].joined(separator: "\n")
+            return ToolOutcome(resultText: AgentTools.clip(slice, startLine: startLine))
         default:
             return ToolOutcome(resultText: "Unknown tool: \(call.function.name).")
         }
@@ -356,14 +489,12 @@ enum CodeRunner {
         }
     }
 
-    private static func execute(_ plan: Plan, in sandbox: URL, stdin: String) throws -> ToolOutcome {
+    static func execute(_ plan: Plan, in sandbox: URL, stdin: String, environment: [String: String]? = nil, timeout: TimeInterval = ChatWorkspaceTools.runTimeout) throws -> ToolOutcome {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: plan.executable)
         process.arguments = plan.arguments
         process.currentDirectoryURL = sandbox
-        // A PATH-only environment: system locations just, so no AGENTSAM_* variables, tokens, or
-        // keys leak into the child while the language toolchains still resolve.
-        process.environment = ["PATH": "/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin"]
+        process.environment = environment ?? ["PATH": "/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin"]
         let stdinPipe = Pipe()
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()
@@ -408,12 +539,12 @@ enum CodeRunner {
             throw CodeRunnerError.toolchainMissing(languageHint: plan.arguments.first ?? plan.executable)
         }
 
-        // Hard wall-clock timeout: the process is killed and reported as timed out.
-        let timedOut = !waitWithTimeout(process, seconds: ChatWorkspaceTools.runTimeout)
+        let processGroup = setpgid(process.processIdentifier, process.processIdentifier) == 0 ? process.processIdentifier : -1
+        let timedOut = !waitWithTimeout(process, seconds: timeout)
         if timedOut {
-            process.terminate()
-            // Give the kill a moment to take effect, then clean up the handlers.
+            if processGroup > 0 { kill(-processGroup, SIGTERM) } else { process.terminate() }
             _ = waitForExit(process, seconds: 3)
+            if processGroup > 0, process.isRunning { kill(-processGroup, SIGKILL) }
         }
         group.wait()
         for reader in readers { reader.readabilityHandler = nil }
@@ -421,7 +552,7 @@ enum CodeRunner {
 
         let output = String(data: collected, encoding: .utf8) ?? ""
         let clipped = AgentTools.clip(String(output.prefix(ChatWorkspaceTools.maxOutputCharacters)))
-        let seconds = Int(ChatWorkspaceTools.runTimeout.rounded())
+        let seconds = Int(timeout.rounded())
         if timedOut {
             return ToolOutcome(resultText: "Timed out after \(seconds)s and was stopped. Partial output:\n\(clipped)")
         }

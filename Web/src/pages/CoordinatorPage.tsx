@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { api, errorMessage } from '../api/client'
-import type { ConnectorStatus, Conversation, ConversationSummary, GuideState, MissionDetail, ProviderStatus, Team, WorkspaceMemory } from '../api/types'
+import { api, errorMessage, uploadProjectFile } from '../api/client'
+import type { AgentActionRequest, ConnectorStatus, Conversation, ConversationSummary, GuideState, MissionDetail, ProviderStatus, Team, WorkspaceKnowledge, WorkspaceMemory } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { AgentWorkroom } from '../components/coordinator/AgentWorkroom'
 import { CoordinatorSidebar, type PanelName } from '../components/coordinator/CoordinatorSidebar'
@@ -10,11 +10,11 @@ import { SidePanel, type CanvasState } from '../components/coordinator/SidePanel
 import { ScheduleModal } from '../components/coordinator/ScheduleModal'
 import { Guide } from '../components/coordinator/Guide'
 import { Icon } from '../components/coordinator/Icon'
-import { VoiceMode, type VoiceReply } from '../components/coordinator/VoiceMode'
+import { VoiceMode, type VoicePartial, type VoiceReply } from '../components/coordinator/VoiceMode'
 import { WorkspacePanel } from '../components/coordinator/WorkspacePanels'
 import { ErrorBanner, Spinner } from '../components/ui'
 import { useI18n } from '../i18n'
-import { canvasForFinishedFiles, connectorLabel, pollDelay, shouldPoll, wroteFreshFiles } from '../lib/coordinator'
+import { canvasForFinishedFiles, connectorLabel, pollDelay, shouldPoll, workspaceFileSource, wroteFreshFiles } from '../lib/coordinator'
 import { pickEntry } from '../lib/preview'
 import { transcribeConversation } from '../lib/voice'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
@@ -62,6 +62,7 @@ export function CoordinatorPage() {
   const [connectors, setConnectors] = useState<ConnectorStatus[]>([])
   const [providers, setProviders] = useState<ProviderStatus[]>([])
   const [memory, setMemory] = useState<WorkspaceMemory | null>(null)
+  const [knowledge, setKnowledge] = useState<WorkspaceKnowledge | null>(null)
   const [guide, setGuide] = useState<GuideState | null>(null)
   const [draft, setDraft] = useState('')
   const [projectName, setProjectName] = useState('Personal')
@@ -71,11 +72,14 @@ export function CoordinatorPage() {
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [actions, setActions] = useState<AgentActionRequest[]>([])
   const [error, setError] = useState<string | null>(null)
   const [canvas, setCanvas] = useState<CanvasState | null>(null)
   const [canvasWidth, setCanvasWidth] = useState(() => Number(readStored(CANVAS_WIDTH_KEY)) || 520)
   const [dragging, setDragging] = useState(false)
   const input = useRef<HTMLTextAreaElement>(null)
+  const uploadInput = useRef<HTMLInputElement>(null)
   const draftKey = useRef<string>(`${DRAFT_PREFIX}new`)
   const carryDraft = useRef(false)
   const sendLock = useRef(false)
@@ -120,7 +124,7 @@ export function CoordinatorPage() {
       autoOpened.current = target.id
       setCanvas((current) => current && current.source ? current : ({
         tab: next.tab,
-        source: { kind: 'chat', conversationID, entry: next.entry },
+        source: workspaceFileSource(conversationID, target.fileIDs),
         missionID: null,
       }))
       return
@@ -157,15 +161,17 @@ export function CoordinatorPage() {
   }, [])
 
   const refreshWorkspace = useCallback(async () => {
-    const [chats, teamList, currentMemory] = await Promise.all([
+    const [chats, teamList, currentMemory, currentKnowledge] = await Promise.all([
       api<ConversationSummary[]>('conversations'),
       api<Team[]>('teams'),
       api<WorkspaceMemory>('workspace/memory'),
+      api<WorkspaceKnowledge>('workspace/knowledge'),
     ])
     if (!mounted.current) return
     setConversations(chats)
     setTeams(teamList)
     setMemory(currentMemory)
+    setKnowledge(currentKnowledge)
   }, [])
 
   useEffect(() => {
@@ -177,12 +183,13 @@ export function CoordinatorPage() {
     let active = true
     void (async () => {
       try {
-        const [chats, teamList, connectionList, providerList, currentMemory, guideState] = await Promise.all([
+        const [chats, teamList, connectionList, providerList, currentMemory, currentKnowledge, guideState] = await Promise.all([
           api<ConversationSummary[]>('conversations'),
           api<Team[]>('teams'),
           api<ConnectorStatus[]>('connectors'),
           api<ProviderStatus[]>('providers'),
           api<WorkspaceMemory>('workspace/memory'),
+          api<WorkspaceKnowledge>('workspace/knowledge'),
           api<GuideState>('workspace/guide'),
         ])
         if (!active) return
@@ -191,6 +198,7 @@ export function CoordinatorPage() {
         setConnectors(connectionList)
         setProviders(providerList)
         setMemory(currentMemory)
+        setKnowledge(currentKnowledge)
         setGuide(guideState)
       } catch (err) {
         if (active) setError(errorMessage(err))
@@ -214,6 +222,23 @@ export function CoordinatorPage() {
     })
     return () => { active = false }
   }, [id, replaceConversation])
+
+  useEffect(() => {
+    setActions([])
+    if (!id) return
+    let active = true
+    void api<AgentActionRequest[]>(`conversations/${id}/actions`).then((result) => { if (active) setActions(result) }).catch((err) => { if (active) setError(errorMessage(err)) })
+    return () => { active = false }
+  }, [id])
+
+  useEffect(() => {
+    const currentID = conversation?.id
+    if (!currentID || (!running && !actions.some((action) => ['pending', 'approved', 'executing'].includes(action.status)))) return
+    const timer = window.setTimeout(() => {
+      void api<AgentActionRequest[]>(`conversations/${currentID}/actions`).then(setActions).catch((err) => { if (mounted.current) setError(errorMessage(err)) })
+    }, 900)
+    return () => window.clearTimeout(timer)
+  }, [conversation?.id, running, actions])
 
   useEffect(() => {
     if (!running || !conversation || !shouldPoll(conversation)) return
@@ -280,7 +305,7 @@ export function CoordinatorPage() {
     return transcribeConversation(current.id, audio, lang)
   }
 
-  const sendMessage = async (raw: string, waitForCompletion = false): Promise<VoiceReply | null> => {
+  const sendMessage = async (raw: string, waitForCompletion = false, onPartial?: (update: VoicePartial) => void): Promise<VoiceReply | null> => {
     const text = raw.trim()
     if (!text || sendLock.current || (conversation && shouldPoll(conversation))) return null
     sendLock.current = true
@@ -294,13 +319,16 @@ export function CoordinatorPage() {
       setDraft('')
       if (!waitForCompletion) return null
       for (let attempt = 0; attempt < 700; attempt += 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, attempt === 0 ? 150 : 350))
+        await new Promise((resolve) => window.setTimeout(resolve, attempt === 0 ? 150 : 200))
         if (!mounted.current) return null
         const next = await api<Conversation>(`conversations/${current.id}`)
         replaceConversation(next)
         const answer = next.messages.at(-1)
+        if (answer && answer.role === 'assistant' && onPartial) {
+          onPartial({ text: answer.text, final: answer.status === 'complete', speechPath: `/api/conversations/${current.id}/speech?lang=${lang}` })
+        }
         if (answer && answer.status !== 'running') {
-          await refreshWorkspace()
+          void refreshWorkspace()
           return answer.status === 'complete' ? { text: answer.text, speechURL: `/api/conversations/${current.id}/messages/${answer.id}/speech?lang=${lang}&chunk=0` } : null
         }
       }
@@ -329,6 +357,19 @@ export function CoordinatorPage() {
       const last = [...(conversation?.messages ?? [])].reverse().find((message) => message.role === 'user')
       if (last) { event.preventDefault(); prompt(last.text) }
     }
+  }
+
+  const upload = async (files: File[]) => {
+    if (!files.length || uploading) return
+    setUploading(true); setError(null)
+    try {
+      const current = await ensureConversation()
+      for (const file of files.slice(0, 5)) {
+        if (!file.size || file.size > 5_000_000) throw new Error(t('{name} must be non-empty and at most 5 MB.', { name: file.name }))
+        await uploadProjectFile(current.id, file, file.name)
+      }
+      openCanvas({ tab: 'files', source: { kind: 'project', conversationID: current.id } })
+    } catch (err) { setError(errorMessage(err)) } finally { setUploading(false) }
   }
 
   const attach = async (files: FileList | File[]) => {
@@ -453,22 +494,23 @@ export function CoordinatorPage() {
       </header>
       <AgentWorkroom conversation={conversation} teams={teams} />
       <div className="co-chat-body">
-        {loading && id ? <div className="co-loading"><Spinner /></div> : <ConversationMessages conversation={conversation} busy={sending || running} handlers={handlers} />}
+        {loading && id ? <div className="co-loading"><Spinner /></div> : <ConversationMessages conversation={conversation} busy={sending || running} handlers={handlers} actions={actions} onActions={setActions} />}
       </div>
       <div className="co-composer-wrap">
         {!hasProvider && !loading ? <div className="co-provider-notice"><Icon name="info" size={16} /><p>{t('Add a model provider and API key before chatting with Ada.')}</p>{isAdmin ? <Link to="/settings">{t('Set up providers')} →</Link> : null}</div> : null}
         <ErrorBanner message={error} />
         <form className={`co-composer ${dragging ? 'dragging' : ''}`} onSubmit={submit} onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); setDragging(true) } }} onDragLeave={() => setDragging(false)} onDrop={drop}>
+          <input ref={uploadInput} type="file" multiple hidden aria-label={t('Choose project files')} onChange={(event) => { const files = [...(event.currentTarget.files ?? [])]; event.currentTarget.value = ''; void upload(files) }} />
           {dragging ? <div className="co-drop-hint"><Icon name="file" size={16} />{t('Drop a text file to add it to your message')}</div> : null}
           <textarea ref={input} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={composeKey} onPaste={paste} aria-label={t('Message Ada')} placeholder={t('Ask a question, or describe an outcome…')} rows={1} maxLength={20000} disabled={running} />
-          <div className="co-composer-foot"><span className="co-composer-hint">{t('Ada answers directly or brings in the right team.')}<span className="co-enter-hint"> · {t('Enter to send · Shift + Enter for a new line')}</span></span>{running ? <button className="co-stop-button" type="button" onClick={() => void stop()} title={t('Stop (Esc)')}><Icon name="stop" size={12} />{t('Stop')}</button> : <button className="co-send-button" type="submit" aria-label={t('Send message')} disabled={sending || !draft.trim() || !hasProvider}><Icon name="arrow" size={18} /></button>}</div>
+          <div className="co-composer-foot"><button type="button" className="co-icon-button co-upload-button" aria-label={t('Upload files to project')} title={t('Upload files to the shared project workspace (5 MB each)')} disabled={uploading} onClick={() => uploadInput.current?.click()}><Icon name={uploading ? 'refresh' : 'plus'} size={16} /></button><span className="co-composer-hint">{t('Ada answers directly or brings in the right team.')}<span className="co-enter-hint"> · {t('Enter to send · Shift + Enter for a new line')}</span></span>{running ? <button className="co-stop-button" type="button" onClick={() => void stop()} title={t('Stop (Esc)')}><Icon name="stop" size={12} />{t('Stop')}</button> : <button className="co-send-button" type="submit" aria-label={t('Send message')} disabled={sending || !draft.trim() || !hasProvider}><Icon name="arrow" size={18} /></button>}</div>
         </form>
         <p className="co-composer-note">{t('Agent activity shows concise work summaries, not private reasoning. Review team proposals and connections before granting access.')}</p>
       </div>
     </main>
     {canvas ? <SidePanel state={canvas} missionIDs={missionIDs} onChange={setCanvas} onClose={() => setCanvas(null)} onResize={resizeCanvas} /> : null}
     {scheduleOpen && conversation ? <ScheduleModal conversation={conversation} onUpdated={updateProposal} onClose={() => setScheduleOpen(false)} /> : null}
-    {panel ? <WorkspacePanel panel={panel} teams={teams} connectors={connectors} memory={memory} onConnectors={setConnectors} onMemory={setMemory} onClose={() => setPanel(null)} onNewTeam={() => prompt(t('I need a team for '))} onRestartGuide={restartGuide} /> : null}
+    {panel ? <WorkspacePanel panel={panel} teams={teams} connectors={connectors} memory={memory} knowledge={knowledge} onConnectors={setConnectors} onMemory={setMemory} onKnowledge={setKnowledge} onClose={() => setPanel(null)} onNewTeam={() => prompt(t('I need a team for '))} onRestartGuide={restartGuide} /> : null}
     {guide && (!guide.completed || searchParams.get('guide') === '1') ? <Guide onFinish={finishGuide} /> : null}
     {voiceOpen ? <VoiceMode onSend={sendMessage} onTranscribe={transcribeVoice} onClose={() => setVoiceOpen(false)} /> : null}
   </div>

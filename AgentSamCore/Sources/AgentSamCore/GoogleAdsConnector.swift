@@ -87,29 +87,29 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
         do {
             let provider = runtime.googleTokens(for: .googleads)
             guard let token = try await provider.accessToken() else {
-                return ToolOutcome(resultText: "Google Ads connector is not connected. Connect it in Settings.")
+                return .failure("Google Ads connector is not connected. Connect it in Settings.")
             }
             let context = try apiContext(token: token, runtime: runtime)
             switch name {
             case "googleads_accounts":
-                return ToolOutcome(resultText: try await listAccounts(context: context, runtime: runtime))
+                return ToolOutcome.success(try await listAccounts(context: context, runtime: runtime))
 
             case "googleads_campaigns":
                 let customerID = try resolveCustomerID(args["customer_id"]?.stringValue, context: context)
                 let query = "SELECT campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type FROM campaign ORDER BY campaign.name LIMIT 200"
                 let text = try await search(customerID: customerID, query: query, pageToken: nil, context: context, runtime: runtime)
-                return ToolOutcome(resultText: text)
+                return ToolOutcome.success(text)
 
             case "googleads_query":
                 guard let query = args["query"]?.stringValue, !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    return ToolOutcome(resultText: "googleads_query requires a GAQL query string.")
+                    return .failure("googleads_query requires a GAQL query string.")
                 }
                 guard query.trimmingCharacters(in: .whitespacesAndNewlines).uppercased().hasPrefix("SELECT") else {
-                    return ToolOutcome(resultText: "Only read-only SELECT queries are supported.")
+                    return .failure("Only read-only SELECT queries are supported.")
                 }
                 let customerID = try resolveCustomerID(args["customer_id"]?.stringValue, context: context)
                 let text = try await search(customerID: customerID, query: query, pageToken: args["page_token"]?.stringValue, context: context, runtime: runtime)
-                return ToolOutcome(resultText: text)
+                return ToolOutcome.success(text)
 
             case "googleads_set_campaign_status":
                 guard permissions.adsWrite else { return ToolOutcome(resultText: Self.writesDisabled) }
@@ -124,10 +124,10 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
                 return ToolOutcome(resultText: text)
 
             default:
-                return ToolOutcome(resultText: "Unknown tool: \(name).")
+                return .failure("Unknown tool: \(name).")
             }
         } catch {
-            return ToolOutcome(resultText: "Google Ads error: \(error.localizedDescription)")
+            return .failure("Google Ads error: \(error.localizedDescription)")
         }
     }
 

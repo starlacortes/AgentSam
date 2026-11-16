@@ -3,7 +3,7 @@ import Foundation
 import AgentSamCore
 
 func conversationVoiceRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
-    let speech = SpeechClient()
+    let speech = SpeechClient.shared
     let chats = ChatStore(root: ctx.dataDir)
 
     @Sendable func currentSetup() async -> (VoiceSetup, [ProviderConfig]) {
@@ -21,6 +21,28 @@ func conversationVoiceRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
             throw Abort(.conflict, reason: SrvL10n.t("srv.voiceNoKey", lang: lang))
         }
         return (provider, key)
+    }
+
+    @Sendable func synthesize(_ req: Request, text: String, tts: VoiceSetup.Engine, provider: ProviderConfig, key: String, lang: String, chunkCount: Int?) async throws -> Response {
+        let started = Date()
+        do {
+            let audio = try await speech.speakAudio(
+                text: text,
+                provider: provider,
+                key: key,
+                model: tts.model,
+                voice: tts.voice ?? SpeechDefaults.defaultVoice(for: provider, language: lang),
+                instructions: "You are Ada, a calm, friendly team coordinator giving a quick spoken update. Natural pace, warm and clear."
+            )
+            req.logger.info("speech: \(text.count) chars in \(Int(Date().timeIntervalSince(started) * 1000)) ms (\(audio.data.count) bytes, \(audio.mimeType))")
+            var headers = HTTPHeaders()
+            headers.replaceOrAdd(name: .contentType, value: audio.mimeType)
+            headers.replaceOrAdd(name: .cacheControl, value: "private, max-age=3600")
+            if let chunkCount { headers.replaceOrAdd(name: "X-Speech-Chunks", value: String(chunkCount)) }
+            return Response(status: .ok, headers: headers, body: .init(data: audio.data))
+        } catch let error as SpeechError {
+            throw Abort(.badGateway, reason: error.message)
+        }
     }
 
     api.on(.POST, "conversations", ":id", "transcribe", body: .collect(maxSize: ByteCount(value: SpeechClient.maxAudioBytes))) { req async throws -> Response in
@@ -60,27 +82,25 @@ func conversationVoiceRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
         var text = message.text
         var chunkCount: Int?
         if let index = req.query[Int.self, at: "chunk"] {
-            let pieces = SpeechClient.spokenChunks(text)
+            let pieces = SpeechClient.spokenChunks(SpeechClient.spokenText(text))
             chunkCount = pieces.count
             guard index >= 0, index < pieces.count else { return Response(status: .noContent) }
             text = pieces[index]
         }
-        do {
-            let audio = try await speech.speak(
-                text: text,
-                provider: provider,
-                key: key,
-                model: tts.model,
-                voice: tts.voice ?? SpeechDefaults.defaultVoice(for: provider, language: lang),
-                instructions: "You are Ada, a calm, friendly team coordinator giving a quick spoken update. Natural pace, warm and clear."
-            )
-            var headers = HTTPHeaders()
-            headers.replaceOrAdd(name: .contentType, value: "audio/mpeg")
-            headers.replaceOrAdd(name: .cacheControl, value: "private, max-age=3600")
-            if let chunkCount { headers.replaceOrAdd(name: "X-Speech-Chunks", value: String(chunkCount)) }
-            return Response(status: .ok, headers: headers, body: .init(data: audio))
-        } catch let error as SpeechError {
-            throw Abort(.badGateway, reason: error.message)
-        }
+        return try await synthesize(req, text: text, tts: tts, provider: provider, key: key, lang: lang, chunkCount: chunkCount)
+    }
+
+    /// Speaks one piece of text the browser already has, so a reply can start playing
+    /// sentence by sentence while it is still being written.
+    api.on(.POST, "conversations", ":id", "speech", body: .collect(maxSize: ByteCount(value: 32 * 1024))) { req async throws -> Response in
+        struct SpeechText: Decodable { var text: String }
+        let lang = req.query[String.self, at: "lang"] ?? SrvL10n.lang(for: req)
+        let owner = try req.requirePrincipal().conversationOwnerID
+        guard try await ctx.conversations.get(id: req.conversationID, ownerID: owner) != nil else { throw ConversationError.notFound }
+        let body = try req.content.decode(SpeechText.self)
+        let (setup, providers) = await currentSetup()
+        guard let tts = setup.tts else { throw Abort(.conflict, reason: SrvL10n.t("srv.voiceNoTTS", lang: lang)) }
+        let (provider, key) = try engine(tts, providers, lang: lang)
+        return try await synthesize(req, text: body.text, tts: tts, provider: provider, key: key, lang: lang, chunkCount: nil)
     }
 }

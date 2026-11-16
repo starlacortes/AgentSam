@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { BRIDGE_TAG, buildPreviewDocument, codePreviewDocument, isConsoleMessage, pickEntry, resolveLocal } from './preview'
+import { BRIDGE_TAG, buildPreviewDocument, codePreviewDocument, isConsoleMessage, isTextFile, pickEntry, resolveLocal } from './preview'
 
 describe('preview documents', () => {
   it('inlines local stylesheets and scripts and adds the console bridge', () => {
@@ -36,6 +36,14 @@ describe('preview documents', () => {
   it('wraps fragments and svg in a full document', () => {
     expect(codePreviewDocument('html', '<p>Hi</p>')).toMatch(/^<!doctype html>.*<body><p>Hi<\/p><\/body><\/html>$/s)
     expect(codePreviewDocument('svg', '<svg></svg>')).toContain('<svg></svg>')
+  })
+
+  it('classifies readable text separately from binary downloads', () => {
+    expect(isTextFile('project:README.MD')).toBe(true)
+    expect(isTextFile('sources/main.swift')).toBe(true)
+    expect(isTextFile('image.png')).toBe(false)
+    expect(isTextFile('archive.zip')).toBe(false)
+    expect(isTextFile('Makefile')).toBe(false)
   })
 
   it('recognizes bridge messages only', () => {

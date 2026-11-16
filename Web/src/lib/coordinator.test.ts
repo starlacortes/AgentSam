@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentActivity, Conversation, ConversationMessage, Team } from '../api/types'
 import { intervalLabel } from '../api/types'
-import { canApprove, canvasForFinishedFiles, connectorLabel, groupedConversations, pollDelay, presentWork, shouldPoll, voiceTranscript, wroteFreshFiles } from './coordinator'
+import { canApprove, canvasForFinishedFiles, connectorLabel, groupedConversations, pollDelay, presentWork, shouldPoll, takeSpeakable, voiceTranscript, workspaceFileSource, wroteFreshFiles } from './coordinator'
 
 const team: Team = { id: 'team-1', name: 'Research', emoji: 'R', goal: 'Research', agents: [], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' }
 const activity: AgentActivity = { id: 'activity-1', agentID: 'agent-1', agentName: 'Scout', summary: 'Reviewing the brief', state: 'working', updatedAt: '2026-01-01T00:00:00Z', teamID: 'team-1' }
@@ -68,6 +68,11 @@ describe('coordinator presentation', () => {
     expect(wroteFreshFiles(complete)).toBe(false)
   })
 
+  it('selects shared project files and keeps chat files in separate sources', () => {
+    expect(workspaceFileSource('chat-1', ['project:index.html', 'project:styles.css', 'notes.md'])).toEqual({ kind: 'project', conversationID: 'chat-1', entry: 'index.html' })
+    expect(workspaceFileSource('chat-1', ['notes.md', 'project:index.html'])).toEqual({ kind: 'chat', conversationID: 'chat-1', entry: undefined })
+  })
+
   it('names the schedule intervals users can pick', () => {
     expect(intervalLabel(60)).toBe('hourly')
     expect(intervalLabel(1440)).toBe('daily')
@@ -80,5 +85,26 @@ describe('voice transcript', () => {
   it('speaks readable text rather than Markdown, code, or private activity', () => {
     expect(voiceTranscript('## Result\n**One answer.** [Read more](https://example.com)\n```swift\nsecret = 1\n```')).toBe('Result One answer. Read more Code example omitted from speech.')
     expect(voiceTranscript('Short answer')).toBe('Short answer')
+  })
+})
+
+describe('takeSpeakable', () => {
+  const first = 'Here is the first full sentence of the answer. '
+  it('waits for a finished sentence while the reply is still streaming', () => {
+    expect(takeSpeakable('Here is the first full sentence of the ans', 0, false)).toBeNull()
+    const next = takeSpeakable(`${first}And the sec`, 0, false)
+    expect(next?.text).toBe('Here is the first full sentence of the answer.')
+    expect(takeSpeakable(`${first}And the sec`, next!.end, false)).toBeNull()
+  })
+  it('speaks the remainder once the reply is final, and skips code and suggestions', () => {
+    const raw = `${first}Short.\n\`\`\`suggestions\nA\n\`\`\``
+    const one = takeSpeakable(raw, 0, true)!
+    const two = takeSpeakable(raw, one.end, true)
+    expect(one.text).toBe('Here is the first full sentence of the answer.')
+    expect(two?.text).toBe('Short.')
+    expect(takeSpeakable(raw, two!.end, true)).toBeNull()
+  })
+  it('never speaks a code block that is still open', () => {
+    expect(takeSpeakable('Intro sentence that is long enough to be spoken. ```swift\nlet a = 1. ', 0, false)?.text).toBe('Intro sentence that is long enough to be spoken.')
   })
 })

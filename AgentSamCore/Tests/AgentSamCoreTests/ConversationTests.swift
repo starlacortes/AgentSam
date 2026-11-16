@@ -36,6 +36,113 @@ final class ConversationTests: XCTestCase {
         return try await conversations.get(id: id, ownerID: owner)!
     }
 
+    func testDirectConnectorWriteRequestsApprovalWithoutCallingProvider() async throws {
+        let store = MissionStore(root: directory)
+        await store.saveProviders([provider])
+        let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
+        try keys.set("test-key", for: provider.keyAccount)
+        try keys.set("test-cloudflare-token", for: CloudflareConnector.tokenAccount)
+        await store.saveConnectorConfigs([ConnectorConfig(id: .cloudflare, enabled: true, permissions: ConnectorPermissions(dnsWrite: true))])
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [CapturingURLProtocol.self]
+        let hub = ConnectorHub(store: store, keyRing: keys, session: URLSession(configuration: configuration), google: GoogleOAuth(clientID: "", clientSecret: ""))
+        CapturingURLProtocol.handler = { request in
+            XCTFail("An external connector ran before approval: \(request.url?.absoluteString ?? "")")
+            return (HTTPURLResponse(url: try! XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!, Data("{}".utf8))
+        }
+        defer { CapturingURLProtocol.handler = nil }
+        let conversations = ConversationStore(root: directory)
+        let memory = WorkspaceMemoryStore(root: directory)
+        let access = ConversationAccess(root: directory)
+        let missions = MissionEngine(store: store, keyRing: keys)
+        let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, connectors: hub, missions: missions, access: access, completion: { _, _, _, system, messages, _ in
+            if system.contains("Decide how to handle") {
+                return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
+            if messages.allSatisfy({ $0.role != "tool" }) {
+                return LLMReply(message: APIMessage(role: "assistant", content: nil, tool_calls: [APIToolCall(id: "write", function: .init(name: "cloudflare_dns_create", arguments: #"{"zone_id":"example.test","type":"TXT","name":"test","content":"sample"}"#))]), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
+            XCTAssertTrue(messages.contains(where: { $0.role == "tool" && ($0.content ?? "").contains("Approval requested") }))
+            return LLMReply(message: .assistant("Approval is required; no external change was made."), inputTokens: 0, outputTokens: 0, model: "stub")
+        })
+        let conversation = try await conversations.create(ownerID: "owner")
+        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Create a DNS record", launchedBy: "Owner", language: "en")
+        _ = try await finishedConversation(conversations, id: conversation.id)
+        let actions = await access.actions.list(ownerID: "owner", conversationID: conversation.id)
+        let action = try XCTUnwrap(actions.first)
+        XCTAssertEqual(actions.count, 1)
+        XCTAssertEqual(action.status, .pending)
+        XCTAssertEqual(action.kind, .connectorWrite)
+        XCTAssertTrue(action.arguments.objectValue?["raw"]?.stringValue?.contains("example.test") == true)
+        let denied = await access.actions.resolve(ownerID: "owner", id: action.id, approve: false)
+        let consumed = await access.actions.consumeApproved(ownerID: "owner", id: action.id)
+        XCTAssertEqual(denied?.status, .denied)
+        XCTAssertNil(consumed)
+        await engine.shutdown()
+    }
+
+    func testDeleteToolOnlyRequestsApprovalUntilDenied() async throws {
+        let store = MissionStore(root: directory)
+        await store.saveProviders([provider])
+        let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
+        try keys.set("test-key", for: provider.keyAccount)
+        let conversations = ConversationStore(root: directory)
+        let memory = WorkspaceMemoryStore(root: directory)
+        let access = ConversationAccess(root: directory)
+        let workspace = ChatWorkspaceStore(root: directory)
+        let conversation = try await conversations.create(ownerID: "owner")
+        _ = await workspace.write(conversationID: conversation.id, name: "keep.txt", content: "not deleted")
+        let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, workspace: workspace, keyRing: keys, missions: MissionEngine(store: store, keyRing: keys), access: access, completion: { _, _, _, system, messages, _ in
+            if system.contains("Decide how to handle") { return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub") }
+            if messages.allSatisfy({ $0.role != "tool" }) {
+                return LLMReply(message: APIMessage(role: "assistant", content: nil, tool_calls: [APIToolCall(id: "delete", function: .init(name: "chat_delete_file", arguments: #"{"path":"keep.txt"}"#))]), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
+            return LLMReply(message: .assistant("Please review the deletion request."), inputTokens: 0, outputTokens: 0, model: "stub")
+        })
+        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Delete keep.txt", launchedBy: "Owner", language: "en")
+        _ = try await finishedConversation(conversations, id: conversation.id)
+        let actions = await access.actions.list(ownerID: "owner", conversationID: conversation.id)
+        let action = try XCTUnwrap(actions.first)
+        XCTAssertEqual(action.kind, .fileDelete)
+        _ = await access.actions.resolve(ownerID: "owner", id: action.id, approve: false)
+        let kept = await workspace.read(conversationID: conversation.id, name: "keep.txt")
+        XCTAssertEqual(kept, "not deleted")
+        await engine.shutdown()
+    }
+
+    func testTerminalLimitDoesNotBlockOrdinaryFileTools() async throws {
+        let store = MissionStore(root: directory)
+        await store.saveProviders([provider])
+        let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
+        try keys.set("test-key", for: provider.keyAccount)
+        let conversations = ConversationStore(root: directory)
+        let memory = WorkspaceMemoryStore(root: directory)
+        let access = ConversationAccess(root: directory)
+        let workspace = ChatWorkspaceStore(root: directory)
+        let conversation = try await conversations.create(ownerID: "owner")
+        let probe = await access.terminal.run(command: "true", root: workspace.directory(conversation.id), key: "probe", requestedDirectory: nil)
+        if probe.resultText.contains("terminal is unavailable") { throw XCTSkip(probe.resultText) }
+        let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, workspace: workspace, keyRing: keys, missions: MissionEngine(store: store, keyRing: keys), access: access, completion: { _, _, _, system, messages, _ in
+            if system.contains("Decide how to handle") { return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub") }
+            if messages.allSatisfy({ $0.role != "tool" }) {
+                let calls = (0..<5).map { index in
+                    APIToolCall(id: "terminal-\(index)", function: .init(name: "run_terminal", arguments: #"{"command":"true"}"#))
+                } + [APIToolCall(id: "files", function: .init(name: "project_list_files", arguments: "{}"))]
+                return LLMReply(message: APIMessage(role: "assistant", content: nil, tool_calls: calls), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
+            let outputs = messages.filter { $0.role == "tool" }.compactMap(\.content)
+            XCTAssertEqual(outputs.count, 6)
+            XCTAssertTrue(outputs[4].contains("run limit reached"), outputs[4])
+            XCTAssertTrue(outputs[5].contains("shared project workspace is empty"), outputs[5])
+            return LLMReply(message: .assistant("The execution cap leaves file tools available."), inputTokens: 0, outputTokens: 0, model: "stub")
+        })
+        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Run checks and inspect the project", launchedBy: "Owner", language: "en")
+        let result = try await finishedConversation(conversations, id: conversation.id)
+        XCTAssertEqual(result.messages.last?.status, .complete)
+        XCTAssertEqual(result.messages.last?.text, "The execution cap leaves file tools available.")
+        await engine.shutdown()
+    }
+
     func testDecisionParserRequiresStructuredContract() throws {
         let decision = try XCTUnwrap(ConversationDecision.parse("```json\n{\"action\":\"ROUTE_TEAM\",\"teamIDs\":[\"B556E20F-6A57-4661-9DD8-624E193382B7\"]}\n```"))
         XCTAssertEqual(decision.action, .routeTeam)
@@ -90,7 +197,7 @@ final class ConversationTests: XCTestCase {
         XCTAssertEqual(stopped?.messages.last?.status, .failed)
         XCTAssertEqual(stopped?.messages.last?.text, "Respuesta detenida.")
         XCTAssertTrue(stopped?.messages.last?.activity.isEmpty == true)
-        let memoryState = await memory.state()
+        let memoryState = await memory.state(ownerID: "owner")
         XCTAssertTrue(memoryState.sources.isEmpty)
         await engine.shutdown()
     }
@@ -162,7 +269,7 @@ final class ConversationTests: XCTestCase {
                 let json = "{\"action\":\"ROUTE_TEAM\",\"teamIDs\":[\"\(ids[0].uuidString)\",\"\(ids[1].uuidString)\"]}"
                 return LLMReply(message: .assistant(json), inputTokens: 0, outputTokens: 0, model: "stub")
             }
-            if system.contains("platform-wide Markdown memory") {
+            if system.contains("compacted workspace Markdown memory") {
                 return LLMReply(message: .assistant("## Projects\n- A shared project."), inputTokens: 0, outputTokens: 0, model: "stub")
             }
             return LLMReply(message: .assistant("One answer from Ada."), inputTokens: 0, outputTokens: 0, model: "stub")
@@ -224,12 +331,12 @@ final class ConversationTests: XCTestCase {
         _ = try await store.saveGuide(ownerID: "owner", completed: false)
         let persisted = try await store.get(id: conversation.id, ownerID: "owner")
         XCTAssertEqual(persisted?.id, conversation.id)
-        let compacted = await memory.state()
+        let compacted = await memory.state(ownerID: "owner")
         XCTAssertEqual(compacted.compactionCount, 1)
-        _ = try await memory.setEnabled(false)
+        _ = try await memory.setEnabled(ownerID: "owner", false)
         let paused = try await memory.record(conversationID: conversation.id, ownerID: "owner", userMessage: user, assistantMessage: assistant)
         XCTAssertNil(paused)
-        let pausedState = await memory.state()
+        let pausedState = await memory.state(ownerID: "owner")
         XCTAssertEqual(pausedState.pendingEntries, 0)
     }
 
@@ -250,6 +357,11 @@ final class ConversationTests: XCTestCase {
         XCTAssertTrue(scoped.isEmpty)
         let outOfScope = await hub.run(call: APIToolCall(id: "2", function: .init(name: "cloudflare_zones", arguments: "{}")), scope: ToolScope(connectorIDs: []))
         XCTAssertTrue(outOfScope.resultText.contains("does not have access"))
+        XCTAssertFalse(denied.succeeded)
+        XCTAssertFalse(outOfScope.succeeded)
+        let invalid = await hub.run(call: APIToolCall(id: "3", function: .init(name: "cloudflare_dns_create", arguments: "{}")), approved: true)
+        XCTAssertFalse(invalid.succeeded)
+        XCTAssertTrue(invalid.resultText.contains("requires zone_id"))
     }
 
     func testDirectChatFollowsConnectionsWriteToggles() async throws {
@@ -270,7 +382,7 @@ final class ConversationTests: XCTestCase {
             let conversations = ConversationStore(root: root)
             let memory = WorkspaceMemoryStore(root: root)
             let seen = Seen()
-            let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, connectors: hub, missions: MissionEngine(store: store, keyRing: keys)) { _, _, _, system, _, tools in
+            let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, connectors: hub, missions: MissionEngine(store: store, keyRing: keys), access: ConversationAccess(root: root)) { _, _, _, system, _, tools in
                 if system.contains("Summarize only durable") { return LLMReply(message: .assistant("## Notes"), inputTokens: 0, outputTokens: 0, model: "stub") }
                 if system.contains("Decide how to handle") { return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub") }
                 if let tools {
@@ -284,8 +396,8 @@ final class ConversationTests: XCTestCase {
             seen.lock.lock(); let tools = seen.tools; let system = seen.system; seen.lock.unlock()
             XCTAssertTrue(tools.contains("cloudflare_dns_list"))
             XCTAssertEqual(tools.contains("cloudflare_dns_create"), dnsWrite)
-            XCTAssertEqual(system.contains("Connector write tools the user enabled in Connections: cloudflare_dns_create"), dnsWrite)
-            XCTAssertEqual(system.contains("You have no connector write tools right now"), !dnsWrite)
+            XCTAssertEqual(system.contains("Connector write tools: cloudflare_dns_create"), dnsWrite)
+            XCTAssertEqual(system.contains("Calling one creates an approval card"), dnsWrite)
             await engine.shutdown()
         }
     }
@@ -508,6 +620,134 @@ final class ConversationTests: XCTestCase {
         XCTAssertEqual(css, "body{}")
         XCTAssertNil(png)
         XCTAssertNil(escape)
+    }
+
+    func testSharedContextIncludesWorkspaceProjectScheduleAndLinkedMissionWithoutDuplicatingCurrentUser() async throws {
+        let store = MissionStore(root: directory)
+        await store.saveProviders([provider])
+        var custom = team("Custom")
+        custom.agents[0].systemPrompt = "Team-only persona"
+        await store.saveTeam(custom)
+        let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
+        try keys.set("test-key", for: provider.keyAccount)
+        let conversations = ConversationStore(root: directory)
+        let memory = WorkspaceMemoryStore(root: directory)
+        let workspace = ChatWorkspaceStore(root: directory)
+        let conversation = try await conversations.create(ownerID: "owner", projectName: "Website")
+        await workspace.write(conversationID: conversation.id, name: "site/index.html", content: "<h1>Old</h1>")
+        var mission = await store.createMission(team: custom, objective: "Build the first page")
+        mission.status = .completed
+        await store.saveMission(mission)
+        let missionID = mission.id
+        await store.writeDeliverable(missionID: missionID, name: "final-report.md", content: "Done")
+        _ = try await conversations.append(id: conversation.id, ownerID: "owner", message: ConversationMessage(role: .assistant, text: "The first page is ready.", missionIDs: [missionID]))
+        _ = try await conversations.setSchedule(id: conversation.id, ownerID: "owner", schedule: ConversationSchedule(prompt: "Refresh", intervalMinutes: 60))
+        let engine = engine(store, conversations, memory, keys: keys, completion: { _, _, ada, system, messages, _ in
+            if system.contains("Summarize only durable") {
+                return LLMReply(message: .assistant("## Projects\n- Website"), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
+            if system.contains("Decide how to handle") {
+                XCTAssertTrue(system.contains("Project: Website"))
+                XCTAssertTrue(system.contains("site/index.html — 12"))
+                XCTAssertTrue(system.contains(missionID.uuidString))
+                XCTAssertTrue(system.contains("Recurring hourly"))
+                XCTAssertTrue(ada.systemPrompt.contains("smallest action"))
+                XCTAssertFalse(system.contains("Team-only persona"))
+                XCTAssertFalse(system.contains("Revise the saved page"))
+                XCTAssertEqual(messages.last?.content, "Revise the saved page")
+                return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
+            return LLMReply(message: .assistant("Updated."), inputTokens: 0, outputTokens: 0, model: "stub")
+        })
+        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Revise the saved page", launchedBy: "Owner", language: "en")
+        let result = try await finishedConversation(conversations, id: conversation.id)
+        XCTAssertEqual(result.messages.last?.text, "Updated.")
+        await engine.shutdown()
+    }
+
+    func testDirectAndConsolidationPromptsHaveDistinctVersionedCapabilities() {
+        let prompts = PromptStore(builtins: PromptStore.builtins)
+        let context = ConversationPromptContext(projectName: "Personal", history: [], memory: "", workspaceManifest: "", missionReferences: "", missionIDs: [], schedule: nil, scheduled: false)
+        let ada = AgentProfile.rosterTemplates[0]
+        let direct = ConversationPrompts.directResponseSystem(coordinator: ada, context: context, connectorTools: [], hasLinkedMissions: false, store: prompts, language: "en")
+        let consolidation = ConversationPrompts.consolidationSystem(coordinator: ada, context: context, store: prompts, language: "en")
+        XCTAssertTrue(direct.contains("chat_write_file"))
+        XCTAssertFalse(direct.contains("Available read-only tools"))
+        XCTAssertFalse(consolidation.contains("chat_write_file"))
+        XCTAssertTrue(consolidation.contains("No tools or workspace writes"))
+        XCTAssertNotNil(prompts.currentVersions()["ada_direct_system"])
+        prompts.update(id: "ada_direct_system", text: "Custom direct prompt\n{{conversation_context}}")
+        let edited = ConversationPrompts.directResponseSystem(coordinator: ada, context: context, connectorTools: [], hasLinkedMissions: false, store: prompts, language: "en")
+        XCTAssertTrue(edited.hasPrefix("Custom direct prompt"))
+        XCTAssertTrue(edited.contains("Project: Personal"))
+    }
+
+    func testDirectAnswerCompactsLargeExecutedToolPayloads() async throws {
+        let store = MissionStore(root: directory)
+        await store.saveProviders([provider])
+        let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
+        try keys.set("test-key", for: provider.keyAccount)
+        let conversations = ConversationStore(root: directory)
+        let memory = WorkspaceMemoryStore(root: directory)
+        let large = String(repeating: "x", count: 90_000)
+        let arguments = #"{"path":"large.txt","content":""}"#.replacingOccurrences(of: "\"content\":\"\"", with: "\"content\":\"\(large)\"")
+        let engine = engine(store, conversations, memory, keys: keys) { _, _, _, system, messages, _ in
+            if system.contains("Summarize only durable") {
+                return LLMReply(message: .assistant("## Notes"), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
+            if system.contains("Decide how to handle") {
+                return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
+            if messages.allSatisfy({ $0.role != "tool" }) {
+                return LLMReply(message: APIMessage(role: "assistant", content: nil, tool_calls: [APIToolCall(id: "large", function: .init(name: "chat_write_file", arguments: arguments))]), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
+            let payloads = messages.flatMap { $0.tool_calls ?? [] }.map(\.function.arguments)
+            XCTAssertTrue(payloads.contains { $0.contains("__trimmed__") })
+            return LLMReply(message: .assistant("Saved."), inputTokens: 0, outputTokens: 0, model: "stub")
+        }
+        let conversation = try await conversations.create(ownerID: "owner")
+        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Save a large file", launchedBy: "Owner", language: "en")
+        let result = try await finishedConversation(conversations, id: conversation.id)
+        XCTAssertEqual(result.messages.last?.text, "Saved.")
+        await engine.shutdown()
+    }
+
+    func testLinkedMissionToolsReadOnlyAuthorizedMissionAndSupportRanges() async throws {
+        let store = MissionStore(root: directory)
+        let team = team("Research")
+        let mission = await store.createMission(team: team, objective: "Write lines")
+        await store.writeDeliverable(missionID: mission.id, name: "notes.md", content: "one\ntwo\nthree")
+        let call = APIToolCall(id: "read", function: .init(name: "mission_read_file", arguments: #"{"mission_id":""# + mission.id.uuidString + #"","path":"notes.md","start_line":2}"#))
+        let read = await ConversationMissionTools.run(call: call, store: store, allowedMissionIDs: [mission.id])
+        XCTAssertEqual(read.resultText, "two\nthree")
+        let denied = await ConversationMissionTools.run(call: call, store: store, allowedMissionIDs: [])
+        XCTAssertTrue(denied.resultText.contains("not found"))
+    }
+
+    func testWorkspaceMemoryIsolatedByOwner() async throws {
+        let store = ConversationStore(root: directory)
+        let memory = WorkspaceMemoryStore(root: directory)
+        let first = try await store.create(ownerID: "owner-a")
+        let second = try await store.create(ownerID: "owner-b")
+        let userA = ConversationMessage(role: .user, text: "My private launch is Friday")
+        let adaA = ConversationMessage(role: .assistant, text: "Noted Friday.")
+        let pendingA = try await memory.record(conversationID: first.id, ownerID: "owner-a", userMessage: userA, assistantMessage: adaA)
+        let jobA = try XCTUnwrap(pendingA)
+        _ = try await memory.finishCompaction(jobA, markdown: "## Open loops\n- Owner A launches Friday.")
+        let emptyB = await memory.state(ownerID: "owner-b")
+        XCTAssertFalse(emptyB.markdown.contains("Owner A"))
+        let userB = ConversationMessage(role: .user, text: "My private launch is Monday")
+        let adaB = ConversationMessage(role: .assistant, text: "Noted Monday.")
+        let pendingB = try await memory.record(conversationID: second.id, ownerID: "owner-b", userMessage: userB, assistantMessage: adaB)
+        let jobB = try XCTUnwrap(pendingB)
+        XCTAssertFalse(jobB.prompt.contains("Owner A"))
+        _ = try await memory.finishCompaction(jobB, markdown: "## Open loops\n- Owner B launches Monday.")
+        let stateA = await memory.state(ownerID: "owner-a")
+        let stateB = await memory.state(ownerID: "owner-b")
+        XCTAssertTrue(stateA.markdown.contains("Owner A"))
+        XCTAssertFalse(stateA.markdown.contains("Owner B"))
+        XCTAssertTrue(stateB.markdown.contains("Owner B"))
+        XCTAssertFalse(stateB.markdown.contains("Owner A"))
     }
 
     // MARK: Schedules

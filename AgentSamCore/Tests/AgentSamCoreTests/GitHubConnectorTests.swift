@@ -31,8 +31,9 @@ final class GitHubConnectorTests: XCTestCase {
         XCTAssertTrue(writeNames.isSuperset(of: ["github_write_file", "github_comment"]))
         let denied = await hub.run(call: APIToolCall(id: "1", function: .init(name: "github_write_file", arguments: "{}")), readOnly: true)
         XCTAssertTrue(denied.resultText.contains("read-only"))
-        let noPermission = await hub.run(call: APIToolCall(id: "2", function: .init(name: "github_comment", arguments: "{}")), scope: ToolScope(connectorIDs: [.github]))
+        let noPermission = await hub.run(call: APIToolCall(id: "2", function: .init(name: "github_comment", arguments: "{}")), scope: ToolScope(connectorIDs: [.github]), approved: true)
         XCTAssertTrue(noPermission.resultText.contains("disabled"))
+        XCTAssertFalse(noPermission.succeeded)
         hub.disconnect(.github)
         XCTAssertFalse(hub.isConfigured(.github))
     }

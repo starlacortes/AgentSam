@@ -176,6 +176,45 @@ export interface Conversation extends ConversationSummary {
   schedule?: ConversationSchedule
 }
 
+export interface HostFolderGrant {
+  id: string
+  ownerID: string
+  path: string
+  canWrite: boolean
+  createdAt: string
+  lastUsedAt?: string
+}
+
+export interface AccessAuditEntry {
+  id: string
+  timestamp: string
+  ownerID: string
+  action: string
+  detail: string
+}
+
+export type JSONValue = string | number | boolean | null | JSONValue[] | { [key: string]: JSONValue }
+
+export interface AgentActionRequest {
+  id: string
+  ownerID: string
+  conversationID: string
+  missionID?: string
+  kind: 'connectorWrite' | 'fileDelete'
+  title: string
+  detail: string
+  toolName: string
+  arguments: { [key: string]: JSONValue }
+  teamID?: string
+  toolScope?: ToolScope
+  fileScope?: 'conversation' | 'project'
+  projectName?: string
+  status: 'pending' | 'approved' | 'executing' | 'completed' | 'denied' | 'expired' | 'failed'
+  createdAt: string
+  expiresAt: string
+  result?: string
+}
+
 export interface WorkspaceMemory {
   enabled: boolean
   markdown: string
@@ -183,6 +222,26 @@ export interface WorkspaceMemory {
   updatedAt?: string
   compactionCount: number
   pendingEntries: number
+}
+
+export type WorkspaceKnowledgeDocumentID = 'capabilities' | 'connections' | 'projects'
+export type WorkspaceKnowledgeStatus = 'pending' | 'refreshing' | 'ready' | 'failed'
+
+export interface WorkspaceKnowledgeDocument {
+  id: WorkspaceKnowledgeDocumentID
+  title: string
+  markdown: string
+  updatedAt: string
+}
+
+export interface WorkspaceKnowledge {
+  status: WorkspaceKnowledgeStatus
+  documents: WorkspaceKnowledgeDocument[]
+  discoveredAt?: string
+  updatedAt?: string
+  nextRefreshAt?: string
+  refreshCount: number
+  lastError?: string
 }
 
 export interface GuideState {

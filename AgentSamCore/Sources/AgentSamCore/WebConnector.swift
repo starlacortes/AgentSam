@@ -65,25 +65,25 @@ public struct WebConnector: ConnectorToolProvider {
             switch name {
             case "web_fetch":
                 guard let raw = args["url"]?.stringValue, !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    return ToolOutcome(resultText: "web_fetch requires a url.")
+                    return .failure("web_fetch requires a url.")
                 }
-                return ToolOutcome(resultText: try await fetch(raw))
+                return ToolOutcome.success(try await fetch(raw))
 
             case "web_search":
                 guard let key = runtime.keyRing.get(Self.braveKeyAccount)?.trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty else {
-                    return ToolOutcome(resultText: "Web search isn't set up: save a Brave Search key on the Connectors page.")
+                    return .failure("Web search isn't set up: save a Brave Search key on the Connectors page.")
                 }
                 guard let query = args["query"]?.stringValue, !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    return ToolOutcome(resultText: "web_search requires a query.")
+                    return .failure("web_search requires a query.")
                 }
                 let count = min(20, max(1, Int(args["count"]?.numberValue ?? 8)))
-                return ToolOutcome(resultText: try await search(query: query, count: count, key: key, session: runtime.session))
+                return ToolOutcome.success(try await search(query: query, count: count, key: key, session: runtime.session))
 
             default:
-                return ToolOutcome(resultText: "Unknown tool: \(name).")
+                return .failure("Unknown tool: \(name).")
             }
         } catch {
-            return ToolOutcome(resultText: "Web error: \(error.localizedDescription)")
+            return .failure("Web error: \(error.localizedDescription)")
         }
     }
 

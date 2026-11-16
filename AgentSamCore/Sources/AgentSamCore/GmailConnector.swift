@@ -89,46 +89,46 @@ public struct GmailConnector: ConnectorToolProvider {
         do {
             let provider = runtime.googleTokens(for: .gmail)
             guard let token = try await provider.accessToken() else {
-                return ToolOutcome(resultText: "Gmail connector is not connected. Connect it in Settings.")
+                return .failure("Gmail connector is not connected. Connect it in Settings.")
             }
             let headers = ["Authorization": "Bearer \(token)"]
             switch name {
             case "gmail_search":
                 guard let query = args["query"]?.stringValue, !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                    return ToolOutcome(resultText: "gmail_search requires a query string.")
+                    return .failure("gmail_search requires a query string.")
                 }
                 let maxResults = min(50, max(1, Int(args["max_results"]?.numberValue ?? 10)))
                 let text = try await search(query: query, maxResults: maxResults, headers: headers, runtime: runtime)
-                return ToolOutcome(resultText: text)
+                return ToolOutcome.success(text)
 
             case "gmail_read":
                 guard let messageID = args["message_id"]?.stringValue else {
-                    return ToolOutcome(resultText: "gmail_read requires message_id.")
+                    return .failure("gmail_read requires message_id.")
                 }
                 let text = try await readMessage(messageID: messageID, headers: headers, runtime: runtime)
-                return ToolOutcome(resultText: text)
+                return ToolOutcome.success(text)
 
             case "gmail_draft":
-                guard permissions.createDraft else { return ToolOutcome(resultText: "Draft creation is disabled for the Gmail connector. Enable it in Settings.") }
+                guard permissions.createDraft else { return .failure("Draft creation is disabled for the Gmail connector. Enable it in Settings.") }
                 guard let to = args["to"]?.stringValue, let subject = args["subject"]?.stringValue, let body = args["body"]?.stringValue else {
-                    return ToolOutcome(resultText: "gmail_draft requires to, subject, and body.")
+                    return .failure("gmail_draft requires to, subject, and body.")
                 }
                 let text = try await createDraft(to: to, subject: subject, body: body, headers: headers, runtime: runtime)
-                return ToolOutcome(resultText: text)
+                return ToolOutcome.success(text)
 
             case "gmail_send":
-                guard permissions.sendEmail else { return ToolOutcome(resultText: "Sending email is disabled for the Gmail connector. Enable it in Settings.") }
+                guard permissions.sendEmail else { return .failure("Sending email is disabled for the Gmail connector. Enable it in Settings.") }
                 guard let to = args["to"]?.stringValue, let subject = args["subject"]?.stringValue, let body = args["body"]?.stringValue else {
-                    return ToolOutcome(resultText: "gmail_send requires to, subject, and body.")
+                    return .failure("gmail_send requires to, subject, and body.")
                 }
                 let text = try await send(to: to, subject: subject, body: body, headers: headers, runtime: runtime)
-                return ToolOutcome(resultText: text)
+                return ToolOutcome.success(text)
 
             default:
-                return ToolOutcome(resultText: "Unknown tool: \(name).")
+                return .failure("Unknown tool: \(name).")
             }
         } catch {
-            return ToolOutcome(resultText: "Gmail error: \(error.localizedDescription)")
+            return .failure("Gmail error: \(error.localizedDescription)")
         }
     }
 

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { markVoice } from './voiceTiming'
 
 /** Recording formats browsers support, best first. Chrome and Firefox record WebM/Opus, Safari records MP4/AAC. */
 const RECORDING_TYPES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus']
@@ -25,7 +26,7 @@ export const MAX_RECORDING_MS = 120_000
 /** Mic level (0–1) above which we count the user as speaking. */
 export const SPEECH_LEVEL = 0.12
 /** How long the user must stay quiet, after speaking, before the recording ends on its own. */
-export const SILENCE_MS = 1400
+export const SILENCE_MS = 800
 
 /**
  * Decides when someone has stopped talking: quiet for `silenceMs` after they were heard.
@@ -155,9 +156,35 @@ export function useRecorder(onDone: (audio: Blob, durationMs: number) => void, o
  */
 const CHUNKED = /chunk=0\b/
 
+interface SpeechItem {
+  text: string
+  /** Legacy: a GET URL for a whole stored message, played through an <audio> element. */
+  url?: string
+  /** Server audio for one sentence, already being fetched. */
+  audio?: Promise<SpeechAudio | null>
+}
+
+interface SpeechAudio {
+  data: ArrayBuffer
+  type: string
+}
+
+type ContextConstructor = typeof AudioContext
+
+function audioContextConstructor(): ContextConstructor | null {
+  if (typeof window === 'undefined') return null
+  return window.AudioContext ?? (window as unknown as { webkitAudioContext?: ContextConstructor }).webkitAudioContext ?? null
+}
+
 export class Speaker {
   private audio: HTMLAudioElement | null = null
-  private queue: Array<{ url?: string; text: string }> = []
+  private context: AudioContext | null = null
+  private queue: SpeechItem[] = []
+  private sources = new Set<AudioBufferSourceNode>()
+  private drainWaiters: Array<() => void> = []
+  /** When the last scheduled sentence ends, in AudioContext time. The next one is scheduled to begin exactly then. */
+  private cursor = 0
+  private pumping = false
   private playing = false
   private generation = 0
   onChange: (speaking: boolean) => void = () => undefined
@@ -172,23 +199,58 @@ export class Speaker {
     return this.audio
   }
 
+  private audioContext(): AudioContext | null {
+    if (!this.context) {
+      const Constructor = audioContextConstructor()
+      if (!Constructor) return null
+      try {
+        this.context = new Constructor()
+      } catch {
+        return null
+      }
+    }
+    return this.context
+  }
+
   /** Call from a user gesture (tap) so later playback is allowed on iOS. */
   unlock(): void {
     const audio = this.element()
     // A tiny silent WAV: playing anything inside the gesture marks the element as allowed.
     audio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA='
     void audio.play()?.catch(() => undefined)
+    void this.audioContext()?.resume().catch(() => undefined)
     if ('speechSynthesis' in window) window.speechSynthesis.resume()
   }
 
   enqueue(text: string, url?: string): void {
-    this.queue.push({ text, url })
-    if (!this.playing) void this.next(this.generation)
+    this.push({ text, url })
+  }
+
+  /**
+   * Speaks one sentence of a reply that is still being written. The audio starts being made
+   * immediately and is scheduled back to back with the previous sentence, so there is no gap.
+   * `postURL` is the server's text-to-speech endpoint; without it the browser voice reads the text.
+   */
+  enqueueText(text: string, postURL?: string): void {
+    this.push({ text, audio: postURL ? fetchSpeech(postURL, text) : undefined })
+  }
+
+  private push(item: SpeechItem): void {
+    this.queue.push(item)
+    if (!this.pumping) void this.pump()
   }
 
   stop(): void {
     this.generation += 1
     this.queue = []
+    this.pumping = false
+    for (const source of this.sources) {
+      source.onended = null
+      try { source.stop() } catch { /* already finished */ }
+    }
+    this.sources.clear()
+    this.cursor = 0
+    this.releaseDrain()
     this.audio?.pause()
     if ('speechSynthesis' in window) window.speechSynthesis.cancel()
     this.setPlaying(false)
@@ -205,22 +267,86 @@ export class Speaker {
     }
   }
 
-  private async next(generation: number): Promise<void> {
-    const item = this.queue.shift()
-    if (!item || generation !== this.generation) {
-      if (generation === this.generation) this.setPlaying(false)
-      return
+  private releaseDrain() {
+    const waiters = this.drainWaiters
+    this.drainWaiters = []
+    for (const resolve of waiters) resolve()
+  }
+
+  /** Resolves once everything scheduled so far has finished playing. */
+  private drained(): Promise<void> {
+    return this.sources.size === 0 ? Promise.resolve() : new Promise((resolve) => this.drainWaiters.push(resolve))
+  }
+
+  private async pump(): Promise<void> {
+    const generation = this.generation
+    this.pumping = true
+    while (generation === this.generation) {
+      const item = this.queue.shift()
+      if (!item) break
+      this.setPlaying(true)
+      if (item.audio) {
+        const clip = await item.audio
+        if (generation !== this.generation) return
+        if (!clip || !(await this.schedule(clip, generation))) await this.fallBack(item.text, generation)
+      } else {
+        await this.drained()
+        if (generation !== this.generation) return
+        let ok = false
+        if (item.url) ok = await (CHUNKED.test(item.url) ? this.playChunked(item.url, generation) : this.playURL(item.url))
+        if (!ok && generation === this.generation) await speakWithBrowser(item.text, this.language)
+      }
     }
-    this.setPlaying(true)
-    let ok = false
-    if (item.url) ok = await (CHUNKED.test(item.url) ? this.playChunked(item.url, generation) : this.playURL(item.url))
-    if (!ok && generation === this.generation) await speakWithBrowser(item.text, this.language)
-    if (generation === this.generation) await this.next(generation)
+    if (generation !== this.generation) return
+    this.pumping = false
+    if (this.sources.size === 0) this.setPlaying(false)
+  }
+
+  private async fallBack(text: string, generation: number): Promise<void> {
+    await this.drained()
+    if (generation === this.generation) await speakWithBrowser(text, this.language)
+  }
+
+  /** Decodes one sentence and queues it to start the instant the previous one ends. False means it couldn't be played. */
+  private async schedule(clip: SpeechAudio, generation: number): Promise<boolean> {
+    const context = this.audioContext()
+    if (!context) return this.playBlob(clip, generation)
+    try {
+      const buffer = await context.decodeAudioData(clip.data)
+      if (generation !== this.generation) return true
+      const source = context.createBufferSource()
+      source.buffer = buffer
+      source.connect(context.destination)
+      const startAt = Math.max(context.currentTime + 0.02, this.cursor)
+      this.cursor = startAt + buffer.duration
+      this.sources.add(source)
+      source.onended = () => {
+        this.sources.delete(source)
+        if (this.sources.size > 0) return
+        this.releaseDrain()
+        if (!this.pumping) this.setPlaying(false)
+      }
+      source.start(startAt)
+      markVoice('playback-start')
+      return true
+    } catch {
+      return this.playBlob(clip, generation)
+    }
+  }
+
+  private async playBlob(clip: SpeechAudio, generation: number): Promise<boolean> {
+    await this.drained()
+    if (generation !== this.generation) return true
+    const url = URL.createObjectURL(new Blob([clip.data], { type: clip.type }))
+    markVoice('playback-start')
+    const ok = await this.playURL(url)
+    URL.revokeObjectURL(url)
+    return ok
   }
 
   /**
    * Speech URLs ending in `chunk=0` are spoken piece by piece: the first short piece starts playing
-   * while the rest are made in parallel. False means the very first piece failed, so the caller
+   * while the next two are made. False means the very first piece failed, so the caller
    * can fall back to the browser voice.
    */
   private async playChunked(first: string, generation: number): Promise<boolean> {
@@ -238,15 +364,27 @@ export class Speaker {
       return false
     }
     if (!head) return true
-    const pending: Array<Promise<{ url: string; total: number } | null>> = [Promise.resolve(head)]
-    for (let index = 1; index < head.total; index += 1) pending.push(fetchChunk(index).catch(() => null))
-    for (const piece of pending) {
-      const chunk = await piece
+    const pending = new Map<number, Promise<{ url: string; total: number } | null>>([[0, Promise.resolve(head)]])
+    const ahead = (index: number) => {
+      if (head && index < head.total && !pending.has(index)) pending.set(index, fetchChunk(index).catch(() => null))
+    }
+    const discard = () => {
+      for (const rest of pending.values()) void rest.then((value) => value && URL.revokeObjectURL(value.url))
+      pending.clear()
+    }
+    for (let index = 0; index < head.total; index += 1) {
+      // Keep at most two pieces being made ahead of the one playing, so they don't all fight for the voice server.
+      ahead(index + 1)
+      ahead(index + 2)
+      const chunk = await pending.get(index)
+      pending.delete(index)
       if (generation !== this.generation) {
-        for (const rest of pending) void rest.then((value) => value && URL.revokeObjectURL(value.url))
+        if (chunk) URL.revokeObjectURL(chunk.url)
+        discard()
         return true
       }
       if (!chunk) continue
+      markVoice('playback-start')
       await this.playURL(chunk.url)
       URL.revokeObjectURL(chunk.url)
     }
@@ -268,6 +406,23 @@ export class Speaker {
       audio.src = url
       void (audio.play() ?? Promise.resolve()).catch(() => finish(false))
     })
+  }
+}
+
+/** Asks the server to speak `text`; null means it couldn't, so the caller can use the browser voice. */
+async function fetchSpeech(path: string, text: string): Promise<SpeechAudio | null> {
+  try {
+    const response = await fetch(path, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-AgentSam-Request': '1' },
+      body: JSON.stringify({ text }),
+    })
+    if (!response.ok) return null
+    markVoice('tts-first-byte')
+    return { data: await response.arrayBuffer(), type: response.headers.get('Content-Type') ?? 'audio/mpeg' }
+  } catch {
+    return null
   }
 }
 
