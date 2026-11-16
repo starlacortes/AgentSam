@@ -10,7 +10,7 @@ import { SidePanel, type CanvasState } from '../components/coordinator/SidePanel
 import { ScheduleModal } from '../components/coordinator/ScheduleModal'
 import { Guide } from '../components/coordinator/Guide'
 import { Icon } from '../components/coordinator/Icon'
-import { VoiceMode, type VoiceReply } from '../components/coordinator/VoiceMode'
+import { VoiceMode, type VoicePartial, type VoiceReply } from '../components/coordinator/VoiceMode'
 import { WorkspacePanel } from '../components/coordinator/WorkspacePanels'
 import { ErrorBanner, Spinner } from '../components/ui'
 import { useI18n } from '../i18n'
@@ -305,7 +305,7 @@ export function CoordinatorPage() {
     return transcribeConversation(current.id, audio, lang)
   }
 
-  const sendMessage = async (raw: string, waitForCompletion = false): Promise<VoiceReply | null> => {
+  const sendMessage = async (raw: string, waitForCompletion = false, onPartial?: (update: VoicePartial) => void): Promise<VoiceReply | null> => {
     const text = raw.trim()
     if (!text || sendLock.current || (conversation && shouldPoll(conversation))) return null
     sendLock.current = true
@@ -319,13 +319,16 @@ export function CoordinatorPage() {
       setDraft('')
       if (!waitForCompletion) return null
       for (let attempt = 0; attempt < 700; attempt += 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, attempt === 0 ? 150 : 350))
+        await new Promise((resolve) => window.setTimeout(resolve, attempt === 0 ? 150 : 200))
         if (!mounted.current) return null
         const next = await api<Conversation>(`conversations/${current.id}`)
         replaceConversation(next)
         const answer = next.messages.at(-1)
+        if (answer && answer.role === 'assistant' && onPartial) {
+          onPartial({ text: answer.text, final: answer.status === 'complete', speechPath: `/api/conversations/${current.id}/speech?lang=${lang}` })
+        }
         if (answer && answer.status !== 'running') {
-          await refreshWorkspace()
+          void refreshWorkspace()
           return answer.status === 'complete' ? { text: answer.text, speechURL: `/api/conversations/${current.id}/messages/${answer.id}/speech?lang=${lang}&chunk=0` } : null
         }
       }

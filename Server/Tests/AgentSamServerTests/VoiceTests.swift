@@ -133,10 +133,29 @@ final class VoiceTests: XCTestCase {
         let sentence = "This is a fairly ordinary sentence about nothing. "
         let chunks = SpeechClient.spokenChunks(String(repeating: sentence, count: 30))
         XCTAssertGreaterThan(chunks.count, 1)
-        XCTAssertLessThanOrEqual(chunks[0].count, 160)
+        XCTAssertLessThanOrEqual(chunks[0].count, 90)
         XCTAssertTrue(chunks.allSatisfy { $0.hasSuffix(".") })
         XCTAssertEqual(SpeechClient.spokenChunks("   "), [])
         XCTAssertEqual(SpeechClient.spokenChunks("Hello there"), ["Hello there"])
+    }
+
+    func testSpokenTextDropsMarkdownCodeAndSuggestions() {
+        let markdown = "## Result\n**One answer.** [Read more](https://example.com)\n- a point\n```swift\nsecret = 1\n```\nDone.\n```suggestions\nNext?\n```"
+        XCTAssertEqual(SpeechClient.spokenText(markdown), "Result One answer. Read more a point Code example omitted from speech. Done.")
+    }
+
+    func testSpeechCacheReturnsRepeatsAndWarmsOncePerInterval() async {
+        let cache = SpeechCache()
+        let audio = SpeechClient.SpokenAudio(data: Data([1, 2, 3]), mimeType: "audio/wav")
+        let missing = await cache.get("a")
+        XCTAssertNil(missing)
+        await cache.put("a", audio)
+        let hit = await cache.get("a")
+        XCTAssertEqual(hit?.data, audio.data)
+        let first = await cache.shouldWarm("voice")
+        let second = await cache.shouldWarm("voice")
+        XCTAssertTrue(first)
+        XCTAssertFalse(second)
     }
 
     func testFileExtensionFollowsBrowserFormats() {

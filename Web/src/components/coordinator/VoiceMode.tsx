@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useI18n } from '../../i18n'
 import { api } from '../../api/client'
 import type { VoiceInfo } from '../../api/chatTypes'
-import { voiceTranscript } from '../../lib/coordinator'
+import { takeSpeakable } from '../../lib/coordinator'
+import { markVoice } from '../../lib/voiceTiming'
 import { canRecord, MIN_RECORDING_MS, Speaker, useRecorder } from '../../lib/voice'
 import { Icon } from './Icon'
 import { useDialogA11y } from './Overlay'
@@ -40,7 +41,15 @@ export interface VoiceReply {
   speechURL?: string
 }
 
-export function VoiceMode({ onSend, onTranscribe, onClose }: { onSend: (text: string, waitForCompletion: boolean) => Promise<VoiceReply | null>; onTranscribe: (audio: Blob) => Promise<string>; onClose: () => void }) {
+/** What Ada has written so far, passed along while she is still writing so speech can start early. */
+export interface VoicePartial {
+  text: string
+  final: boolean
+  /** Where to POST a sentence to have the server speak it. */
+  speechPath: string
+}
+
+export function VoiceMode({ onSend, onTranscribe, onClose }: { onSend: (text: string, waitForCompletion: boolean, onPartial?: (update: VoicePartial) => void) => Promise<VoiceReply | null>; onTranscribe: (audio: Blob) => Promise<string>; onClose: () => void }) {
   const { t, lang } = useI18n()
   const [phase, setPhase] = useState<'idle' | 'listening' | 'thinking' | 'speaking'>('idle')
   const [transcript, setTranscript] = useState('')
@@ -64,7 +73,7 @@ export function VoiceMode({ onSend, onTranscribe, onClose }: { onSend: (text: st
   if (!speaker.current) {
     speaker.current = new Speaker(lang === 'es' ? 'es-ES' : 'en-US')
     speaker.current.onChange = (speaking) => {
-      if (active.current) setPhase(speaking ? 'speaking' : 'idle')
+      if (active.current) setPhase(speaking ? 'speaking' : sending.current ? 'thinking' : 'idle')
     }
   }
   const recorder = useRecorder((audio, duration) => {
@@ -75,8 +84,10 @@ export function VoiceMode({ onSend, onTranscribe, onClose }: { onSend: (text: st
       return
     }
     setPhase('thinking')
+    markVoice('speech-end')
     void onTranscribe(audio).then((text) => {
       if (!active.current) return
+      markVoice('stt-done')
       if (text.trim()) {
         setTranscript(text)
         void submission.current(text)
@@ -146,15 +157,25 @@ export function VoiceMode({ onSend, onTranscribe, onClose }: { onSend: (text: st
     }
   }, [])
 
-  const speak = (reply: VoiceReply) => {
-    if (mute.current || !speechOutput) {
-      setPhase('idle')
-      return
+  /** Speaks each finished sentence as Ada writes it, instead of waiting for the whole reply. */
+  const streamSpeech = () => {
+    let from = 0
+    let spoke = false
+    return ({ text, final, speechPath }: VoicePartial) => {
+      if (!active.current) return
+      setResponse(text)
+      if (text) markVoice('reply-first-text')
+      if (final) markVoice('reply-complete')
+      if (mute.current || !speechOutput) return
+      for (let next = takeSpeakable(text, from, final); next; next = takeSpeakable(text, from, final)) {
+        from = next.end
+        if (!next.text) continue
+        spoke = true
+        markVoice('first-sentence')
+        speaker.current?.enqueueText(next.text, voiceInfo?.setup.tts ? speechPath : undefined)
+      }
+      if (final && !spoke) speaker.current?.enqueueText(t('Your response is ready in the chat.'))
     }
-    speaker.current?.enqueue(
-      voiceTranscript(reply.text) || t('Your response is ready in the chat.'),
-      voiceInfo?.setup.tts ? reply.speechURL : undefined,
-    )
   }
 
   const submit = async (raw: string) => {
@@ -168,7 +189,7 @@ export function VoiceMode({ onSend, onTranscribe, onClose }: { onSend: (text: st
     setError(null)
     setPhase('thinking')
     try {
-      const answer = await onSend(text, true)
+      const answer = await onSend(text, true, streamSpeech())
       if (!active.current) return
       if (!answer?.text.trim()) {
         setPhase('idle')
@@ -176,7 +197,7 @@ export function VoiceMode({ onSend, onTranscribe, onClose }: { onSend: (text: st
         return
       }
       setResponse(answer.text)
-      speak(answer)
+      if (!speaker.current?.speaking) setPhase('idle')
     } catch {
       if (active.current) {
         setPhase('idle')
