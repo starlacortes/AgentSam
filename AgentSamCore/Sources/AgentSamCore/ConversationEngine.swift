@@ -323,7 +323,8 @@ public actor ConversationEngine {
             emoji: "🧭",
             goal: language == "es" ? "Ada completa el trabajo ella sola." : "Ada completes the work on her own.",
             agents: [coordinator, worker],
-            toolScope: ToolScope()
+            // Ada's own work follows the Connections toggles, exactly like her direct chat.
+            toolScope: ToolScope(permissions: .all)
         )
     }
 
@@ -334,7 +335,7 @@ public actor ConversationEngine {
     }
 
     private func directAnswer(userText: String, coordinator: AgentProfile, history: [ConversationMessage], memory: String, language: String, proposal: TeamProposal? = nil, ref: ResponseRef? = nil, conversationID: UUID? = nil, writtenFiles: inout [String]) async throws -> String {
-        let connectorTools = await connectors?.toolDefs(readOnly: true) ?? []
+        let connectorTools = await connectors?.toolDefs() ?? []
         let tools = conversationID == nil ? connectorTools : connectorTools + ChatWorkspaceTools.definitions
         let system = ConversationPrompts.responseSystem(coordinator: coordinator, memory: memory, history: history, tools: tools, language: language)
         var text = userText
@@ -369,7 +370,7 @@ public actor ConversationEngine {
                         outcome = ToolOutcome(resultText: "Workspace tools are unavailable in this context.")
                     }
                 } else {
-                    outcome = await connectors?.run(call: call, readOnly: true) ?? ToolOutcome(resultText: "No connector is available for this tool.")
+                    outcome = await connectors?.run(call: call) ?? ToolOutcome(resultText: "No connector is available for this tool.")
                 }
                 messages.append(.tool(id: call.id, content: String(outcome.resultText.prefix(32_000))))
             }

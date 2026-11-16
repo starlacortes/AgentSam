@@ -34,7 +34,7 @@ describe('coordinator presentation', () => {
   })
 
   it('describes Gmail configuration and availability distinctly', () => {
-    const base = { id: 'gmail' as const, name: 'Gmail', detail: '', permissions: { sendEmail: false, createDraft: false, dnsWrite: false, githubWrite: false }, oauthAvailable: true }
+    const base = { id: 'gmail' as const, name: 'Gmail', detail: '', permissions: { sendEmail: false, createDraft: false, dnsWrite: false, githubWrite: false, adsWrite: false }, oauthAvailable: true }
     expect(connectorLabel(undefined)).toBe('Connect Gmail')
     expect(connectorLabel({ ...base, configured: false, enabled: true })).toBe('Connect Gmail')
     expect(connectorLabel({ ...base, configured: true, enabled: false })).toBe('Gmail off')
@@ -43,7 +43,7 @@ describe('coordinator presentation', () => {
 
   it('does not permit team mutation from a pending or failed response', () => {
     const complete = message('complete')
-    const proposal = { id: 'proposal-1', team, rationale: 'A useful specialist', toolScope: { connectorIDs: [], permissions: { sendEmail: false, createDraft: false, dnsWrite: false, githubWrite: false } }, status: 'pending' as const, createdAt: '2026-01-01T00:00:00Z' }
+    const proposal = { id: 'proposal-1', team, rationale: 'A useful specialist', toolScope: { connectorIDs: [], permissions: { sendEmail: false, createDraft: false, dnsWrite: false, githubWrite: false, adsWrite: false } }, status: 'pending' as const, createdAt: '2026-01-01T00:00:00Z' }
     expect(canApprove({ ...complete, proposal })).toBe(true)
     expect(canApprove({ ...message('running'), proposal })).toBe(false)
     expect(canApprove({ ...complete, proposal: { ...proposal, status: 'applied' } })).toBe(false)

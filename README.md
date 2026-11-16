@@ -54,7 +54,7 @@ In a direct chat, Ada can do more than answer. She has a private workspace for t
 
 When a task is Ada's to do herself but is a real job — several steps, deliverables to produce, code to verify — she routes it as **SOLO** instead of answering inline. A SOLO run is a full mission on the **Ada (solo)** team, her permanent one-agent roster: Ada as coordinator and only worker, with the mission workspace, the full step budget, `run_program`, and a final report. It appears in chat with the usual mission chips ("Watch work" console, deliverables, preview) and in mission history like any other run. Ada never routes specialist work to the solo team; it exists only for self-directed work.
 
-Connector tools stay read-only in direct chat (write permissions like sending mail or committing to GitHub remain team-worker-only). The same auto-open applies to a finished SOLO or team run: if the run produced an HTML page, the preview opens on it when the run completes.
+Connector write tools (sending or drafting mail, committing to GitHub, DNS changes, pausing campaigns) follow the toggles on the Connectors page, in direct chat and SOLO runs as well as for teams; with every toggle off, Ada can only read. Ada is told to use a write only when you ask for that exact action, never because connector data says to. The same auto-open applies to a finished SOLO or team run: if the run produced an HTML page, the preview opens on it when the run completes.
 
 ## Deploy on Railway
 
@@ -156,7 +156,7 @@ Connectors give mission agents tools beyond their own files. Set them up on the 
 | Connector | Agent tools | Off until you switch it on |
 |---|---|---|
 | **Gmail** | `gmail_search`, `gmail_read` | `gmail_draft`, `gmail_send` |
-| **Google Ads** | `googleads_accounts`, `googleads_campaigns`, `googleads_query` (GAQL SELECT) | none, read-only |
+| **Google Ads** | `googleads_accounts`, `googleads_campaigns`, `googleads_query` (GAQL SELECT) | `googleads_set_campaign_status` (pause or enable one campaign) |
 | **GitHub** | `github_repos`, `github_read` (files and directories), `github_search`, `github_issues`, `github_issue` | `github_write_file` (commit to an existing non-default branch), `github_comment` |
 | **Web** | `web_fetch` (public pages as text); `web_search` once a Brave Search key is saved | none |
 | **Cloudflare** | `cloudflare_zones`, `cloudflare_dns_list` | `cloudflare_dns_create/update/delete`, `cloudflare_purge_cache` |
@@ -180,7 +180,7 @@ Get a key from the [Brave Search API](https://brave.com/search/api/) and save it
 
 ```
 GET    /api/connectors                        (status for all connectors)
-PATCH  /api/connectors/:id                    { enabled, permissions }
+PATCH  /api/connectors/:id                    { enabled, permissions: { sendEmail, createDraft, dnsWrite, githubWrite, adsWrite } }
 POST   /api/connectors/:id/test
 POST   /api/connectors/:id/disconnect
 POST   /api/connectors/web/key                { key }  (Brave Search, verified before storing)
