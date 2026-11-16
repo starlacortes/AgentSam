@@ -59,6 +59,7 @@ const es: Record<string, string> = {
   Admin: 'Administrador',
   Copy: 'Copiar',
   Copied: 'Copiado',
+  Play: 'Reproducir',
   Revoke: 'Revocar',
   Remove: 'Eliminar',
   Delete: 'Eliminar',

@@ -293,15 +293,15 @@ export function CoordinatorPage() {
       replaceConversation(result)
       setDraft('')
       if (!waitForCompletion) return null
-      for (let attempt = 0; attempt < 240; attempt += 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, 900))
+      for (let attempt = 0; attempt < 700; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, attempt === 0 ? 150 : 350))
         if (!mounted.current) return null
         const next = await api<Conversation>(`conversations/${current.id}`)
         replaceConversation(next)
         const answer = next.messages.at(-1)
         if (answer && answer.status !== 'running') {
           await refreshWorkspace()
-          return answer.status === 'complete' ? { text: answer.text, speechURL: `/api/conversations/${current.id}/messages/${answer.id}/speech?lang=${lang}` } : null
+          return answer.status === 'complete' ? { text: answer.text, speechURL: `/api/conversations/${current.id}/messages/${answer.id}/speech?lang=${lang}&chunk=0` } : null
         }
       }
       setError(t('This response is taking longer than expected. Keep the chat open, or return to it later.'))

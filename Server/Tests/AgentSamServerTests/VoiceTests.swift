@@ -129,6 +129,16 @@ final class VoiceTests: XCTestCase {
         XCTAssertTrue(text.hasSuffix("--XYZ--\r\n"))
     }
 
+    func testSpokenChunksStartShortAndBreakOnSentences() {
+        let sentence = "This is a fairly ordinary sentence about nothing. "
+        let chunks = SpeechClient.spokenChunks(String(repeating: sentence, count: 30))
+        XCTAssertGreaterThan(chunks.count, 1)
+        XCTAssertLessThanOrEqual(chunks[0].count, 160)
+        XCTAssertTrue(chunks.allSatisfy { $0.hasSuffix(".") })
+        XCTAssertEqual(SpeechClient.spokenChunks("   "), [])
+        XCTAssertEqual(SpeechClient.spokenChunks("Hello there"), ["Hello there"])
+    }
+
     func testFileExtensionFollowsBrowserFormats() {
         XCTAssertEqual(SpeechClient.fileExtension(for: "audio/webm;codecs=opus"), "webm")
         XCTAssertEqual(SpeechClient.fileExtension(for: "audio/mp4"), "mp4")

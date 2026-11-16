@@ -22,6 +22,23 @@ export const MIN_RECORDING_MS = 400
 /** Long enough for a real request, short enough to stay under the server's upload cap. */
 export const MAX_RECORDING_MS = 120_000
 
+/** Mic level (0–1) above which we count the user as speaking. */
+export const SPEECH_LEVEL = 0.12
+/** How long the user must stay quiet, after speaking, before the recording ends on its own. */
+export const SILENCE_MS = 1400
+
+/**
+ * Decides when someone has stopped talking: quiet for `silenceMs` after they were heard.
+ * Silence before the first words never ends the recording.
+ */
+export function createSilenceDetector(silenceMs = SILENCE_MS, threshold = SPEECH_LEVEL) {
+  let lastVoice: number | null = null
+  return (level: number, now: number): boolean => {
+    if (level >= threshold) lastVoice = now
+    return lastVoice !== null && now - lastVoice >= silenceMs
+  }
+}
+
 export type RecorderState = 'idle' | 'starting' | 'recording'
 
 /**
@@ -108,11 +125,18 @@ export function useRecorder(onDone: (audio: Blob, durationMs: number) => void, o
       analyser.fftSize = 512
       ctx.createMediaStreamSource(media).connect(analyser)
       const samples = new Uint8Array(analyser.fftSize)
+      const finishedTalking = createSilenceDetector()
       const tick = () => {
         analyser.getByteTimeDomainData(samples)
         let peak = 0
         for (const s of samples) peak = Math.max(peak, Math.abs(s - 128))
-        setLevel(Math.min(1, peak / 64))
+        const level = Math.min(1, peak / 64)
+        setLevel(level)
+        // Hands-free: end the recording once they stop talking, which sends it for transcription.
+        if (finishedTalking(level, performance.now()) && recorder.current?.state === 'recording') {
+          recorder.current.stop()
+          return
+        }
         if (meter.current) meter.current.frame = requestAnimationFrame(tick)
       }
       meter.current = { ctx, frame: requestAnimationFrame(tick) }
@@ -129,6 +153,8 @@ export function useRecorder(onDone: (audio: Blob, durationMs: number) => void, o
  * and the browser's own voice otherwise. Safari only lets audio play after a tap, so `unlock()`
  * must be called from a click handler before the first reply arrives.
  */
+const CHUNKED = /chunk=0\b/
+
 export class Speaker {
   private audio: HTMLAudioElement | null = null
   private queue: Array<{ url?: string; text: string }> = []
@@ -151,7 +177,7 @@ export class Speaker {
     const audio = this.element()
     // A tiny silent WAV: playing anything inside the gesture marks the element as allowed.
     audio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA='
-    void audio.play().catch(() => undefined)
+    void audio.play()?.catch(() => undefined)
     if ('speechSynthesis' in window) window.speechSynthesis.resume()
   }
 
@@ -187,9 +213,44 @@ export class Speaker {
     }
     this.setPlaying(true)
     let ok = false
-    if (item.url) ok = await this.playURL(item.url)
+    if (item.url) ok = await (CHUNKED.test(item.url) ? this.playChunked(item.url, generation) : this.playURL(item.url))
     if (!ok && generation === this.generation) await speakWithBrowser(item.text, this.language)
     if (generation === this.generation) await this.next(generation)
+  }
+
+  /**
+   * Speech URLs ending in `chunk=0` are spoken piece by piece: the first short piece starts playing
+   * while the rest are made in parallel. False means the very first piece failed, so the caller
+   * can fall back to the browser voice.
+   */
+  private async playChunked(first: string, generation: number): Promise<boolean> {
+    const fetchChunk = async (index: number): Promise<{ url: string; total: number } | null> => {
+      const response = await fetch(first.replace(CHUNKED, `chunk=${index}`), { credentials: 'same-origin' })
+      if (!response.ok) throw new Error(`speech ${response.status}`)
+      if (response.status === 204) return null
+      const total = Number(response.headers.get('X-Speech-Chunks')) || 1
+      return { url: URL.createObjectURL(await response.blob()), total }
+    }
+    let head: { url: string; total: number } | null
+    try {
+      head = await fetchChunk(0)
+    } catch {
+      return false
+    }
+    if (!head) return true
+    const pending: Array<Promise<{ url: string; total: number } | null>> = [Promise.resolve(head)]
+    for (let index = 1; index < head.total; index += 1) pending.push(fetchChunk(index).catch(() => null))
+    for (const piece of pending) {
+      const chunk = await piece
+      if (generation !== this.generation) {
+        for (const rest of pending) void rest.then((value) => value && URL.revokeObjectURL(value.url))
+        return true
+      }
+      if (!chunk) continue
+      await this.playURL(chunk.url)
+      URL.revokeObjectURL(chunk.url)
+    }
+    return true
   }
 
   private playURL(url: string): Promise<boolean> {
@@ -205,7 +266,7 @@ export class Speaker {
       audio.onerror = () => finish(false)
       audio.onpause = () => audio.ended || finish(true)
       audio.src = url
-      audio.play().catch(() => finish(false))
+      void (audio.play() ?? Promise.resolve()).catch(() => finish(false))
     })
   }
 }
