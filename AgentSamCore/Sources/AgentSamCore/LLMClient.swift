@@ -37,20 +37,21 @@ public struct LLMClient: Sendable {
         messages: [APIMessage],
         tools: [APIToolDef]? = nil,
         temperature: Double? = nil,
-        maxTokens: Int? = nil
+        maxTokens: Int? = nil,
+        onDelta: TextDeltaHandler? = nil
     ) async throws -> LLMReply {
         switch provider.kind {
         case .anthropic:
             return try await AnthropicClient(session: session).complete(
                 provider: provider, key: key, model: model, system: system,
                 messages: messages, tools: tools, temperature: temperature,
-                maxTokens: maxTokens
+                maxTokens: maxTokens, onDelta: onDelta
             )
         case .openAICompatible:
             return try await OpenAICompatClient(session: session).complete(
                 provider: provider, key: key, model: model, system: system,
                 messages: messages, tools: tools, temperature: temperature,
-                maxTokens: maxTokens
+                maxTokens: maxTokens, onDelta: onDelta
             )
         }
     }
@@ -101,6 +102,7 @@ public struct OpenAICompatClient: Sendable {
         var tool_choice: String?
         var temperature: Double?
         var max_tokens: Int?
+        var stream: Bool?
     }
 
     struct WireMessage: Encodable {
@@ -135,7 +137,8 @@ public struct OpenAICompatClient: Sendable {
         messages: [APIMessage],
         tools: [APIToolDef]? = nil,
         temperature: Double? = nil,
-        maxTokens: Int? = nil
+        maxTokens: Int? = nil,
+        onDelta: TextDeltaHandler? = nil
     ) async throws -> LLMReply {
         let wire = [WireMessage(role: "system", content: system)]
             + messages.map { WireMessage(role: $0.role, content: $0.content, tool_calls: $0.tool_calls, tool_call_id: $0.tool_call_id) }
@@ -145,7 +148,8 @@ public struct OpenAICompatClient: Sendable {
             tools: tools?.isEmpty == true ? nil : tools,
             tool_choice: tools == nil ? nil : "auto",
             temperature: temperature ?? 0.3,
-            max_tokens: maxTokens
+            max_tokens: maxTokens,
+            stream: onDelta == nil ? nil : true
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -159,6 +163,21 @@ public struct OpenAICompatClient: Sendable {
             request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = payload
+
+            if let onDelta {
+                request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+                do {
+                    return try await streamReply(request: request, model: model, onDelta: onDelta)
+                } catch let failure as StreamFailure {
+                    if failure.retryable {
+                        lastError = failure.error
+                        let delay = backoff.isEmpty ? 15 : backoff.removeFirst()
+                        try? await Task.sleep(nanoseconds: delay * 1_000_000_000)
+                        continue
+                    }
+                    throw failure.error
+                }
+            }
 
             let data: Data
             let response: URLResponse
@@ -202,6 +221,31 @@ public struct OpenAICompatClient: Sendable {
             }
         }
         throw lastError
+    }
+
+    private func streamReply(request: URLRequest, model: String, onDelta: TextDeltaHandler) async throws -> LLMReply {
+        var accumulator = OpenAIStreamAccumulator()
+        var delivered = false
+        do {
+            for try await event in streamEvents(session: session, request: request) {
+                if let text = accumulator.consume(event.data) {
+                    delivered = true
+                    onDelta(text)
+                }
+                if let message = accumulator.errorMessage {
+                    throw StreamFailure(error: LLMError(message: message), retryable: !delivered)
+                }
+            }
+        } catch let failure as StreamFailure {
+            throw failure
+        } catch let http as StreamHTTPError {
+            throw StreamFailure.http(http)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw StreamFailure(error: LLMError(message: "Network error: \(error.localizedDescription)"), retryable: false)
+        }
+        return LLMReply(message: accumulator.message(), inputTokens: accumulator.inputTokens, outputTokens: accumulator.outputTokens, model: model)
     }
 
     static func isContextOverflow(status: Int, body: Data) -> Bool {

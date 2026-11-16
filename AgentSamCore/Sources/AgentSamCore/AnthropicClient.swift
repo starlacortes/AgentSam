@@ -13,6 +13,7 @@ public struct AnthropicClient: Sendable {
         var tools: [WireTool]?
         var max_tokens: Int
         var temperature: Double?
+        var stream: Bool?
     }
 
     struct WireMessage: Encodable {
@@ -92,7 +93,8 @@ public struct AnthropicClient: Sendable {
         messages: [APIMessage],
         tools: [APIToolDef]? = nil,
         temperature: Double? = nil,
-        maxTokens: Int? = nil
+        maxTokens: Int? = nil,
+        onDelta: TextDeltaHandler? = nil
     ) async throws -> LLMReply {
         let wireMessages = Self.translate(messages: messages)
         let body = WireRequest(
@@ -101,7 +103,8 @@ public struct AnthropicClient: Sendable {
             messages: wireMessages,
             tools: tools?.map { WireTool(name: $0.function.name, description: $0.function.description, input_schema: $0.function.parameters) },
             max_tokens: maxTokens ?? 16384,
-            temperature: temperature ?? 0.3
+            temperature: temperature ?? 0.3,
+            stream: onDelta == nil ? nil : true
         )
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
@@ -116,6 +119,21 @@ public struct AnthropicClient: Sendable {
             request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = payload
+
+            if let onDelta {
+                request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
+                do {
+                    return try await streamReply(request: request, model: model, onDelta: onDelta)
+                } catch let failure as StreamFailure {
+                    if failure.retryable {
+                        lastError = failure.error
+                        let delay = backoff.isEmpty ? 15 : backoff.removeFirst()
+                        try? await Task.sleep(nanoseconds: delay * 1_000_000_000)
+                        continue
+                    }
+                    throw failure.error
+                }
+            }
 
             let data: Data
             let response: URLResponse
@@ -168,6 +186,33 @@ public struct AnthropicClient: Sendable {
             }
         }
         throw lastError
+    }
+
+    /// Streams one reply. Failures before any text was delivered may be retried; later ones may not,
+    /// because the caller has already shown the partial answer.
+    private func streamReply(request: URLRequest, model: String, onDelta: TextDeltaHandler) async throws -> LLMReply {
+        var accumulator = AnthropicStreamAccumulator()
+        var delivered = false
+        do {
+            for try await event in streamEvents(session: session, request: request) {
+                if let text = accumulator.consume(event.data) {
+                    delivered = true
+                    onDelta(text)
+                }
+                if let message = accumulator.errorMessage {
+                    throw StreamFailure(error: LLMError(message: message), retryable: !delivered)
+                }
+            }
+        } catch let failure as StreamFailure {
+            throw failure
+        } catch let http as StreamHTTPError {
+            throw StreamFailure.http(http)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw StreamFailure(error: LLMError(message: "Network error: \(error.localizedDescription)"), retryable: false)
+        }
+        return LLMReply(message: accumulator.message(), inputTokens: accumulator.inputTokens, outputTokens: accumulator.outputTokens, model: model)
     }
 
     static func translate(messages: [APIMessage]) -> [WireMessage] {
