@@ -7,13 +7,14 @@ import { AgentWorkroom } from '../components/coordinator/AgentWorkroom'
 import { CoordinatorSidebar, type PanelName } from '../components/coordinator/CoordinatorSidebar'
 import { ConversationMessages, type MessageHandlers } from '../components/coordinator/ConversationMessages'
 import { SidePanel, type CanvasState } from '../components/coordinator/SidePanel'
+import { ScheduleModal } from '../components/coordinator/ScheduleModal'
 import { Guide } from '../components/coordinator/Guide'
 import { Icon } from '../components/coordinator/Icon'
 import { VoiceMode, type VoiceReply } from '../components/coordinator/VoiceMode'
 import { WorkspacePanel } from '../components/coordinator/WorkspacePanels'
 import { ErrorBanner, Spinner } from '../components/ui'
 import { useI18n } from '../i18n'
-import { canvasForFinishedFiles, connectorLabel, shouldPoll, wroteFreshFiles } from '../lib/coordinator'
+import { canvasForFinishedFiles, connectorLabel, pollDelay, shouldPoll, wroteFreshFiles } from '../lib/coordinator'
 import { pickEntry } from '../lib/preview'
 import { transcribeConversation } from '../lib/voice'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
@@ -67,6 +68,7 @@ export function CoordinatorPage() {
   const [panel, setPanel] = useState<PanelName | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [voiceOpen, setVoiceOpen] = useState(false)
+  const [scheduleOpen, setScheduleOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -224,7 +226,7 @@ export function CoordinatorPage() {
       }).catch((err) => {
         if (mounted.current) setError(errorMessage(err))
       })
-    }, 900)
+    }, pollDelay(conversation))
     return () => window.clearTimeout(timer)
   }, [conversation, running, replaceConversation, refreshWorkspace])
 
@@ -291,15 +293,15 @@ export function CoordinatorPage() {
       replaceConversation(result)
       setDraft('')
       if (!waitForCompletion) return null
-      for (let attempt = 0; attempt < 240; attempt += 1) {
-        await new Promise((resolve) => window.setTimeout(resolve, 900))
+      for (let attempt = 0; attempt < 700; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, attempt === 0 ? 150 : 350))
         if (!mounted.current) return null
         const next = await api<Conversation>(`conversations/${current.id}`)
         replaceConversation(next)
         const answer = next.messages.at(-1)
         if (answer && answer.status !== 'running') {
           await refreshWorkspace()
-          return answer.status === 'complete' ? { text: answer.text, speechURL: `/api/conversations/${current.id}/messages/${answer.id}/speech?lang=${lang}` } : null
+          return answer.status === 'complete' ? { text: answer.text, speechURL: `/api/conversations/${current.id}/messages/${answer.id}/speech?lang=${lang}&chunk=0` } : null
         }
       }
       setError(t('This response is taking longer than expected. Keep the chat open, or return to it later.'))
@@ -442,6 +444,7 @@ export function CoordinatorPage() {
         <div className="co-chat-heading"><span>{t(conversation?.projectName ?? projectName)} <span className="co-path-separator">/</span></span><h1>{conversation?.title ?? t('New conversation')}</h1></div>
         <div className="co-header-actions">
           <button className={`co-connection-pill ${gmail?.configured && gmail.enabled ? 'connected' : ''}`} onClick={() => openPanel('connections')}><Icon name="plug" size={13} /><span>{t(connectorLabel(gmail))}</span><i /></button>
+          {conversation ? <button className={`co-icon-button co-schedule-toggle ${conversation.schedule ? 'active' : ''}`} aria-label={conversation.schedule ? t('Recurring schedule on — open settings') : t('Set a recurring schedule')} aria-pressed={Boolean(conversation.schedule)} title={t('Recurring schedule')} disabled={!conversation.schedule && running} onClick={() => setScheduleOpen(true)}><Icon name="refresh" size={16} /></button> : null}
           <button className="co-icon-button co-help-button" aria-label={t('Open the guide')} onClick={() => void restartGuide().catch((err) => setError(errorMessage(err)))}><Icon name="info" size={17} /></button>
           <button className={`co-icon-button co-canvas-toggle ${canvas ? 'active' : ''}`} aria-label={canvas ? t('Hide preview and console') : t('Show preview and console')} aria-pressed={Boolean(canvas)} title={t('Preview & console')} onClick={() => canvas ? setCanvas(null) : openCanvas({ tab: missionIDs.length ? 'console' : 'preview' })}><Icon name="panel" size={16} /></button>
           <button className="co-voice-button" onClick={() => setVoiceOpen(true)} disabled={sending}><Icon name="mic" size={15} /><span>{t('Voice')}</span></button>
@@ -464,6 +467,7 @@ export function CoordinatorPage() {
       </div>
     </main>
     {canvas ? <SidePanel state={canvas} missionIDs={missionIDs} onChange={setCanvas} onClose={() => setCanvas(null)} onResize={resizeCanvas} /> : null}
+    {scheduleOpen && conversation ? <ScheduleModal conversation={conversation} onUpdated={updateProposal} onClose={() => setScheduleOpen(false)} /> : null}
     {panel ? <WorkspacePanel panel={panel} teams={teams} connectors={connectors} memory={memory} onConnectors={setConnectors} onMemory={setMemory} onClose={() => setPanel(null)} onNewTeam={() => prompt(t('I need a team for '))} onRestartGuide={restartGuide} /> : null}
     {guide && (!guide.completed || searchParams.get('guide') === '1') ? <Guide onFinish={finishGuide} /> : null}
     {voiceOpen ? <VoiceMode onSend={sendMessage} onTranscribe={transcribeVoice} onClose={() => setVoiceOpen(false)} /> : null}

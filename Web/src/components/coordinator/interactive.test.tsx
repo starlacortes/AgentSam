@@ -30,6 +30,18 @@ function renderUI(ui: React.ReactNode) {
 describe('interactive chat', () => {
   afterEach(() => { cleanup(); vi.clearAllMocks() })
 
+  it('reads a finished reply aloud with a Play button and stops it again', () => {
+    const synth = { speak: vi.fn(), cancel: vi.fn(), resume: vi.fn() }
+    Object.defineProperty(window, 'speechSynthesis', { value: synth, configurable: true })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 409 }))
+    renderUI(<ConversationMessages conversation={chat([assistant({ text: 'Hello there.' })])} handlers={handlers()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Play' }))
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+    expect(screen.getByRole('button', { name: 'Play' })).toBeTruthy()
+    vi.unstubAllGlobals()
+  })
+
   it('sends a quick reply with one click, only on the latest answer', () => {
     const h = handlers()
     const user: ConversationMessage = { ...assistant({ id: 'u1', role: 'user', text: 'Pitch?' }) }
@@ -37,6 +49,19 @@ describe('interactive chat', () => {
     expect(screen.queryByRole('button', { name: 'Old option' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Investors' }))
     expect(h.onQuickReply).toHaveBeenCalledWith('Investors')
+  })
+
+  it('labels a scheduled run instead of showing it as plain user text', () => {
+    const h = handlers()
+    const scheduled: ConversationMessage = { ...assistant({ id: 's1', role: 'user', text: 'Refresh the list', scheduled: true }) }
+    const plain: ConversationMessage = { ...assistant({ id: 'u1', role: 'user', text: 'Hello' }) }
+    const { unmount } = renderUI(<ConversationMessages conversation={chat([scheduled, plain, assistant({ text: 'Refreshed with 3 new messages.' })])} handlers={h} />)
+    expect(screen.getByText('Scheduled run')).toBeTruthy()
+    expect(screen.getByText('Refresh the list')).toBeTruthy()
+    expect(screen.getAllByText('Hello').length).toBe(1)
+    unmount()
+    renderUI(<ConversationMessages conversation={chat([plain])} handlers={h} />)
+    expect(screen.queryByText('Scheduled run')).toBeNull()
   })
 
   it('lists files Ada wrote as chips that open the workspace preview', () => {

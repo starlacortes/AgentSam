@@ -204,6 +204,16 @@ function ConnectorCard({ status, onChanged }: { status: ConnectorStatus; onChang
         {status.id === 'cloudflare' ? (
           <Toggle label="Change DNS and purge cache" checked={p.dnsWrite} disabled={busy !== null} onChange={(dnsWrite) => void patch({ permissions: { ...p, dnsWrite } })} />
         ) : null}
+        {status.id === 'googleads' ? (
+          <Toggle
+            label="Pause and enable campaigns"
+            checked={p.adsWrite ?? false}
+            disabled={busy !== null}
+            onChange={(adsWrite) => {
+              if (!adsWrite || window.confirm('Let agents pause and enable Google Ads campaigns when you ask them to?')) void patch({ permissions: { ...p, adsWrite } })
+            }}
+          />
+        ) : null}
       </div>
       {status.id === 'gmail' && status.configured ? (
         <div className="dim" style={{ fontSize: 12 }}>

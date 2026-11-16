@@ -82,6 +82,7 @@ export interface ConnectorPermissions {
   createDraft: boolean
   dnsWrite: boolean
   githubWrite: boolean
+  adsWrite?: boolean
 }
 
 export type ConnectorId = 'gmail' | 'googleads' | 'cloudflare' | 'github' | 'web'
@@ -133,6 +134,8 @@ export interface ConversationMessage {
   quickReplies?: string[]
   /** Files Ada wrote to the conversation workspace during this reply. */
   fileIDs?: string[]
+  /** True when the platform sent this from the conversation's schedule, not the user. */
+  scheduled?: boolean
   completedAt?: string
 }
 
@@ -152,10 +155,25 @@ export interface ConversationSummary {
   running: boolean
 }
 
+/** A recurring prompt the platform sends on a timer (prompt, interval). */
+export interface ConversationSchedule {
+  prompt: string
+  intervalMinutes: number
+  language: string
+  createdAt: string
+  lastRunAt?: string
+  nextRunAt: string
+}
+
+export function intervalLabel(minutes: number): string {
+  return { 15: 'every 15 minutes', 30: 'every 30 minutes', 60: 'hourly', 360: 'every 6 hours', 720: 'every 12 hours', 1440: 'daily' }[minutes] ?? `every ${minutes} minutes`
+}
+
 export interface Conversation extends ConversationSummary {
   ownerID: string
   createdAt: string
   messages: ConversationMessage[]
+  schedule?: ConversationSchedule
 }
 
 export interface WorkspaceMemory {

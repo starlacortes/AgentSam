@@ -1,6 +1,6 @@
 import type { ReactNode, SVGProps } from 'react'
 
-export type IconName = 'plus' | 'search' | 'chat' | 'folder' | 'chevron' | 'users' | 'plug' | 'settings' | 'memory' | 'mic' | 'arrow' | 'close' | 'menu' | 'collapse' | 'file' | 'copy' | 'spark' | 'check' | 'info' | 'shield' | 'keyboard' | 'stop' | 'trash' | 'activity' | 'more' | 'monitor' | 'terminal' | 'refresh' | 'download' | 'edit' | 'arrowDown' | 'eye' | 'phone' | 'tablet' | 'panel' | 'retry'
+export type IconName = 'plus' | 'search' | 'chat' | 'folder' | 'chevron' | 'users' | 'plug' | 'settings' | 'memory' | 'mic' | 'arrow' | 'close' | 'menu' | 'collapse' | 'file' | 'copy' | 'spark' | 'check' | 'info' | 'shield' | 'keyboard' | 'stop' | 'trash' | 'activity' | 'more' | 'monitor' | 'terminal' | 'refresh' | 'download' | 'edit' | 'arrowDown' | 'eye' | 'phone' | 'tablet' | 'panel' | 'retry' | 'play'
 
 const paths: Record<IconName, ReactNode> = {
   plus: <path d="M12 5v14M5 12h14" />,
@@ -38,6 +38,7 @@ const paths: Record<IconName, ReactNode> = {
   phone: <><rect x="7" y="3" width="10" height="18" rx="2" /><path d="M11 18h2" /></>,
   tablet: <><rect x="5" y="3" width="14" height="18" rx="2" /><path d="M11 18h2" /></>,
   panel: <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M14 4v16" /></>,
+  play: <path d="M7 4.5v15l12-7.5z" />,
   retry: <path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.5M4 4v4.5h4.5" />,
 }
 

@@ -36,6 +36,12 @@ struct GuidePatchBody: Content {
     var completed: Bool
 }
 
+struct ScheduleSetBody: Content {
+    var prompt: String
+    var intervalMinutes: Int
+    var language: String?
+}
+
 struct ProposalApplication: Encodable {
     var team: Team
     var conversation: Conversation
@@ -174,6 +180,30 @@ func conversationRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
         let owner = try req.requirePrincipal().conversationOwnerID
         let body = try req.decodeJSON(GuidePatchBody.self)
         return try req.json(try await ctx.conversations.saveGuide(ownerID: owner, completed: body.completed))
+    }
+
+    // MARK: Recurring schedules — the platform wakes the conversation so Ada can run on a timer.
+
+    api.put("conversations", ":id", "schedule") { req async throws -> Response in
+        let owner = try req.requirePrincipal().conversationOwnerID
+        let id = try req.conversationID
+        let body = try req.decodeJSON(ScheduleSetBody.self)
+        guard let schedule = ConversationSchedule.validate(
+            prompt: body.prompt,
+            intervalMinutes: body.intervalMinutes,
+            language: body.language ?? SrvL10n.lang(for: req)
+        ) else {
+            throw Abort(.badRequest, reason: "The schedule needs a prompt and one of these intervals in minutes: \(ConversationSchedule.allowedIntervals.map(String.init).joined(separator: ", ")).")
+        }
+        let conversation = try await ctx.conversations.setSchedule(id: id, ownerID: owner, schedule: schedule)
+        return try req.json(conversation)
+    }
+
+    api.delete("conversations", ":id", "schedule") { req async throws -> Response in
+        let owner = try req.requirePrincipal().conversationOwnerID
+        let id = try req.conversationID
+        let conversation = try await ctx.conversations.setSchedule(id: id, ownerID: owner, schedule: nil)
+        return try req.json(conversation)
     }
 }
 

@@ -304,6 +304,38 @@ public struct SpeechClient: Sendable {
         return data
     }
 
+    /// Splits text into pieces to speak one after another. The first piece is short so audio starts
+    /// quickly; later pieces are longer. Breaks fall on sentence ends where possible.
+    public static func spokenChunks(_ text: String, firstLimit: Int = 160, limit: Int = 600) -> [String] {
+        let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleaned.isEmpty else { return [] }
+        var sentences: [String] = []
+        var current = ""
+        for character in cleaned {
+            current.append(character)
+            if ".!?\n".contains(character) {
+                sentences.append(current)
+                current = ""
+            }
+        }
+        if !current.isEmpty { sentences.append(current) }
+
+        var chunks: [String] = []
+        var buffer = ""
+        for sentence in sentences {
+            let max = chunks.isEmpty ? firstLimit : limit
+            if !buffer.isEmpty, buffer.count + sentence.count > max {
+                chunks.append(buffer)
+                buffer = ""
+            }
+            buffer += sentence
+        }
+        if !buffer.isEmpty { chunks.append(buffer) }
+        return chunks
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
     private func send(_ request: URLRequest) async throws -> (Data, URLResponse) {
         do {
             return try await session.data(for: request)

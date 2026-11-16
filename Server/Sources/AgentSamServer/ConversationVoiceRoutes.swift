@@ -55,9 +55,19 @@ func conversationVoiceRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
         let (setup, providers) = await currentSetup()
         guard let tts = setup.tts else { throw Abort(.conflict, reason: SrvL10n.t("srv.voiceNoTTS", lang: lang)) }
         let (provider, key) = try engine(tts, providers, lang: lang)
+        // `chunk=i` speaks one short piece, so the first words play while the rest is still being made.
+        // Without it the whole message is spoken in one go.
+        var text = message.text
+        var chunkCount: Int?
+        if let index = req.query[Int.self, at: "chunk"] {
+            let pieces = SpeechClient.spokenChunks(text)
+            chunkCount = pieces.count
+            guard index >= 0, index < pieces.count else { return Response(status: .noContent) }
+            text = pieces[index]
+        }
         do {
             let audio = try await speech.speak(
-                text: message.text,
+                text: text,
                 provider: provider,
                 key: key,
                 model: tts.model,
@@ -67,6 +77,7 @@ func conversationVoiceRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
             var headers = HTTPHeaders()
             headers.replaceOrAdd(name: .contentType, value: "audio/mpeg")
             headers.replaceOrAdd(name: .cacheControl, value: "private, max-age=3600")
+            if let chunkCount { headers.replaceOrAdd(name: "X-Speech-Chunks", value: String(chunkCount)) }
             return Response(status: .ok, headers: headers, body: .init(data: audio))
         } catch let error as SpeechError {
             throw Abort(.badGateway, reason: error.message)

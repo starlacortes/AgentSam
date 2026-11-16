@@ -40,6 +40,35 @@ final class ConnectorPrimitiveTests: XCTestCase {
         XCTAssertTrue(mime.hasSuffix("\r\n\r\nBody"))
     }
 
+    func testGoogleAdsCampaignStatusToolIsGatedAndBuildsAMutate() throws {
+        let ads = GoogleAdsConnector()
+        XCTAssertFalse(ads.toolDefs(permissions: ConnectorPermissions()).map(\.function.name).contains("googleads_set_campaign_status"))
+        XCTAssertTrue(ads.toolDefs(permissions: ConnectorPermissions(adsWrite: true)).map(\.function.name).contains("googleads_set_campaign_status"))
+        XCTAssertFalse(ConnectorHub.readOnlyToolNames.contains("googleads_set_campaign_status"))
+
+        XCTAssertEqual(GoogleAdsConnector.cleanCampaignID("123"), "123")
+        XCTAssertEqual(GoogleAdsConnector.cleanCampaignID("customers/9/campaigns/456"), "456")
+        XCTAssertNil(GoogleAdsConnector.cleanCampaignID("abc"))
+        XCTAssertNil(GoogleAdsConnector.cleanCampaignID(""))
+        XCTAssertNil(GoogleAdsConnector.cleanCampaignID(nil))
+
+        let body = GoogleAdsConnector.campaignStatusBody(customerID: "111", campaignID: "222", status: "PAUSED")
+        let operation = try XCTUnwrap((body["operations"] as? [[String: Any]])?.first)
+        XCTAssertEqual(operation["updateMask"] as? String, "status")
+        let update = try XCTUnwrap(operation["update"] as? [String: Any])
+        XCTAssertEqual(update["resourceName"] as? String, "customers/111/campaigns/222")
+        XCTAssertEqual(update["status"] as? String, "PAUSED")
+    }
+
+    func testPermissionsDecodeWithoutAdsWriteAndIntersect() throws {
+        let old = try JSONDecoder().decode(ConnectorPermissions.self, from: Data(#"{"sendEmail":true,"createDraft":false,"dnsWrite":true,"githubWrite":false}"#.utf8))
+        XCTAssertFalse(old.adsWrite)
+        XCTAssertTrue(old.sendEmail)
+        let both = ConnectorPermissions(sendEmail: true, dnsWrite: false, adsWrite: true).intersected(with: ConnectorPermissions(sendEmail: true, dnsWrite: true, adsWrite: false))
+        XCTAssertEqual(both, ConnectorPermissions(sendEmail: true))
+        XCTAssertEqual(old.intersected(with: .all), old)
+    }
+
     func testFileKeyRingPersistsAndReadsBackValues() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("agentsam-keyring-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
