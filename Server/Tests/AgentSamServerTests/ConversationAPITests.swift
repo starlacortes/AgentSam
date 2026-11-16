@@ -158,6 +158,35 @@ final class ConversationAPITests: XCTestCase {
         })
     }
 
+    func testScheduleRoutesValidatePersistAndClear() async throws {
+        let conversation = try await createConversation()
+        let id = conversation.id.uuidString
+        try await app.test(.PUT, "api/conversations/\(id)/schedule", beforeRequest: { req in
+            self.authorize(&req)
+            try req.content.encode(ScheduleSetBody(prompt: "Refresh the list", intervalMinutes: 45, language: nil), as: .json)
+        }, afterResponse: { res async in
+            XCTAssertEqual(res.status, .badRequest)
+        })
+        try await app.test(.PUT, "api/conversations/\(id)/schedule", beforeRequest: { req in
+            self.authorize(&req)
+            try req.content.encode(ScheduleSetBody(prompt: "Refresh the list", intervalMinutes: 60, language: nil), as: .json)
+        }, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok, res.body.string)
+            let scheduled = try res.content.decode(Conversation.self)
+            XCTAssertEqual(scheduled.schedule?.prompt, "Refresh the list")
+            XCTAssertEqual(scheduled.schedule?.intervalMinutes, 60)
+            XCTAssertEqual(scheduled.schedule?.language, "en")
+        })
+        // Cookie writes need the CSRF header; bearer-token writes do not (above).
+        try await app.test(.DELETE, "api/conversations/\(id)/schedule", afterResponse: { res async in
+            XCTAssertEqual(res.status, .unauthorized)
+        })
+        try await app.test(.DELETE, "api/conversations/\(id)/schedule", beforeRequest: authorize, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok, res.body.string)
+            XCTAssertNil(try res.content.decode(Conversation.self).schedule)
+        })
+    }
+
     func testConversationVoiceUsesPersistentConversationOwnership() async throws {
         let conversation = try await createConversation()
         try await app.test(.POST, "api/conversations/\(conversation.id.uuidString)/transcribe", beforeRequest: { req in

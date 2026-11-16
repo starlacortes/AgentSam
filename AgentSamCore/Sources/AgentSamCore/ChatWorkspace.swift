@@ -159,19 +159,73 @@ public enum ChatWorkspaceTools {
                     ("required", .array([.string("language"), .string("source")])),
                 ])
             ),
+            APIToolDef(
+                name: "chat_schedule_run",
+                description: "Schedule this conversation to run a prompt automatically on a timer, so work you would otherwise repeat on request (an hourly refresh, a daily digest, a periodic check) happens without the user asking each time. The platform sends the prompt for the user; you run it with your normal tools each time it fires.",
+                parameters: .object([
+                    ("type", .string("object")),
+                    ("properties", .object([
+                        ("prompt", .object([("type", .string("string")), ("description", .string("The instruction to run each time, written as the user would phrase it, e.g. \"Refresh the list and update the saved file with anything new\""))])),
+                        ("intervalMinutes", .object([
+                            ("type", .string("integer")),
+                            ("enum", .array([.string("15"), .string("30"), .string("60"), .string("360"), .string("720"), .string("1440")])),
+                            ("description", .string("How often to run: 15 or 30 minutes, 60 (hourly), 360 (every 6 hours), 720 (every 12 hours), or 1440 (daily)")),
+                        ])),
+                    ])),
+                    ("required", .array([.string("prompt"), .string("intervalMinutes")])),
+                ])
+            ),
+            APIToolDef(
+                name: "chat_schedule_cancel",
+                description: "Cancel this conversation's automatic schedule, if one is set.",
+                parameters: .object([
+                    ("type", .string("object")),
+                    ("properties", .object([:])),
+                ])
+            ),
         ]
     }
 
     /// True when `call` is one of Ada's workspace tools.
     public static func owns(_ name: String) -> Bool {
         name == "chat_write_file" || name == "chat_read_file" || name == "chat_list_files" || name == "run_program"
+            || name == "chat_schedule_run" || name == "chat_schedule_cancel"
     }
 
     /// Runs one workspace tool call against `workspace`. Files written are reported back so the
-    /// engine can show them in the reply.
-    public static func run(call: APIToolCall, workspace: ChatWorkspaceStore, conversationID: UUID) async -> ToolOutcome {
+    /// engine can show them in the reply. `schedule` receives schedule changes from the
+    /// `chat_schedule_*` tools (the engine wires it to the conversation's store).
+    public static func run(
+        call: APIToolCall,
+        workspace: ChatWorkspaceStore,
+        conversationID: UUID,
+        schedule: (@Sendable (ConversationSchedule?) async -> ConversationSchedule?)? = nil
+    ) async -> ToolOutcome {
         let args = AgentTools.arguments(of: call)
         switch call.function.name {
+        case "chat_schedule_run":
+            guard let prompt = args["prompt"]?.stringValue,
+                  let rawInterval = args["intervalMinutes"]?.numberValue.map({ Int($0) }) ?? args["intervalMinutes"]?.stringValue.flatMap(Int.init) else {
+                return ToolOutcome(resultText: "chat_schedule_run requires prompt and intervalMinutes.")
+            }
+            guard let next = ConversationSchedule.validate(prompt: prompt, intervalMinutes: rawInterval) else {
+                return ToolOutcome(resultText: "Invalid schedule. The prompt must be non-empty (under 4,000 characters) and intervalMinutes must be one of \(ConversationSchedule.allowedIntervals.map(String.init).joined(separator: ", ")).")
+            }
+            guard let sink = schedule else {
+                return ToolOutcome(resultText: "Scheduling is not available in this context.")
+            }
+            guard let saved = await sink(next), saved == next else {
+                return ToolOutcome(resultText: "The schedule could not be saved.")
+            }
+            return ToolOutcome(resultText: "Schedule set: \"\(next.prompt)\" every \(next.intervalLabel). The first run fires at the next interval boundary.")
+        case "chat_schedule_cancel":
+            guard let sink = schedule else {
+                return ToolOutcome(resultText: "Scheduling is not available in this context.")
+            }
+            let cleared = await sink(nil)
+            return ToolOutcome(resultText: cleared == nil
+                ? "Schedule cancelled."
+                : "No schedule was set, so nothing changed.")
         case "chat_list_files":
             let names = await workspace.files(conversationID: conversationID)
             return ToolOutcome(resultText: names.isEmpty ? "The workspace is empty." : names.joined(separator: "\n"))

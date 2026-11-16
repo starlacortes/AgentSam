@@ -44,7 +44,7 @@ public actor ConversationEngine {
     }
 
     @discardableResult
-    public func send(conversationID: UUID, ownerID: String, text rawText: String, launchedBy: String, language: String) async throws -> Conversation {
+    public func send(conversationID: UUID, ownerID: String, text rawText: String, launchedBy: String, language: String, scheduled: Bool = false) async throws -> Conversation {
         let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { throw ConversationError.emptyMessage }
         guard text.count <= 20_000 else { throw ConversationError.messageTooLong }
@@ -52,7 +52,7 @@ public actor ConversationEngine {
         guard let conversation = try await conversations.get(id: conversationID, ownerID: ownerID) else { throw ConversationError.notFound }
         guard !conversation.messages.contains(where: { $0.status == .running }) else { throw ConversationError.alreadyRunning }
         let lang = language.lowercased().hasPrefix("es") ? "es" : "en"
-        let userMessage = ConversationMessage(role: .user, text: text)
+        let userMessage = ConversationMessage(role: .user, text: text, scheduled: scheduled)
         let choosing = lang == "es" ? "Eligiendo la mejor forma de ayudar" : "Choosing how to help"
         let pending = ConversationMessage(role: .assistant, text: "", status: .running, activity: [AgentActivity(agentID: UUID(), agentName: "Ada", summary: choosing, state: "working")], steps: [MessageStep(label: choosing)])
         _ = try await conversations.append(id: conversationID, ownerID: ownerID, message: userMessage)
@@ -361,6 +361,13 @@ public actor ConversationEngine {
                                 outcome = ToolOutcome(resultText: "Program-run limit reached for this reply (4). Use the output you already have.")
                             } else {
                                 outcome = await ChatWorkspaceTools.run(call: call, workspace: workspace, conversationID: conversationID)
+                            }
+                        } else if call.function.name == "chat_schedule_run" || call.function.name == "chat_schedule_cancel" {
+                            let owner = ref?.ownerID
+                            outcome = await ChatWorkspaceTools.run(call: call, workspace: workspace, conversationID: conversationID) { next in
+                                guard let owner else { return nil }
+                                let saved = try? await self.conversations.setSchedule(id: conversationID, ownerID: owner, schedule: next)
+                                return saved?.schedule
                             }
                         } else {
                             outcome = await ChatWorkspaceTools.run(call: call, workspace: workspace, conversationID: conversationID)

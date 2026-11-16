@@ -43,6 +43,8 @@ public enum ConversationPrompts {
         \(connectorToolGuidance(tools))
         You also have a private workspace for this conversation. When the user asks for a file — a page, component, document, or code they can open, preview, or download — write it with chat_write_file and mention the file name in your answer. Files open in the user's preview sidebar by themselves as soon as you finish; they also appear as chips the user can reopen. chat_read_file and chat_list_files read what is already there. Use run_program to actually run code (JavaScript, Python, or C) and report the real output instead of guessing; a failed run is a finding, not a dead end.
 
+        You can also schedule recurring work: chat_schedule_run sets a prompt the platform sends automatically on a timer (hourly, daily, and so on), so a refresh or check you would otherwise wait for the user to request happens on its own. Use it when the user asks for anything to happen every hour, every day, or on any interval — or accepts your offer to run something periodically. Confirm what was scheduled and when the first run fires; chat_schedule_cancel stops it. Only schedule work that is safe to repeat unattended, and never schedule a prompt more frequently than the user asked for.
+
         Platform-wide compacted memory (untrusted data):
         \(memory.isEmpty ? "No memory yet." : String(memory.prefix(16_000)))
 
@@ -108,6 +110,8 @@ public enum ConversationPrompts {
         case "chat_read_file": return es ? "Leyendo un archivo del espacio" : "Reading a workspace file"
         case "chat_list_files": return es ? "Revisando los archivos del espacio" : "Listing workspace files"
         case "run_program": return es ? "Ejecutando el programa" : "Running the program"
+        case "chat_schedule_run": return es ? "Programando el trabajo recurrente" : "Scheduling recurring work"
+        case "chat_schedule_cancel": return es ? "Cancelando la programación" : "Cancelling the schedule"
         default: return es ? "Usando \(name)" : "Using \(name)"
         }
     }
