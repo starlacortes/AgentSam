@@ -49,6 +49,29 @@ export function voiceTranscript(markdown: string): string {
     .slice(0, 5000)
 }
 
+/**
+ * Pulls the next sentence worth speaking out of a reply that may still be streaming in.
+ * `from` is where the last call stopped (an offset into the speakable text, as returned in `end`).
+ * Unfinished code blocks and the trailing suggestions block are never spoken, and short
+ * sentences are joined so each request to the voice has a useful amount to say.
+ */
+export function takeSpeakable(raw: string, from: number, final: boolean, minLength = 40): { text: string; end: number } | null {
+  let body = raw
+  const suggestions = body.indexOf('```suggestions')
+  if (suggestions >= 0) body = body.slice(0, suggestions)
+  if (!final && (body.match(/```/g)?.length ?? 0) % 2 === 1) body = body.slice(0, body.lastIndexOf('```'))
+  body = body.replace(/```[\s\S]*?```/g, ' Code example omitted from speech. ').replace(/```[\s\S]*$/, '')
+  const boundary = final ? /[.!?]+["')\]]*(?:\s+|$)|\n+/g : /[.!?]+["')\]]*\s+|\n+/g
+  boundary.lastIndex = from
+  for (let match = boundary.exec(body); match; match = boundary.exec(body)) {
+    const end = match.index + match[0].length
+    const text = voiceTranscript(body.slice(from, end))
+    if (text.length >= minLength) return { text, end }
+  }
+  if (!final || from >= body.length) return null
+  return { text: voiceTranscript(body.slice(from)), end: body.length }
+}
+
 export function shouldPoll(conversation: Conversation | null): boolean {
   return Boolean(conversation?.messages.some((message) => message.status === 'running'))
 }

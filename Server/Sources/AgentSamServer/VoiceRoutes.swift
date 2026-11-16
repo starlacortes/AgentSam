@@ -31,7 +31,7 @@ func voiceRoutes(
     chats: ChatStore,
     ownedChat: @escaping @Sendable (Request) async throws -> CoordinatorChat
 ) {
-    let speech = SpeechClient()
+    let speech = SpeechClient.shared
 
     @Sendable func currentSetup() async -> (VoiceSetup, VoiceSettings, [ProviderConfig]) {
         let providers = await ctx.store.loadProviders()
@@ -70,7 +70,14 @@ func voiceRoutes(
     }
 
     api.get("voice") { req async throws -> Response in
-        try req.json(await info())
+        // Opening voice mode is the cue to wake the voice server, so the first reply doesn't pay for a cold start.
+        let (setup, _, providers) = await currentSetup()
+        if let tts = setup.tts, let provider = providers.first(where: { $0.id == tts.providerID }),
+           let key = ctx.keyRing.get(provider.keyAccount), !key.isEmpty {
+            let voice = tts.voice ?? SpeechDefaults.defaultVoice(for: provider, language: SrvL10n.lang(for: req))
+            Task { await speech.warmUp(provider: provider, key: key, model: tts.model, voice: voice) }
+        }
+        return try req.json(await info())
     }
 
     adminAPI.put("voice") { req async throws -> Response in

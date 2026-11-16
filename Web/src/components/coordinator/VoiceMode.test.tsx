@@ -18,7 +18,11 @@ describe('VoiceMode', () => {
   })
 
   it('keeps a keyboard fallback and sends to the real coordinator callback', async () => {
-    const onSend = vi.fn().mockResolvedValue({ text: 'A **clear answer** from Ada.' })
+    const reply = 'A **clear answer** from Ada.'
+    const onSend = vi.fn(async (_text: string, _wait: boolean, onPartial?: (update: { text: string; final: boolean; speechPath: string }) => void) => {
+      onPartial?.({ text: reply, final: true, speechPath: '/speech' })
+      return { text: reply }
+    })
     const onClose = vi.fn()
     const synthesis = { speak: vi.fn(), cancel: vi.fn() }
     vi.stubGlobal('SpeechSynthesisUtterance', TestUtterance)
@@ -27,7 +31,7 @@ describe('VoiceMode', () => {
     expect(screen.getByText(/Voice recognition isn’t supported here/)).toBeTruthy()
     fireEvent.change(screen.getByRole('textbox', { name: 'Message Ada with your keyboard' }), { target: { value: '  Hello Ada  ' } })
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
-    await waitFor(() => expect(onSend).toHaveBeenCalledWith('Hello Ada', true))
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith('Hello Ada', true, expect.any(Function)))
     await waitFor(() => expect(synthesis.speak).toHaveBeenCalledTimes(1))
     expect(synthesis.speak.mock.calls[0]?.[0].text).toBe('A clear answer from Ada.')
     fireEvent.click(screen.getAllByRole('button', { name: 'Return to chat' })[0]!)

@@ -183,7 +183,11 @@ public struct SpeechClient: Sendable {
     public static let maxAudioBytes = 10 * 1024 * 1024
     public static let maxSpeechCharacters = 4_000
 
+    /// One client for the whole server, so every request reuses the same connections and audio cache.
+    public static let shared = SpeechClient()
+
     let session: URLSession
+    let cache = SpeechCache()
 
     public init(session: URLSession? = nil) {
         if let session {
@@ -278,11 +282,43 @@ public struct SpeechClient: Sendable {
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Spoken audio and its content type.
+    public struct SpokenAudio: Sendable {
+        public var data: Data
+        public var mimeType: String
+        public init(data: Data, mimeType: String) { self.data = data; self.mimeType = mimeType }
+    }
+
     /// Turns text into MP3 audio.
     public func speak(text: String, provider: ProviderConfig, key: String, model: String, voice: String, instructions: String? = nil) async throws -> Data {
-        let trimmed = String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(Self.maxSpeechCharacters))
+        try await speakAudio(text: text, provider: provider, key: key, model: model, voice: voice, instructions: instructions).data
+    }
+
+    /// Turns text into audio. Self-hosted Kokoro servers are asked for WAV, which skips the MP3 encode
+    /// and decode and so starts playing sooner; if one refuses, it falls back to MP3. Repeats are served from memory.
+    public func speakAudio(text: String, provider: ProviderConfig, key: String, model: String, voice: String, instructions: String? = nil) async throws -> SpokenAudio {
+        let trimmed = String(Self.spokenText(text).prefix(Self.maxSpeechCharacters))
         guard !trimmed.isEmpty else { throw SpeechError("There is nothing to say.") }
 
+        // Only the gpt-4o family takes steering instructions; older TTS models reject the field.
+        let steer = model.hasPrefix("gpt-") ? instructions : nil
+        let formats = SpeechDefaults.isKokoro(provider) ? ["wav", "mp3"] : ["mp3"]
+        var lastError: Error = SpeechError("The speech provider sent back no audio.")
+        for format in formats {
+            let cacheKey = [provider.id, provider.baseURL, model, voice, format, trimmed].joined(separator: "\u{1F}")
+            if let hit = await cache.get(cacheKey) { return hit }
+            do {
+                let audio = try await requestSpeech(text: trimmed, format: format, provider: provider, key: key, model: model, voice: voice, instructions: steer)
+                await cache.put(cacheKey, audio)
+                return audio
+            } catch {
+                lastError = error
+            }
+        }
+        throw lastError
+    }
+
+    private func requestSpeech(text: String, format: String, provider: ProviderConfig, key: String, model: String, voice: String, instructions: String?) async throws -> SpokenAudio {
         struct SpeechRequest: Encodable {
             var model: String
             var input: String
@@ -290,23 +326,45 @@ public struct SpeechClient: Sendable {
             var response_format: String
             var instructions: String?
         }
-        // Only the gpt-4o family takes steering instructions; older TTS models reject the field.
-        let steer = model.hasPrefix("gpt-") ? instructions : nil
         var request = URLRequest(url: try Self.endpoint(provider, "audio/speech"))
         request.httpMethod = "POST"
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(SpeechRequest(model: model, input: trimmed, voice: voice, response_format: "mp3", instructions: steer))
+        request.httpBody = try JSONEncoder().encode(SpeechRequest(model: model, input: text, voice: voice, response_format: format, instructions: instructions))
 
         let (data, response) = try await send(request)
         try Self.check(response, data)
         guard !data.isEmpty else { throw SpeechError("The speech provider sent back no audio.") }
-        return data
+        return SpokenAudio(data: data, mimeType: format == "wav" ? "audio/wav" : "audio/mpeg")
+    }
+
+    /// Makes the first real reply fast: asks a self-hosted voice to say a word once, so its model is loaded
+    /// and a connection is open. Runs at most once every few minutes per voice.
+    public func warmUp(provider: ProviderConfig, key: String, model: String, voice: String) async {
+        let id = [provider.id, model, voice].joined(separator: "|")
+        guard await cache.shouldWarm(id) else { return }
+        _ = try? await speakAudio(text: "Hello.", provider: provider, key: key, model: model, voice: voice)
+    }
+
+    /// Plain words for the voice: no Markdown marks, links, code or the suggestions block.
+    public static func spokenText(_ markdown: String) -> String {
+        var text = markdown
+        if let range = text.range(of: "```suggestions") { text = String(text[..<range.lowerBound]) }
+        func replace(_ pattern: String, _ template: String) {
+            text = text.replacingOccurrences(of: pattern, with: template, options: .regularExpression)
+        }
+        replace("```[\\s\\S]*?```", " Code example omitted from speech. ")
+        replace("```[\\s\\S]*$", " ")
+        replace("\\[([^\\]]+)\\]\\([^)]*\\)", "$1")
+        replace("[*_#>`|]", "")
+        replace("(?m)^\\s*-\\s+", "")
+        replace("\\s+", " ")
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// Splits text into pieces to speak one after another. The first piece is short so audio starts
     /// quickly; later pieces are longer. Breaks fall on sentence ends where possible.
-    public static func spokenChunks(_ text: String, firstLimit: Int = 160, limit: Int = 600) -> [String] {
+    public static func spokenChunks(_ text: String, firstLimit: Int = 90, limit: Int = 600) -> [String] {
         let cleaned = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !cleaned.isEmpty else { return [] }
         var sentences: [String] = []
@@ -395,5 +453,43 @@ public struct SpeechClient: Sendable {
         line("")
         line("--\(boundary)--")
         return body
+    }
+}
+
+
+/// Remembers recently spoken audio so replays and repeated lines don't go back to the voice server.
+public actor SpeechCache {
+    public init() {}
+
+    private var entries: [String: SpeechClient.SpokenAudio] = [:]
+    private var order: [String] = []
+    private var bytes = 0
+    private var warmed: [String: Date] = [:]
+    private let maxBytes = 48 * 1024 * 1024
+    private let maxEntries = 200
+
+    public func get(_ key: String) -> SpeechClient.SpokenAudio? {
+        guard let hit = entries[key] else { return nil }
+        order.removeAll { $0 == key }
+        order.append(key)
+        return hit
+    }
+
+    public func put(_ key: String, _ audio: SpeechClient.SpokenAudio) {
+        guard audio.data.count < maxBytes / 4 else { return }
+        if let old = entries[key] { bytes -= old.data.count; order.removeAll { $0 == key } }
+        entries[key] = audio
+        order.append(key)
+        bytes += audio.data.count
+        while (bytes > maxBytes || entries.count > maxEntries), let oldest = order.first {
+            order.removeFirst()
+            if let removed = entries.removeValue(forKey: oldest) { bytes -= removed.data.count }
+        }
+    }
+
+    public func shouldWarm(_ id: String, every interval: TimeInterval = 300) -> Bool {
+        if let last = warmed[id], Date().timeIntervalSince(last) < interval { return false }
+        warmed[id] = Date()
+        return true
     }
 }
