@@ -147,6 +147,8 @@ export interface ConversationMessage {
   photos?: PhotoAttachment[]
   /** True when the user spoke this message in voice mode. */
   spoken?: boolean
+  /** For a reply to a spoken message: the part read aloud; the rest of `text` is on-screen detail. */
+  speech?: string
   completedAt?: string
 }
 

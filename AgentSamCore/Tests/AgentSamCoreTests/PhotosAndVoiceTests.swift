@@ -256,4 +256,36 @@ final class PhotosAndVoiceTests: XCTestCase {
         XCTAssertTrue(store.text(for: "ada_direct_system")?.contains("Lead with the answer") == true)
         XCTAssertEqual(store.text(for: "ada_base"), "EDITED")
     }
+
+    // MARK: - Spoken part and on-screen detail
+
+    func testExtractDetailsSplitsSpokenPartFromScreenDetail() {
+        let reply = "Revenue is up 12 percent. The details are on screen.\n```details\n| Month | Revenue |\n| --- | --- |\n| Oct | $10k |\n\n```js\nlet a = 1\n```\n```"
+        let split = ConversationPrompts.extractDetails(reply)
+        XCTAssertEqual(split.speech, "Revenue is up 12 percent. The details are on screen.")
+        XCTAssertEqual(split.screen, "Revenue is up 12 percent. The details are on screen.\n\n| Month | Revenue |\n| --- | --- |\n| Oct | $10k |\n\n```js\nlet a = 1\n```")
+        XCTAssertEqual(ConversationPrompts.extractDetails("Just this.").speech, nil)
+        // While streaming, the spoken part is known as soon as the details line starts.
+        XCTAssertEqual(ConversationPrompts.extractDetails("Short. ```details").speech, "Short.")
+        XCTAssertEqual(ConversationPrompts.extractDetails("Short. ```details").screen, "Short.")
+    }
+
+    func testSpokenReplyKeepsDetailOnScreenButNotInSpeech() async throws {
+        let (engine, conversations) = try await makeEngine(model: "stub") { _, _, _, system, _, _ in
+            if system.contains("Decide how to handle") { return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub") }
+            if system.contains("workspace Markdown memory") { return LLMReply(message: .assistant("# Memory"), inputTokens: 0, outputTokens: 0, model: "stub") }
+            return LLMReply(message: .assistant("Three campaigns are live. The details are on screen.\n```details\n- Spring\n- Summer\n- Fall"), inputTokens: 0, outputTokens: 0, model: "stub")
+        }
+        let conversation = try await conversations.create(ownerID: "owner")
+        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Which campaigns are live?", launchedBy: "Owner", language: "en", spoken: true)
+        let result = try await finished(conversations, id: conversation.id)
+        let reply = try XCTUnwrap(result.messages.last)
+        XCTAssertEqual(reply.speech, "Three campaigns are live. The details are on screen.")
+        XCTAssertEqual(reply.text, "Three campaigns are live. The details are on screen.\n\n- Spring\n- Summer\n- Fall")
+        await engine.shutdown()
+    }
+
+    func testVoiceStyleOffersTheDetailsLine() {
+        XCTAssertTrue(ConversationPrompts.voiceStyle(language: "en").contains("```details"))
+    }
 }

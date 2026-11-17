@@ -346,20 +346,44 @@ public struct SpeechClient: Sendable {
         _ = try? await speakAudio(text: "Hello.", provider: provider, key: key, model: model, voice: voice)
     }
 
-    /// Plain words for the voice: no Markdown marks, links, code or the suggestions block.
+    /// Plain words for the voice. The browser's `voiceTranscript` in Web/src/lib/coordinator.ts follows
+    /// the same rules; change both together. Drops the suggestions block and any on-screen ```details,
+    /// code, tables, bare links, IDs and folder paths; turns headings and list items into sentences;
+    /// strips Markdown marks but keeps hyphens inside words.
     public static func spokenText(_ markdown: String) -> String {
         var text = markdown
-        if let range = text.range(of: "```suggestions") { text = String(text[..<range.lowerBound]) }
+        for fence in ["```suggestions", "```details"] {
+            if let range = text.range(of: fence, options: .caseInsensitive) { text = String(text[..<range.lowerBound]) }
+        }
         func replace(_ pattern: String, _ template: String) {
             text = text.replacingOccurrences(of: pattern, with: template, options: .regularExpression)
         }
         replace("```[\\s\\S]*?```", " Code example omitted from speech. ")
         replace("```[\\s\\S]*$", " ")
+        replace("(?m)(?:^[ \\t]*\\|.*(?:\\n|$))+", " The table is on screen.\n")
         replace("\\[([^\\]]+)\\]\\([^)]*\\)", "$1")
+        replace("https?://[^\\s)]*[^\\s).,!?;:]", "the link on screen")
+        replace("\\b[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\\b", "")
+        replace("(?:[\\w.~-]+/)+([\\w-]+\\.[A-Za-z0-9]+)", "$1")
+        replace("(?m)^[ \\t]*(?:#{1,6}|[-*+]|\\d+[.)])[ \\t]+(.*[^.!?:;,\\s])[ \\t]*$", "$1.")
+        replace("(?m)^[ \\t]*(?:#{1,6}|[-*+]|\\d+[.)])[ \\t]+", "")
         replace("[*_#>`|]", "")
-        replace("(?m)^\\s*-\\s+", "")
         replace("\\s+", " ")
+        replace(" ([.,!?])", "$1")
+        replace("(?<!\\.)\\.\\.(?!\\.)", ".")
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Most characters Ada speaks in one reply. Longer replies stop at a sentence end with a short
+    /// pointer to the screen. The browser uses the same limit (`SPOKEN_LIMIT` in coordinator.ts).
+    public static let spokenLimit = 600
+
+    /// Cuts spoken text at the last sentence end within `limit` and adds `tail`. Text within the limit is unchanged.
+    public static func cappedSpeech(_ text: String, tail: String, limit: Int = spokenLimit) -> String {
+        guard text.count > limit else { return text }
+        let head = String(text.prefix(limit))
+        let cut = head.lastIndex(where: { ".!?".contains($0) }).map { String(head[...$0]) } ?? head
+        return cut.trimmingCharacters(in: .whitespaces) + " " + tail
     }
 
     /// Splits text into pieces to speak one after another. The first piece is short so audio starts

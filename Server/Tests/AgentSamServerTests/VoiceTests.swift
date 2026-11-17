@@ -141,7 +141,33 @@ final class VoiceTests: XCTestCase {
 
     func testSpokenTextDropsMarkdownCodeAndSuggestions() {
         let markdown = "## Result\n**One answer.** [Read more](https://example.com)\n- a point\n```swift\nsecret = 1\n```\nDone.\n```suggestions\nNext?\n```"
-        XCTAssertEqual(SpeechClient.spokenText(markdown), "Result One answer. Read more a point Code example omitted from speech. Done.")
+        XCTAssertEqual(SpeechClient.spokenText(markdown), "Result. One answer. Read more a point. Code example omitted from speech. Done.")
+    }
+
+    func testSpokenTextSkipsLinksIDsPathsTablesAndDetails() {
+        let markdown = """
+        Saved to reports/q3/summary-final.md for follow-up, see https://example.com/a?b=1.
+        Mission 3F2A9C1E-5B7D-4E8A-9C21-7D4E5F6A8B90 is done.
+        | Name | Count |
+        | --- | --- |
+        | A | 1 |
+        Back to talking.
+        ```details
+        Everything here is for the screen.
+        """
+        XCTAssertEqual(
+            SpeechClient.spokenText(markdown),
+            "Saved to summary-final.md for follow-up, see the link on screen. Mission is done. The table is on screen. Back to talking."
+        )
+    }
+
+    func testCappedSpeechStopsAtASentenceEnd() {
+        let sentence = "This is a fairly ordinary sentence about nothing. "
+        let long = String(repeating: sentence, count: 20)
+        let capped = SpeechClient.cappedSpeech(long, tail: "The rest is on screen.")
+        XCTAssertLessThanOrEqual(capped.count, SpeechClient.spokenLimit + 30)
+        XCTAssertTrue(capped.hasSuffix("nothing. The rest is on screen."))
+        XCTAssertEqual(SpeechClient.cappedSpeech("Short.", tail: "x"), "Short.")
     }
 
     func testSpeechCacheReturnsRepeatsAndWarmsOncePerInterval() async {

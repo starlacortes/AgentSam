@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useI18n } from '../../i18n'
 import { api } from '../../api/client'
 import type { VoiceInfo } from '../../api/chatTypes'
-import { takeSpeakable } from '../../lib/coordinator'
+import { SPOKEN_LIMIT, takeSpeakable } from '../../lib/coordinator'
 import { markVoice } from '../../lib/voiceTiming'
 import { canRecord, MIN_RECORDING_MS, Speaker, useRecorder } from '../../lib/voice'
 import { Icon } from './Icon'
@@ -44,6 +44,8 @@ export interface VoiceReply {
 /** What Ada has written so far, passed along while she is still writing so speech can start early. */
 export interface VoicePartial {
   text: string
+  /** The part of the reply meant to be heard, once Ada has moved on to on-screen detail. */
+  speech?: string
   final: boolean
   /** Where to POST a sentence to have the server speak it. */
   speechPath: string
@@ -160,17 +162,33 @@ export function VoiceMode({ onSend, onTranscribe, onClose }: { onSend: (text: st
   /** Speaks each finished sentence as Ada writes it, instead of waiting for the whole reply. */
   const streamSpeech = () => {
     let from = 0
+    let previous = ''
     let spoke = false
-    return ({ text, final, speechPath }: VoicePartial) => {
+    let spokenLength = 0
+    let capped = false
+    return ({ text, speech, final, speechPath }: VoicePartial) => {
       if (!active.current) return
       setResponse(text)
       if (text) markVoice('reply-first-text')
       if (final) markVoice('reply-complete')
-      if (mute.current || !speechOutput) return
-      for (let next = takeSpeakable(text, from, final); next; next = takeSpeakable(text, from, final)) {
+      if (mute.current || !speechOutput || capped) return
+      // Once the spoken part is known, the rest of the reply is on-screen detail and is not read.
+      const source = speech ?? text
+      const done = final || speech !== undefined
+      // Text Ada wrote before using a tool is replaced by the real answer. Start again from its top,
+      // or the opening of the answer would be skipped.
+      if (startedOver(previous, source)) from = 0
+      previous = source
+      for (let next = takeSpeakable(source, from, done); next; next = takeSpeakable(source, from, done)) {
         from = next.end
         if (!next.text) continue
+        if (spoke && spokenLength + next.text.length > SPOKEN_LIMIT) {
+          capped = true
+          speaker.current?.enqueueText(t('The rest is on screen.'))
+          return
+        }
         spoke = true
+        spokenLength += next.text.length
         markVoice('first-sentence')
         speaker.current?.enqueueText(next.text, voiceInfo?.setup.tts ? speechPath : undefined)
       }
@@ -297,4 +315,12 @@ export function VoiceMode({ onSend, onTranscribe, onClose }: { onSend: (text: st
       <div className="co-voice-buttons"><button className="co-secondary-button" disabled={!speechOutput} aria-pressed={muted} onClick={toggleMute}><Icon name="mic" size={15} />{muted ? t('Unmute Ada') : t('Mute Ada')}</button>{phase === 'listening' || phase === 'speaking' ? <button className="co-secondary-button" onClick={phase === 'listening' ? listen : stopSpeaking}><Icon name="stop" size={13} />{phase === 'listening' ? t('Finish speaking') : t('Stop speaking')}</button> : null}<button className="co-secondary-button" onClick={close}>{t('Return to chat')}</button></div>
     </footer>
   </div>
+}
+
+/** True when a streaming reply no longer continues what came before: it was cleared, or new text replaced it. */
+export function startedOver(previous: string, next: string): boolean {
+  if (!previous) return false
+  if (!next.trim()) return true
+  const shared = Math.min(previous.length, next.length, 60)
+  return previous.slice(0, shared).trimEnd() !== next.slice(0, shared).trimEnd()
 }

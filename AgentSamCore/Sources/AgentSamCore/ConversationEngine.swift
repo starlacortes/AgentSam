@@ -17,6 +17,10 @@ public actor ConversationEngine {
     private let promptStore: PromptStore
     private let access: ConversationAccess?
     private let directContextBudgetTokens = 20_000
+    /// Output cap for spoken replies written without tools (team summaries, the last answer after the tool
+    /// budget). A backstop only: the voice style asks for about 60 spoken words plus optional on-screen detail.
+    /// Turns that offer tools are not capped, because a capped tool call (a file write) would be cut off.
+    static let voiceMaxTokens = 1_500
     private let completionOverride: Completion?
     private let missionOverride: MissionRunner?
     private var running: [UUID: Task<Void, Never>] = [:]
@@ -103,6 +107,8 @@ public actor ConversationEngine {
         var conversationID: UUID
         var ownerID: String
         var responseID: UUID
+        /// The user spoke this message: a ```details part of the reply is shown but not spoken.
+        var spoken: Bool = false
     }
 
     /// Marks every unfinished step as finished with the given state.
@@ -131,7 +137,7 @@ public actor ConversationEngine {
 
     private func drive(conversationID: UUID, ownerID: String, userMessage: ConversationMessage, responseID: UUID, launchedBy: String, language: String) async {
         defer { running[conversationID] = nil }
-        let ref = ResponseRef(conversationID: conversationID, ownerID: ownerID, responseID: responseID)
+        let ref = ResponseRef(conversationID: conversationID, ownerID: ownerID, responseID: responseID, spoken: userMessage.spoken)
         let es = language == "es"
         let writing = es ? "Redactando la respuesta" : "Writing the answer"
         do {
@@ -267,6 +273,12 @@ public actor ConversationEngine {
                     quickReplies = split.suggestions
                 }
             }
+            var speech: String?
+            if userMessage.spoken {
+                let split = ConversationPrompts.extractDetails(responseText)
+                responseText = split.screen
+                speech = split.speech
+            }
 
             try Task.checkCancellation()
             let trimmed = responseText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -275,6 +287,7 @@ public actor ConversationEngine {
             let fileIDs = Array(NSOrderedSet(array: writtenFiles).array.compactMap { $0 as? String }) as [String]
             let completed = try await conversations.updateMessage(id: conversationID, ownerID: ownerID, messageID: responseID) { message in
                 message.text = trimmed
+                message.speech = speech
                 message.status = .complete
                 message.proposal = proposal
                 message.activity = activity
@@ -468,7 +481,7 @@ public actor ConversationEngine {
         messages.append(.user(language == "es"
             ? "Ya no quedan pasos de herramientas para esta respuesta. Responde ahora con lo que ya sabes, sin llamar a herramientas, y di qué falta si no pudiste terminar."
             : "No tool steps are left for this reply. Answer now with what you already have, without calling any tools, and say what is still missing if you could not finish."))
-        let final = try await completeDirect(coordinator: coordinator, system: system, messages: messages, tools: nil, onDelta: streamer(for: ref)?.handler)
+        let final = try await completeDirect(coordinator: coordinator, system: system, messages: messages, tools: nil, maxTokens: context.spoken ? Self.voiceMaxTokens : nil, onDelta: streamer(for: ref)?.handler)
         let answer = final.message.content ?? ""
         if answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return language == "es"
@@ -490,17 +503,25 @@ public actor ConversationEngine {
     private func publishPartial(_ text: String, in ref: ResponseRef?) async {
         guard let ref else { return }
         // The trailing suggestions block is metadata for quick replies, not part of what Ada says.
-        let visible = text.range(of: "```suggestions", options: .caseInsensitive).map { String(text[..<$0.lowerBound]) } ?? text
+        var visible = text.range(of: "```suggestions", options: .caseInsensitive).map { String(text[..<$0.lowerBound]) } ?? text
+        // For a spoken message the spoken part is fixed once the details line appears; the rest is on-screen only.
+        var speech: String?
+        if ref.spoken {
+            let split = ConversationPrompts.extractDetails(visible)
+            visible = split.screen
+            speech = split.speech
+        }
         _ = try? await conversations.updateMessage(id: ref.conversationID, ownerID: ref.ownerID, messageID: ref.responseID) { message in
             guard message.status == .running else { return }
             message.text = visible
+            message.speech = speech
         }
     }
 
     private func consolidate(userText: String, missions: [Mission], coordinator: AgentProfile, context: ConversationPromptContext, history: [ConversationMessage], language: String) async throws -> String {
         let system = ConversationPrompts.consolidationSystem(coordinator: coordinator, context: context, store: promptStore, language: language)
         let prompt = ConversationPrompts.consolidationPrompt(userText: userText, missions: missions, store: promptStore, language: language)
-        let reply = try await complete(coordinator: coordinator, system: system, messages: Self.chatTurns(from: history.dropLast()) + [.user(prompt)], tools: nil)
+        let reply = try await complete(coordinator: coordinator, system: system, messages: Self.chatTurns(from: history.dropLast()) + [.user(prompt)], tools: nil, maxTokens: context.spoken ? Self.voiceMaxTokens : nil)
         if reply.message.content?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false { return reply.message.content ?? "" }
         return missions.compactMap(\.finalReport).joined(separator: "\n\n")
     }
@@ -613,23 +634,23 @@ public actor ConversationEngine {
         }
     }
 
-    private func complete(coordinator: AgentProfile, system: String, messages: [APIMessage], tools: [APIToolDef]?, onDelta: TextDeltaHandler? = nil) async throws -> LLMReply {
+    private func complete(coordinator: AgentProfile, system: String, messages: [APIMessage], tools: [APIToolDef]?, maxTokens: Int? = nil, onDelta: TextDeltaHandler? = nil) async throws -> LLMReply {
         let registry = ProviderRegistry(providers: await store.loadProviders())
         guard let provider = registry.provider(id: coordinator.providerID) else { throw ConversationError.noProvider }
         if let completionOverride {
             return try await completionOverride(provider, keyRing.get(provider.keyAccount) ?? "", coordinator, system, messages, tools)
         }
-        return try await client.complete(provider: provider, key: keyRing.get(provider.keyAccount) ?? "", model: coordinator.model, system: system, messages: messages, tools: tools, temperature: coordinator.temperature, onDelta: onDelta)
+        return try await client.complete(provider: provider, key: keyRing.get(provider.keyAccount) ?? "", model: coordinator.model, system: system, messages: messages, tools: tools, temperature: coordinator.temperature, maxTokens: maxTokens, onDelta: onDelta)
     }
 
-    private func completeDirect(coordinator: AgentProfile, system: String, messages: [APIMessage], tools: [APIToolDef]?, onDelta: TextDeltaHandler? = nil) async throws -> LLMReply {
+    private func completeDirect(coordinator: AgentProfile, system: String, messages: [APIMessage], tools: [APIToolDef]?, maxTokens: Int? = nil, onDelta: TextDeltaHandler? = nil) async throws -> LLMReply {
         var budget = directContextBudgetTokens
         var overflowRetries = 0
         var messages = messages
         while true {
             let compacted = ConversationCompactor.compact(messages: messages, budgetTokens: budget)
             do {
-                return try await complete(coordinator: coordinator, system: system, messages: compacted.messages, tools: tools, onDelta: onDelta)
+                return try await complete(coordinator: coordinator, system: system, messages: compacted.messages, tools: tools, maxTokens: maxTokens, onDelta: onDelta)
             } catch let error as LLMError where error.isContextOverflow {
                 overflowRetries += 1
                 guard overflowRetries <= 2 else { throw error }
