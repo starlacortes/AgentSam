@@ -97,6 +97,14 @@ export function CoordinatorPage() {
   const hasProvider = providers.some((provider) => provider.hasKey)
   const gmail = connectors.find((connector) => connector.id === 'gmail')
   useDocumentTitle(conversation?.title ?? t('Chat'))
+  // What Ada is doing right now (e.g. "Searching Gmail"), for the status box under the voice orb.
+  const liveActivity = useMemo(() => {
+    const reply = [...(conversation?.messages ?? [])].reverse().find((message) => message.status === 'running')
+    if (!reply) return null
+    return [...(reply.steps ?? [])].reverse().find((step) => step.state === 'working')?.label
+      ?? reply.activity.find((item) => item.agentName === 'Ada' && item.state === 'working')?.summary
+      ?? null
+  }, [conversation?.messages])
   const missionIDs = useMemo(() => [...new Set([...(conversation?.messages ?? [])].reverse().flatMap((message) => message.missionIDs))], [conversation?.messages])
 
   // Per-conversation drafts survive reloads and switching chats.
@@ -591,6 +599,6 @@ export function CoordinatorPage() {
     {scheduleOpen && conversation ? <ScheduleModal conversation={conversation} onUpdated={updateProposal} onClose={() => setScheduleOpen(false)} /> : null}
     {panel ? <WorkspacePanel panel={panel} teams={teams} connectors={connectors} memory={memory} knowledge={knowledge} onConnectors={setConnectors} onMemory={setMemory} onKnowledge={setKnowledge} onClose={() => setPanel(null)} onNewTeam={() => prompt(t('I need a team for '))} onRestartGuide={restartGuide} /> : null}
     {guide && (!guide.completed || searchParams.get('guide') === '1') ? <Guide onFinish={finishGuide} /> : null}
-    {voiceOpen ? <VoiceMode onSend={sendMessage} onTranscribe={transcribeVoice} onClose={() => setVoiceOpen(false)} /> : null}
+    {voiceOpen ? <VoiceMode onSend={sendMessage} onTranscribe={transcribeVoice} onClose={() => setVoiceOpen(false)} activity={liveActivity} /> : null}
   </div>
 }
