@@ -158,7 +158,14 @@ public actor ConversationEngine {
             let userText = Self.textWithPhotoNote(userMessage)
             let photoInput = canSee ? photoInputs(conversationID: conversationID, current: userMessage, history: history) : PhotoInputs()
             let directText = Self.directText(for: userMessage, canSee: canSee, model: coordinator.model, language: language)
-            var decision = try await route(userText: userText, coordinator: coordinator, teams: teams, context: context, history: history, language: language)
+            // Voice fast path: a quick spoken question goes straight to Ada's direct reply, skipping the
+            // routing call that otherwise runs before she writes a word.
+            var decision: ConversationDecision?
+            if Self.isQuickSpokenQuestion(userMessage, history: history) {
+                decision = ConversationDecision(action: .direct)
+            } else {
+                decision = try await route(userText: userText, coordinator: coordinator, teams: teams, context: context, history: history, language: language)
+            }
             if decision == nil {
                 let retrySystem = ConversationPrompts.routingSystem(coordinator: coordinator, teams: teams, context: context, store: promptStore, language: language) + "\nYour previous response was not valid. Return exactly one JSON object matching the contract, with a valid action."
                 let retry = try await complete(coordinator: coordinator, system: retrySystem, messages: Self.chatTurns(from: history.dropLast()) + [.user(userText)], tools: nil)
@@ -700,6 +707,33 @@ public actor ConversationEngine {
             budget -= message.photos.count
         }
         return inputs
+    }
+
+    /// Words that suggest real work (a deliverable, a team, a schedule, an external action). A spoken
+    /// message with one of these still goes through routing so it can become a SOLO or team run.
+    static let workWords: [String] = [
+        "build", "create", "make", "write", "draft", "design", "develop", "code", "fix", "deploy", "research",
+        "analy", "report", "plan", "team", "mission", "agent", "website", "page", "app", "document", "spreadsheet",
+        "schedule", "every ", "remind", "send", "email", "post", "publish", "change", "update", "delete", "pause",
+        "launch", "set up", "setup", "compare", "summar", "list of", "file",
+        "crea", "haz", "escrib", "diseñ", "investig", "informe", "equipo", "envía", "envia", "programa", "cada ", "cambia", "borra", "archivo",
+    ]
+
+    /// True for a short spoken message that is a question or a chat turn, not a request for work.
+    /// It also stays false right after Ada asked something, because the answer may complete a
+    /// clarification that routing needs to see.
+    static func isQuickSpokenQuestion(_ message: ConversationMessage, history: [ConversationMessage]) -> Bool {
+        guard message.spoken, message.photos.isEmpty, !message.scheduled else { return false }
+        let text = message.text.lowercased()
+        let words = text.split(whereSeparator: { $0.isWhitespace }).count
+        guard words > 0, words <= 25 else { return false }
+        if workWords.contains(where: { text.contains($0) }) { return false }
+        let previous = history.dropLast().last(where: { $0.role == .assistant })
+        if let previous {
+            if previous.proposal?.status == .pending { return false }
+            if previous.text.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix("?") { return false }
+        }
+        return true
     }
 
     /// The user's words plus a note about attached photos, for routing, missions, and consolidation,

@@ -221,10 +221,35 @@ final class PhotosAndVoiceTests: XCTestCase {
             return LLMReply(message: .assistant("Short answer."), inputTokens: 0, outputTokens: 0, model: "stub")
         }
         let conversation = try await conversations.create(ownerID: "owner")
-        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "How is the campaign doing?", launchedBy: "Owner", language: "en", spoken: true)
+        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Write a summary of the campaign", launchedBy: "Owner", language: "en", spoken: true)
         let result = try await finished(conversations, id: conversation.id)
         XCTAssertTrue(result.messages.first?.spoken == true)
         XCTAssertEqual(result.messages.last?.text, "Short answer.")
+        await engine.shutdown()
+    }
+
+    func testQuickSpokenQuestionsSkipRouting() {
+        let question = ConversationMessage(role: .user, text: "How did yesterday's campaign do?", spoken: true)
+        XCTAssertTrue(ConversationEngine.isQuickSpokenQuestion(question, history: [question]))
+        // Typed, work requests, long messages, and answers to Ada's question still route.
+        XCTAssertFalse(ConversationEngine.isQuickSpokenQuestion(ConversationMessage(role: .user, text: "How did it do?"), history: []))
+        XCTAssertFalse(ConversationEngine.isQuickSpokenQuestion(ConversationMessage(role: .user, text: "Build me a landing page", spoken: true), history: []))
+        XCTAssertFalse(ConversationEngine.isQuickSpokenQuestion(ConversationMessage(role: .user, text: String(repeating: "word ", count: 30), spoken: true), history: []))
+        let asked = ConversationMessage(role: .assistant, text: "Which account do you mean?")
+        let answer = ConversationMessage(role: .user, text: "The main one", spoken: true)
+        XCTAssertFalse(ConversationEngine.isQuickSpokenQuestion(answer, history: [asked, answer]))
+    }
+
+    func testFastPathAnswersWithoutARoutingCall() async throws {
+        let (engine, conversations) = try await makeEngine(model: "stub") { _, _, _, system, _, _ in
+            XCTAssertFalse(system.contains("Decide how to handle"), "A quick spoken question should not be routed.")
+            if system.contains("workspace Markdown memory") { return LLMReply(message: .assistant("# Memory"), inputTokens: 0, outputTokens: 0, model: "stub") }
+            return LLMReply(message: .assistant("It's sunny."), inputTokens: 0, outputTokens: 0, model: "stub")
+        }
+        let conversation = try await conversations.create(ownerID: "owner")
+        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "What's the weather like?", launchedBy: "Owner", language: "en", spoken: true)
+        let result = try await finished(conversations, id: conversation.id)
+        XCTAssertEqual(result.messages.last?.text, "It's sunny.")
         await engine.shutdown()
     }
 
