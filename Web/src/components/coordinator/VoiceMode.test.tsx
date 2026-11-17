@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { I18nProvider } from '../../i18n'
-import { VoiceMode } from './VoiceMode'
+import { startedOver, VoiceMode } from './VoiceMode'
 
 class TestUtterance {
   lang = ''
@@ -49,5 +49,15 @@ describe('VoiceMode', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
     await waitFor(() => expect(screen.getByText('Text response')).toBeTruthy())
     expect(synthesis.speak).not.toHaveBeenCalled()
+  })
+})
+
+describe('startedOver', () => {
+  it('spots a reply that was cleared or replaced before a tool call', () => {
+    expect(startedOver('', 'Anything')).toBe(false)
+    expect(startedOver('Let me check that for you.', 'Let me check that for you. Then more')).toBe(false)
+    expect(startedOver('Let me check that for you.', '')).toBe(true)
+    expect(startedOver('Let me check that for you.', 'Revenue is up twelve percent.')).toBe(true)
+    expect(startedOver('Short answer. ', 'Short answer.')).toBe(false)
   })
 })

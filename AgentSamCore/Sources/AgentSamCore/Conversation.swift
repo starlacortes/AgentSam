@@ -53,6 +53,9 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
     public var photos: [PhotoAttachment]
     /// True when the user spoke this message in voice mode, so the reply will be read aloud.
     public var spoken: Bool
+    /// For a reply to a spoken message: the part meant to be heard. The rest of `text` is detail shown
+    /// on screen only. Nil when the whole reply may be spoken.
+    public var speech: String?
     public var completedAt: Date?
 
     public init(
@@ -71,6 +74,7 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
         scheduled: Bool = false,
         photos: [PhotoAttachment] = [],
         spoken: Bool = false,
+        speech: String? = nil,
         completedAt: Date? = nil
     ) {
         self.id = id
@@ -88,11 +92,12 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
         self.scheduled = scheduled
         self.photos = photos
         self.spoken = spoken
+        self.speech = speech
         self.completedAt = completedAt
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, role, text, createdAt, status, missionIDs, teamIDs, proposal, activity, steps, quickReplies, fileIDs, scheduled, photos, spoken, completedAt
+        case id, role, text, createdAt, status, missionIDs, teamIDs, proposal, activity, steps, quickReplies, fileIDs, scheduled, photos, spoken, speech, completedAt
     }
 
     /// Older conversations on disk predate `steps`, `quickReplies`, and `completedAt`.
@@ -113,6 +118,7 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
         scheduled = try c.decodeIfPresent(Bool.self, forKey: .scheduled) ?? false
         photos = try c.decodeIfPresent([PhotoAttachment].self, forKey: .photos) ?? []
         spoken = try c.decodeIfPresent(Bool.self, forKey: .spoken) ?? false
+        speech = try c.decodeIfPresent(String.self, forKey: .speech)
         completedAt = try c.decodeIfPresent(Date.self, forKey: .completedAt)
     }
 

@@ -123,7 +123,26 @@ public enum ConversationPrompts {
         - Plain spoken \(language == "es" ? "Spanish" : "English") only: no Markdown, lists, headings, tables, code, links, file paths, or IDs. If something needs to be read rather than heard, say it is in the chat.
         - Do not restate the question, narrate tool use, recap, or end with a list of offers. Ask at most one question.
         - Leave out the suggestions block.
+        - When the answer needs more than that (steps, a list, code, figures, links, file names), keep the spoken part short and end it with "The details are on screen." Then write a line containing only ```details and put the detail after it as normal Markdown. Only the part before that line is spoken; everything after it is shown in the chat.
         """
+    }
+
+    /// Splits a voice reply into the part to speak and the on-screen detail after a ```details line.
+    /// Everything after that line is detail (it may hold its own code blocks); a lone closing fence
+    /// at the end is dropped. `screen` is the spoken part followed by the detail as plain Markdown.
+    /// `speech` is nil when there is no details line, meaning the whole reply may be spoken.
+    /// Works on partial text too.
+    public static func extractDetails(_ text: String) -> (screen: String, speech: String?) {
+        guard let open = text.range(of: "```details", options: .caseInsensitive) else { return (text, nil) }
+        let spoken = String(text[..<open.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+        var rest = text[open.upperBound...]
+        // Drop anything else on the fence line, such as a language tag.
+        if let newline = rest.firstIndex(of: "\n") { rest = rest[rest.index(after: newline)...] } else { rest = rest[rest.endIndex...] }
+        var detail = String(rest).trimmingCharacters(in: .whitespacesAndNewlines)
+        if detail.hasSuffix("```"), detail.components(separatedBy: "```").count % 2 == 0 {
+            detail = String(detail.dropLast(3)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return ([spoken, detail].filter { !$0.isEmpty }.joined(separator: "\n\n"), spoken)
     }
 
     public static func directResponseSystem(

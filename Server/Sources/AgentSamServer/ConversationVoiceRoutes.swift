@@ -79,10 +79,12 @@ func conversationVoiceRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
         let (provider, key) = try engine(tts, providers, lang: lang)
         // `chunk=i` speaks one short piece, so the first words play while the rest is still being made.
         // Without it the whole message is spoken in one go.
-        var text = message.text
+        // A voice reply may carry on-screen detail; only its spoken part is read, and long replies stop early.
+        let tail = lang.hasPrefix("es") ? "El resto está en pantalla." : "The rest is on screen."
+        var text = SpeechClient.cappedSpeech(SpeechClient.spokenText(message.speech ?? message.text), tail: tail)
         var chunkCount: Int?
         if let index = req.query[Int.self, at: "chunk"] {
-            let pieces = SpeechClient.spokenChunks(SpeechClient.spokenText(text))
+            let pieces = SpeechClient.spokenChunks(text)
             chunkCount = pieces.count
             guard index >= 0, index < pieces.count else { return Response(status: .noContent) }
             text = pieces[index]

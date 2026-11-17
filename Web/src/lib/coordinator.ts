@@ -39,20 +39,53 @@ export function groupedConversations<T extends { id: string; projectName: string
   return [...groups.entries()]
 }
 
+/**
+ * Plain words for the voice. Mirrors `SpeechClient.spokenText` on the server; change both together.
+ * Drops the suggestions block and any on-screen details, code, tables, bare links, IDs and folder
+ * paths; turns headings and list items into sentences; strips Markdown marks but keeps hyphens in words.
+ */
 export function voiceTranscript(markdown: string): string {
-  return markdown
+  let text = markdown
+  for (const fence of ['```suggestions', '```details']) {
+    const at = text.toLowerCase().indexOf(fence)
+    if (at >= 0) text = text.slice(0, at)
+  }
+  return text
     .replace(/```[\s\S]*?```/g, ' Code example omitted from speech. ')
+    .replace(/```[\s\S]*$/, ' ')
+    .replace(TABLE, ' The table is on screen.\n')
     .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
-    .replace(/[*_#>`|-]/g, '')
+    .replace(/https?:\/\/[^\s)]*[^\s).,!?;:]/g, 'the link on screen')
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '')
+    .replace(/(?:[\w.~-]+\/)+([\w-]+\.[A-Za-z0-9]+)/g, '$1')
+    .replace(/^[ \t]*(?:#{1,6}|[-*+]|\d+[.)])[ \t]+(.*[^.!?:;,\s])[ \t]*$/gm, '$1.')
+    .replace(/^[ \t]*(?:#{1,6}|[-*+]|\d+[.)])[ \t]+/gm, '')
+    .replace(/[*_#>`|]/g, '')
     .replace(/\s+/g, ' ')
+    .replace(/ ([.,!?])/g, '$1')
+    .replace(/(?<!\.)\.\.(?!\.)/g, '.')
     .trim()
     .slice(0, 5000)
+}
+
+/** A Markdown table: consecutive lines that start with a pipe. */
+const TABLE = /(?:^[ \t]*\|.*(?:\n|$))+/gm
+
+/** Most characters Ada speaks in one reply; the server uses the same limit (`SpeechClient.spokenLimit`). */
+export const SPOKEN_LIMIT = 600
+
+/** Cuts spoken text at the last sentence end within `limit` and adds `tail`. Shorter text is unchanged. */
+export function cappedSpeech(text: string, tail: string, limit = SPOKEN_LIMIT): string {
+  if (text.length <= limit) return text
+  const head = text.slice(0, limit)
+  const end = Math.max(head.lastIndexOf('.'), head.lastIndexOf('!'), head.lastIndexOf('?'))
+  return `${(end > 0 ? head.slice(0, end + 1) : head).trim()} ${tail}`
 }
 
 /**
  * Pulls the next sentence worth speaking out of a reply that may still be streaming in.
  * `from` is where the last call stopped (an offset into the speakable text, as returned in `end`).
- * Unfinished code blocks and the trailing suggestions block are never spoken, and short
+ * Unfinished code blocks, tables, and the trailing suggestions or details block are never spoken, and short
  * sentences are joined so each request to the voice has a useful amount to say.
  *
  * The very first piece is kept short: if the opening sentence runs past `clauseLimit`
@@ -60,10 +93,13 @@ export function voiceTranscript(markdown: string): string {
  */
 export function takeSpeakable(raw: string, from: number, final: boolean, minLength = 40, clauseLimit = from === 0 ? FIRST_CLAUSE_LIMIT : 0): { text: string; end: number } | null {
   let body = raw
-  const suggestions = body.indexOf('```suggestions')
-  if (suggestions >= 0) body = body.slice(0, suggestions)
+  for (const fence of ['```suggestions', '```details']) {
+    const at = body.toLowerCase().indexOf(fence)
+    if (at >= 0) body = body.slice(0, at)
+  }
   if (!final && (body.match(/```/g)?.length ?? 0) % 2 === 1) body = body.slice(0, body.lastIndexOf('```'))
-  body = body.replace(/```[\s\S]*?```/g, ' Code example omitted from speech. ').replace(/```[\s\S]*$/, '')
+  // A table is announced once, not row by row.
+  body = body.replace(/```[\s\S]*?```/g, ' Code example omitted from speech. ').replace(/```[\s\S]*$/, '').replace(TABLE, 'The table is on screen.\n')
   const clause = (limit: number) => takeClause(body, from, minLength, limit)
   const boundary = final ? /[.!?]+["')\]]*(?:\s+|$)|\n+/g : /[.!?]+["')\]]*\s+|\n+/g
   boundary.lastIndex = from

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { api, errorMessage } from '../../api/client'
 import type { AgentActionRequest, Conversation, ConversationMessage, MissionDetail, TeamProposal } from '../../api/types'
 import { useI18n } from '../../i18n'
-import { canApprove, voiceTranscript } from '../../lib/coordinator'
+import { canApprove, cappedSpeech, voiceTranscript } from '../../lib/coordinator'
 import { Speaker } from '../../lib/voice'
 import { isHTML, isPreviewableLanguage, pickEntry } from '../../lib/preview'
 import { Markdown, type CodeTools } from '../Markdown'
@@ -105,7 +105,8 @@ function useReadAloud(conversationID: string, message: ConversationMessage, lang
     sharedOwner = mine.current
     sharedSpeaker.onChange = (speaking) => { sharedOwner?.(speaking) }
     sharedSpeaker.unlock()
-    sharedSpeaker.enqueue(voiceTranscript(message.text), `/api/conversations/${conversationID}/messages/${message.id}/speech?lang=${language}&chunk=0`)
+    const tail = language === 'es' ? 'El resto está en pantalla.' : 'The rest is on screen.'
+    sharedSpeaker.enqueue(cappedSpeech(voiceTranscript(message.speech ?? message.text), tail), `/api/conversations/${conversationID}/messages/${message.id}/speech?lang=${language}&chunk=0`)
   }]
 }
 

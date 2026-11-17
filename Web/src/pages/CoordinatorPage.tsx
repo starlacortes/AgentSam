@@ -362,7 +362,7 @@ export function CoordinatorPage() {
         replaceConversation(next)
         const answer = next.messages.at(-1)
         if (answer && answer.role === 'assistant' && onPartial) {
-          onPartial({ text: answer.text, final: answer.status === 'complete', speechPath: `/api/conversations/${current.id}/speech?lang=${lang}` })
+          onPartial({ text: answer.text, speech: answer.speech, final: answer.status === 'complete', speechPath: `/api/conversations/${current.id}/speech?lang=${lang}` })
         }
         if (answer && answer.status !== 'running') {
           void refreshWorkspace()

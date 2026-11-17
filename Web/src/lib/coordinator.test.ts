@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentActivity, Conversation, ConversationMessage, Team } from '../api/types'
 import { intervalLabel } from '../api/types'
-import { canApprove, canvasForFinishedFiles, connectorLabel, groupedConversations, pollDelay, presentWork, shouldPoll, takeSpeakable, voiceTranscript, workspaceFileSource, wroteFreshFiles } from './coordinator'
+import { canApprove, cappedSpeech, canvasForFinishedFiles, connectorLabel, groupedConversations, pollDelay, presentWork, shouldPoll, takeSpeakable, voiceTranscript, workspaceFileSource, wroteFreshFiles } from './coordinator'
 
 const team: Team = { id: 'team-1', name: 'Research', emoji: 'R', goal: 'Research', agents: [], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' }
 const activity: AgentActivity = { id: 'activity-1', agentID: 'agent-1', agentName: 'Scout', summary: 'Reviewing the brief', state: 'working', updatedAt: '2026-01-01T00:00:00Z', teamID: 'team-1' }
@@ -83,8 +83,29 @@ describe('coordinator presentation', () => {
 
 describe('voice transcript', () => {
   it('speaks readable text rather than Markdown, code, or private activity', () => {
-    expect(voiceTranscript('## Result\n**One answer.** [Read more](https://example.com)\n```swift\nsecret = 1\n```')).toBe('Result One answer. Read more Code example omitted from speech.')
+    expect(voiceTranscript('## Result\n**One answer.** [Read more](https://example.com)\n```swift\nsecret = 1\n```')).toBe('Result. One answer. Read more Code example omitted from speech.')
     expect(voiceTranscript('Short answer')).toBe('Short answer')
+  })
+  it('follows the same rules as the server for links, IDs, paths, tables, lists and details', () => {
+    const markdown = [
+      'Saved to reports/q3/summary-final.md for follow-up, see https://example.com/a?b=1.',
+      'Mission 3F2A9C1E-5B7D-4E8A-9C21-7D4E5F6A8B90 is done.',
+      '| Name | Count |',
+      '| --- | --- |',
+      '| A | 1 |',
+      'Back to talking.',
+      '```details',
+      'Everything here is for the screen.',
+    ].join('\n')
+    expect(voiceTranscript(markdown)).toBe('Saved to summary-final.md for follow-up, see the link on screen. Mission is done. The table is on screen. Back to talking.')
+    expect(voiceTranscript('- first point\n- second point.')).toBe('first point. second point.')
+  })
+  it('caps long speech at a sentence end', () => {
+    const long = 'This is a fairly ordinary sentence about nothing. '.repeat(20)
+    const capped = cappedSpeech(long, 'The rest is on screen.')
+    expect(capped.endsWith('nothing. The rest is on screen.')).toBe(true)
+    expect(capped.length).toBeLessThanOrEqual(630)
+    expect(cappedSpeech('Short.', 'x')).toBe('Short.')
   })
 })
 
@@ -103,6 +124,15 @@ describe('takeSpeakable', () => {
     expect(one.text).toBe('Here is the first full sentence of the answer.')
     expect(two?.text).toBe('Short.')
     expect(takeSpeakable(raw, two!.end, true)).toBeNull()
+  })
+  it('stops at the details line and announces a table once', () => {
+    const raw = 'Here is the first full sentence of the answer.\n| a | b |\n| --- | --- |\n| 1 | 2 |\nThe last sentence is here too.\n```details\nScreen only.'
+    const pieces: string[] = []
+    for (let next = takeSpeakable(raw, 0, true), from = 0; next; next = takeSpeakable(raw, from, true)) {
+      from = next.end
+      pieces.push(next.text)
+    }
+    expect(pieces.join(' ')).toBe('Here is the first full sentence of the answer. The table is on screen. The last sentence is here too.')
   })
   it('never speaks a code block that is still open', () => {
     expect(takeSpeakable('Intro sentence that is long enough to be spoken. ```swift\nlet a = 1. ', 0, false)?.text).toBe('Intro sentence that is long enough to be spoken.')
