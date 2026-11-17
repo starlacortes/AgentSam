@@ -2,6 +2,7 @@
 // so the token never touches JavaScript.
 
 import { currentLanguage, translate } from '../i18n'
+import type { PhotoAttachment } from './types'
 
 export class ApiError extends Error {
   constructor(
@@ -80,6 +81,31 @@ export async function uploadProjectFile(conversationID: string, file: Blob, path
     throw new ApiError(response.status, reason)
   }
   return (await response.json()) as { path: string; bytes: number }
+}
+
+/** Uploads one prepared photo; the message then refers to it by id. */
+export async function uploadPhoto(conversationID: string, photo: Blob): Promise<PhotoAttachment> {
+  const response = await fetch(`/api/conversations/${encodeURIComponent(conversationID)}/photos`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {
+      Accept: 'application/json',
+      'Accept-Language': currentLanguage(),
+      'Content-Type': 'application/octet-stream',
+      'X-AgentSam-Request': '1',
+    },
+    body: photo,
+  })
+  if (!response.ok) {
+    let reason = response.statusText || `Upload failed (${response.status})`
+    try {
+      const data = (await response.json()) as { reason?: string }
+      if (data.reason) reason = data.reason
+    } catch { /* Keep the HTTP status when the server did not return JSON. */ }
+    if (response.status === 401) onUnauthorized?.()
+    throw new ApiError(response.status, reason)
+  }
+  return (await response.json()) as PhotoAttachment
 }
 
 export function errorMessage(error: unknown): string {

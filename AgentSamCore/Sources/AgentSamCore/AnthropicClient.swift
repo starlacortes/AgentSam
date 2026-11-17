@@ -23,6 +23,7 @@ public struct AnthropicClient: Sendable {
 
     enum ContentBlock: Encodable {
         case text(String)
+        case image(mediaType: String, data: String)
         case toolUse(id: String, name: String, input: JSONValue)
         case toolResult(id: String, content: String)
 
@@ -34,6 +35,13 @@ public struct AnthropicClient: Sendable {
             case input
             case tool_use_id
             case content
+            case source
+        }
+
+        private struct ImageSource: Encodable {
+            var type = "base64"
+            var media_type: String
+            var data: String
         }
 
         func encode(to encoder: Encoder) throws {
@@ -42,6 +50,9 @@ public struct AnthropicClient: Sendable {
             case .text(let text):
                 try container.encode("text", forKey: .type)
                 try container.encode(text, forKey: .text)
+            case .image(let mediaType, let data):
+                try container.encode("image", forKey: .type)
+                try container.encode(ImageSource(media_type: mediaType, data: data), forKey: .source)
             case .toolUse(let id, let name, let input):
                 try container.encode("tool_use", forKey: .type)
                 try container.encode(id, forKey: .id)
@@ -231,7 +242,11 @@ public struct AnthropicClient: Sendable {
                 continue
             case "user":
                 flushResults()
-                wire.append(WireMessage(role: "user", content: [.text(message.content ?? "")]))
+                // Images go before the text, as Anthropic recommends.
+                var blocks: [ContentBlock] = (message.images ?? []).map { .image(mediaType: $0.mediaType, data: $0.data) }
+                let text = message.content ?? ""
+                if !text.isEmpty || blocks.isEmpty { blocks.append(.text(text)) }
+                wire.append(WireMessage(role: "user", content: blocks))
             case "assistant":
                 flushResults()
                 var blocks: [ContentBlock] = []

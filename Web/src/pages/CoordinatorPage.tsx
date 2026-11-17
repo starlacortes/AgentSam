@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { api, errorMessage, uploadProjectFile } from '../api/client'
+import { api, errorMessage, uploadPhoto, uploadProjectFile } from '../api/client'
 import type { AgentActionRequest, ConnectorStatus, Conversation, ConversationSummary, GuideState, MissionDetail, ProviderStatus, Team, WorkspaceKnowledge, WorkspaceMemory } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { AgentWorkroom } from '../components/coordinator/AgentWorkroom'
@@ -16,6 +16,7 @@ import { ErrorBanner, Spinner } from '../components/ui'
 import { useI18n } from '../i18n'
 import { canvasForFinishedFiles, connectorLabel, pollDelay, shouldPoll, workspaceFileSource, wroteFreshFiles } from '../lib/coordinator'
 import { pickEntry } from '../lib/preview'
+import { isPhotoFile, MAX_PHOTOS, preparePhoto, type PendingPhoto } from '../lib/photos'
 import { transcribeConversation } from '../lib/voice'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 
@@ -78,8 +79,16 @@ export function CoordinatorPage() {
   const [canvas, setCanvas] = useState<CanvasState | null>(null)
   const [canvasWidth, setCanvasWidth] = useState(() => Number(readStored(CANVAS_WIDTH_KEY)) || 520)
   const [dragging, setDragging] = useState(false)
+  const [photos, setPhotos] = useState<PendingPhoto[]>([])
+  const [preparing, setPreparing] = useState(0)
+  const [photoMenu, setPhotoMenu] = useState(false)
   const input = useRef<HTMLTextAreaElement>(null)
   const uploadInput = useRef<HTMLInputElement>(null)
+  const cameraInput = useRef<HTMLInputElement>(null)
+  const libraryInput = useRef<HTMLInputElement>(null)
+  const photosRef = useRef<PendingPhoto[]>([])
+  // On phones the photo button offers the camera or the library; elsewhere it opens the file picker.
+  const touch = useMemo(() => typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches, [])
   const draftKey = useRef<string>(`${DRAFT_PREFIX}new`)
   const carryDraft = useRef(false)
   const sendLock = useRef(false)
@@ -178,6 +187,25 @@ export function CoordinatorPage() {
     mounted.current = true
     return () => { mounted.current = false }
   }, [])
+
+  useEffect(() => { photosRef.current = photos }, [photos])
+  // Thumbnails are object URLs; free them when the page goes away.
+  useEffect(() => () => { for (const photo of photosRef.current) URL.revokeObjectURL(photo.url) }, [])
+
+  useEffect(() => {
+    if (!photoMenu) return
+    const close = (event: Event) => {
+      if (event instanceof globalThis.KeyboardEvent && event.key !== 'Escape') return
+      if (event.target instanceof Element && event.target.closest('.co-photo-picker') && event.type === 'pointerdown') return
+      setPhotoMenu(false)
+    }
+    document.addEventListener('pointerdown', close)
+    document.addEventListener('keydown', close)
+    return () => {
+      document.removeEventListener('pointerdown', close)
+      document.removeEventListener('keydown', close)
+    }
+  }, [photoMenu])
 
   useEffect(() => {
     let active = true
@@ -305,18 +333,27 @@ export function CoordinatorPage() {
     return transcribeConversation(current.id, audio, lang)
   }
 
-  const sendMessage = async (raw: string, waitForCompletion = false, onPartial?: (update: VoicePartial) => void): Promise<VoiceReply | null> => {
+  const sendMessage = async (raw: string, waitForCompletion = false, onPartial?: (update: VoicePartial) => void, includePhotos = false): Promise<VoiceReply | null> => {
     const text = raw.trim()
-    if (!text || sendLock.current || (conversation && shouldPoll(conversation))) return null
+    // The composer and voice mode send the photos waiting in the composer; quick replies and retries don't.
+    const attached = includePhotos || waitForCompletion ? photosRef.current : []
+    if ((!text && !attached.length) || sendLock.current || (conversation && shouldPoll(conversation))) return null
     sendLock.current = true
     setSending(true)
     setError(null)
     try {
       const current = await ensureConversation()
-      const result = await api<Conversation>(`conversations/${current.id}/messages`, { method: 'POST', body: { text, language: lang } })
+      const photoIDs: string[] = []
+      for (const photo of attached) photoIDs.push((await uploadPhoto(current.id, photo.blob)).id)
+      const body = { text, language: lang, ...(photoIDs.length ? { photoIDs } : {}), ...(waitForCompletion ? { spoken: true } : {}) }
+      const result = await api<Conversation>(`conversations/${current.id}/messages`, { method: 'POST', body })
       if (!mounted.current) return null
       replaceConversation(result)
       setDraft('')
+      if (attached.length) {
+        for (const photo of attached) URL.revokeObjectURL(photo.url)
+        setPhotos((list) => list.filter((photo) => !attached.includes(photo)))
+      }
       if (!waitForCompletion) return null
       for (let attempt = 0; attempt < 700; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, attempt === 0 ? 150 : 200))
@@ -345,13 +382,13 @@ export function CoordinatorPage() {
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    void sendMessage(draft)
+    if (!preparing) void sendMessage(draft, false, undefined, true)
   }
 
   const composeKey = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault()
-      void sendMessage(draft)
+      if (!preparing) void sendMessage(draft, false, undefined, true)
     }
     if (event.key === 'ArrowUp' && !draft && !event.shiftKey) {
       const last = [...(conversation?.messages ?? [])].reverse().find((message) => message.role === 'user')
@@ -372,9 +409,45 @@ export function CoordinatorPage() {
     } catch (err) { setError(errorMessage(err)) } finally { setUploading(false) }
   }
 
+  const addPhotos = async (files: File[]) => {
+    const images = files.filter(isPhotoFile)
+    if (!images.length) return
+    const room = MAX_PHOTOS - photosRef.current.length
+    if (images.length > room) setError(t('You can attach up to {count} photos to a message.', { count: MAX_PHOTOS }))
+    const chosen = images.slice(0, Math.max(0, room))
+    setPreparing((count) => count + chosen.length)
+    for (const file of chosen) {
+      try {
+        const photo = await preparePhoto(file)
+        if (!mounted.current || photosRef.current.length >= MAX_PHOTOS) { URL.revokeObjectURL(photo.url); continue }
+        photosRef.current = [...photosRef.current, photo]
+        setPhotos(photosRef.current)
+      } catch {
+        setError(t('{name} couldn’t be opened as a photo. Try a JPEG or PNG.', { name: file.name || t('That photo') }))
+      } finally {
+        if (mounted.current) setPreparing((count) => count - 1)
+      }
+    }
+  }
+
+  const removePhoto = (key: string) => {
+    const photo = photosRef.current.find((item) => item.key === key)
+    if (photo) URL.revokeObjectURL(photo.url)
+    photosRef.current = photosRef.current.filter((item) => item.key !== key)
+    setPhotos(photosRef.current)
+  }
+
+  const choosePhotos = (files: FileList | null) => {
+    const list = [...(files ?? [])]
+    if (list.length) void addPhotos(list)
+  }
+
   const attach = async (files: FileList | File[]) => {
-    const list = [...files]
-    if (!list.length) return false
+    const all = [...files]
+    if (!all.length) return false
+    // Photos become image attachments; text files are pasted into the message as before.
+    void addPhotos(all.filter(isPhotoFile))
+    const list = all.filter((file) => !isPhotoFile(file))
     const blocks: string[] = []
     for (const file of list.slice(0, 5)) {
       if (!(file.type.startsWith('text/') || file.type === 'application/json' || TEXT_ATTACHMENT.test(file.name))) { setError(t('Only text files can be added to a message.')); continue }
@@ -501,9 +574,15 @@ export function CoordinatorPage() {
         <ErrorBanner message={error} />
         <form className={`co-composer ${dragging ? 'dragging' : ''}`} onSubmit={submit} onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); setDragging(true) } }} onDragLeave={() => setDragging(false)} onDrop={drop}>
           <input ref={uploadInput} type="file" multiple hidden aria-label={t('Choose project files')} onChange={(event) => { const files = [...(event.currentTarget.files ?? [])]; event.currentTarget.value = ''; void upload(files) }} />
-          {dragging ? <div className="co-drop-hint"><Icon name="file" size={16} />{t('Drop a text file to add it to your message')}</div> : null}
+          <input ref={cameraInput} type="file" accept="image/*" capture="environment" hidden aria-label={t('Take a photo')} onChange={(event) => { const files = event.currentTarget.files; choosePhotos(files); event.currentTarget.value = '' }} />
+          <input ref={libraryInput} type="file" accept="image/*" multiple hidden aria-label={t('Choose photos')} onChange={(event) => { const files = event.currentTarget.files; choosePhotos(files); event.currentTarget.value = '' }} />
+          {dragging ? <div className="co-drop-hint"><Icon name="file" size={16} />{t('Drop photos or text files to add them to your message')}</div> : null}
+          {photos.length || preparing ? <div className="co-photo-strip" role="group" aria-label={t('Attached photos')}>
+            {photos.map((photo) => <div className="co-photo-thumb" key={photo.key}><img src={photo.url} alt={photo.name} /><button type="button" aria-label={t('Remove photo')} title={t('Remove photo')} onClick={() => removePhoto(photo.key)}><Icon name="close" size={11} /></button></div>)}
+            {Array.from({ length: preparing }, (_, index) => <div className="co-photo-thumb preparing" key={`preparing-${index}`} role="status" aria-label={t('Preparing photo')}><span className="co-photo-spinner" /></div>)}
+          </div> : null}
           <textarea ref={input} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={composeKey} onPaste={paste} aria-label={t('Message Ada')} placeholder={t('Ask a question, or describe an outcome…')} rows={1} maxLength={20000} disabled={running} />
-          <div className="co-composer-foot"><button type="button" className="co-icon-button co-upload-button" aria-label={t('Upload files to project')} title={t('Upload files to the shared project workspace (5 MB each)')} disabled={uploading} onClick={() => uploadInput.current?.click()}><Icon name={uploading ? 'refresh' : 'plus'} size={16} /></button><span className="co-composer-hint">{t('Ada answers directly or brings in the right team.')}<span className="co-enter-hint"> · {t('Enter to send · Shift + Enter for a new line')}</span></span>{running ? <button className="co-stop-button" type="button" onClick={() => void stop()} title={t('Stop (Esc)')}><Icon name="stop" size={12} />{t('Stop')}</button> : <button className="co-send-button" type="submit" aria-label={t('Send message')} disabled={sending || !draft.trim() || !hasProvider}><Icon name="arrow" size={18} /></button>}</div>
+          <div className="co-composer-foot"><button type="button" className="co-icon-button co-upload-button" aria-label={t('Upload files to project')} title={t('Upload files to the shared project workspace (5 MB each)')} disabled={uploading} onClick={() => uploadInput.current?.click()}><Icon name={uploading ? 'refresh' : 'plus'} size={16} /></button><div className="co-photo-picker"><button type="button" className="co-icon-button co-photo-button" aria-label={t('Add photos')} title={t('Add photos')} aria-haspopup={touch ? 'menu' : undefined} aria-expanded={touch ? photoMenu : undefined} disabled={running || photos.length + preparing >= MAX_PHOTOS} onClick={() => touch ? setPhotoMenu((open) => !open) : libraryInput.current?.click()}><Icon name="camera" size={16} /></button>{photoMenu ? <div className="co-photo-menu" role="menu"><button type="button" role="menuitem" onClick={() => { setPhotoMenu(false); cameraInput.current?.click() }}><Icon name="camera" size={15} />{t('Take a photo')}</button><button type="button" role="menuitem" onClick={() => { setPhotoMenu(false); libraryInput.current?.click() }}><Icon name="image" size={15} />{t('Photo library')}</button></div> : null}</div><span className="co-composer-hint">{t('Ada answers directly or brings in the right team.')}<span className="co-enter-hint"> · {t('Enter to send · Shift + Enter for a new line')}</span></span>{running ? <button className="co-stop-button" type="button" onClick={() => void stop()} title={t('Stop (Esc)')}><Icon name="stop" size={12} />{t('Stop')}</button> : <button className="co-send-button" type="submit" aria-label={t('Send message')} disabled={sending || preparing > 0 || (!draft.trim() && !photos.length) || !hasProvider}><Icon name="arrow" size={18} /></button>}</div>
         </form>
         <p className="co-composer-note">{t('Agent activity shows concise work summaries, not private reasoning. Review team proposals and connections before granting access.')}</p>
       </div>

@@ -63,7 +63,7 @@ public actor ConversationStore {
         conversation.updatedAt = Date()
         if conversation.title == "New conversation", message.role == .user {
             let title = message.text.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-            conversation.title = String(title.prefix(72))
+            if !title.isEmpty { conversation.title = String(title.prefix(72)) }
         }
         try save(conversation)
         return conversation

@@ -5,7 +5,7 @@ import { api } from '../../api/client'
 import type { AgentActionRequest, Conversation, ConversationMessage, Team, WorkspaceKnowledge } from '../../api/types'
 import { I18nProvider } from '../../i18n'
 import { Guide } from './Guide'
-import { ActionApprovalCard, ProposalCard } from './ConversationMessages'
+import { ActionApprovalCard, ConversationMessages, ProposalCard } from './ConversationMessages'
 import { WorkspacePanel } from './WorkspacePanels'
 
 vi.mock('../../api/client', async (importOriginal) => ({ ...await importOriginal<typeof import('../../api/client')>(), api: vi.fn() }))
@@ -147,5 +147,20 @@ describe('resettable guide', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Restart the guide' }))
     await waitFor(() => expect(restart).toHaveBeenCalledTimes(1))
     expect(api).not.toHaveBeenCalled()
+  })
+})
+
+describe('photos in messages', () => {
+  it('shows attached photos above the text, and a photo-only message without an empty bubble', () => {
+    const photos = [{ id: 'p1', mediaType: 'image/jpeg', bytes: 10 }]
+    const withText: ConversationMessage = { id: 'u1', role: 'user', text: 'What is this?', createdAt: '2026-01-01T00:00:00Z', status: 'complete', missionIDs: [], teamIDs: [], activity: [], photos }
+    const photoOnly: ConversationMessage = { ...withText, id: 'u2', text: '' }
+    const chat = { ...conversation(withText), messages: [withText, photoOnly] }
+    const { container } = renderUI(<ConversationMessages conversation={chat} busy={false} handlers={{ onUpdated: vi.fn(), onRevise: vi.fn(), onRetry: vi.fn(), onEdit: vi.fn(), onQuickReply: vi.fn(), onOpenCanvas: vi.fn(), onStarter: vi.fn() }} actions={[]} onActions={vi.fn()} />)
+    const images = screen.getAllByAltText('Attached photo') as HTMLImageElement[]
+    expect(images).toHaveLength(2)
+    expect(images[0]?.getAttribute('src')).toBe('/api/conversations/chat-1/photos/p1')
+    expect(screen.getByText('What is this?')).toBeTruthy()
+    expect(container.querySelectorAll('.co-user-message > p')).toHaveLength(1)
   })
 })

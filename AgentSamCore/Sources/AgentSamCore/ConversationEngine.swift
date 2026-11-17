@@ -9,6 +9,7 @@ public actor ConversationEngine {
     private let memory: WorkspaceMemoryStore
     private let knowledge: WorkspaceKnowledgeStore?
     private let workspace: ChatWorkspaceStore
+    private let photos: ConversationPhotoStore
     private let keyRing: KeyRing
     private let client: LLMClient
     private let connectors: ConnectorHub?
@@ -21,12 +22,13 @@ public actor ConversationEngine {
     private var running: [UUID: Task<Void, Never>] = [:]
     private var memoryJobs: [UUID: Task<Void, Never>] = [:]
 
-    public init(store: MissionStore, conversations: ConversationStore, memory: WorkspaceMemoryStore, workspace: ChatWorkspaceStore? = nil, keyRing: KeyRing, client: LLMClient = LLMClient(), connectors: ConnectorHub? = nil, missions: MissionEngine, promptStore: PromptStore? = nil, access: ConversationAccess? = nil, knowledge: WorkspaceKnowledgeStore? = nil) {
+    public init(store: MissionStore, conversations: ConversationStore, memory: WorkspaceMemoryStore, workspace: ChatWorkspaceStore? = nil, keyRing: KeyRing, client: LLMClient = LLMClient(), connectors: ConnectorHub? = nil, missions: MissionEngine, promptStore: PromptStore? = nil, access: ConversationAccess? = nil, knowledge: WorkspaceKnowledgeStore? = nil, photos: ConversationPhotoStore? = nil) {
         self.store = store
         self.conversations = conversations
         self.memory = memory
         self.knowledge = knowledge
         self.workspace = workspace ?? ChatWorkspaceStore(root: store.root)
+        self.photos = photos ?? ConversationPhotoStore(root: store.root)
         self.keyRing = keyRing
         self.client = client
         self.connectors = connectors
@@ -37,12 +39,13 @@ public actor ConversationEngine {
         self.missionOverride = nil
     }
 
-    init(store: MissionStore, conversations: ConversationStore, memory: WorkspaceMemoryStore, workspace: ChatWorkspaceStore? = nil, keyRing: KeyRing, connectors: ConnectorHub? = nil, missions: MissionEngine, promptStore: PromptStore? = nil, access: ConversationAccess? = nil, knowledge: WorkspaceKnowledgeStore? = nil, completion: @escaping Completion, missionRunner: MissionRunner? = nil) {
+    init(store: MissionStore, conversations: ConversationStore, memory: WorkspaceMemoryStore, workspace: ChatWorkspaceStore? = nil, keyRing: KeyRing, connectors: ConnectorHub? = nil, missions: MissionEngine, promptStore: PromptStore? = nil, access: ConversationAccess? = nil, knowledge: WorkspaceKnowledgeStore? = nil, photos: ConversationPhotoStore? = nil, completion: @escaping Completion, missionRunner: MissionRunner? = nil) {
         self.store = store
         self.conversations = conversations
         self.memory = memory
         self.knowledge = knowledge
         self.workspace = workspace ?? ChatWorkspaceStore(root: store.root)
+        self.photos = photos ?? ConversationPhotoStore(root: store.root)
         self.keyRing = keyRing
         self.client = LLMClient()
         self.connectors = connectors
@@ -54,15 +57,16 @@ public actor ConversationEngine {
     }
 
     @discardableResult
-    public func send(conversationID: UUID, ownerID: String, text rawText: String, launchedBy: String, language: String, scheduled: Bool = false) async throws -> Conversation {
+    public func send(conversationID: UUID, ownerID: String, text rawText: String, launchedBy: String, language: String, scheduled: Bool = false, photos: [PhotoAttachment] = [], spoken: Bool = false) async throws -> Conversation {
         let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { throw ConversationError.emptyMessage }
+        let photos = Array(photos.prefix(ConversationPhotoStore.maxPerMessage))
+        guard !text.isEmpty || !photos.isEmpty else { throw ConversationError.emptyMessage }
         guard text.count <= 20_000 else { throw ConversationError.messageTooLong }
         guard running[conversationID] == nil else { throw ConversationError.alreadyRunning }
         guard let conversation = try await conversations.get(id: conversationID, ownerID: ownerID) else { throw ConversationError.notFound }
         guard !conversation.messages.contains(where: { $0.status == .running }) else { throw ConversationError.alreadyRunning }
         let lang = language.lowercased().hasPrefix("es") ? "es" : "en"
-        let userMessage = ConversationMessage(role: .user, text: text, scheduled: scheduled)
+        let userMessage = ConversationMessage(role: .user, text: text, scheduled: scheduled, photos: photos, spoken: spoken)
         let choosing = lang == "es" ? "Eligiendo la mejor forma de ayudar" : "Choosing how to help"
         let pending = ConversationMessage(role: .assistant, text: "", status: .running, activity: [AgentActivity(agentID: UUID(), agentName: "Ada", summary: choosing, state: "working")], steps: [MessageStep(label: choosing)])
         _ = try await conversations.append(id: conversationID, ownerID: ownerID, message: userMessage)
@@ -137,15 +141,21 @@ public actor ConversationEngine {
             let teams = allTeams.filter { $0.id != Self.soloTeamID }
             let providers = await store.loadProviders()
             let coordinator = try coordinator(providers: providers)
-            let history = conversation.messages.filter { $0.status != .running && !$0.text.isEmpty }
+            let history = conversation.messages.filter { $0.status != .running && (!$0.text.isEmpty || !$0.photos.isEmpty) }
             let workspaceMemory = await memory.state(ownerID: ownerID)
             let memoryText = workspaceMemory.enabled ? workspaceMemory.markdown : ""
             let currentKnowledge = await knowledge?.refresh(ownerID: ownerID)
-            let context = await promptContext(conversation: conversation, history: history, memory: memoryText, knowledge: currentKnowledge?.promptSummary ?? "", scheduled: userMessage.scheduled)
-            var decision = try await route(userText: userMessage.text, coordinator: coordinator, teams: teams, context: context, history: history, language: language)
+            let context = await promptContext(conversation: conversation, history: history, memory: memoryText, knowledge: currentKnowledge?.promptSummary ?? "", scheduled: userMessage.scheduled, spoken: userMessage.spoken)
+            // Photos: only Ada's direct reply looks at them. Routing, missions, and consolidation get a
+            // note that they exist, which is enough to pick DIRECT and keeps those calls cheap.
+            let canSee = providers.first(where: { $0.id == coordinator.providerID }).map { VisionSupport.accepts(provider: $0, model: coordinator.model) } ?? true
+            let userText = Self.textWithPhotoNote(userMessage)
+            let photoInput = canSee ? photoInputs(conversationID: conversationID, current: userMessage, history: history) : PhotoInputs()
+            let directText = Self.directText(for: userMessage, canSee: canSee, model: coordinator.model, language: language)
+            var decision = try await route(userText: userText, coordinator: coordinator, teams: teams, context: context, history: history, language: language)
             if decision == nil {
                 let retrySystem = ConversationPrompts.routingSystem(coordinator: coordinator, teams: teams, context: context, store: promptStore, language: language) + "\nYour previous response was not valid. Return exactly one JSON object matching the contract, with a valid action."
-                let retry = try await complete(coordinator: coordinator, system: retrySystem, messages: Self.chatTurns(from: history.dropLast()) + [.user(userMessage.text)], tools: nil)
+                let retry = try await complete(coordinator: coordinator, system: retrySystem, messages: Self.chatTurns(from: history.dropLast()) + [.user(userText)], tools: nil)
                 decision = ConversationDecision.parse(retry.message.content ?? "")
             }
 
@@ -175,14 +185,14 @@ public actor ConversationEngine {
                     Self.settleSteps(&message.steps, as: "done")
                     message.steps.append(MessageStep(label: es ? "Trabajando en ello yo sola" : "Working on it myself"))
                 }
-                let mission = try await runMission(team: solo, objective: userMessage.text, context: context.missionHandoff, launchedBy: launchedBy, language: language, conversationID: conversationID, ownerID: ownerID, projectName: context.projectName)
+                let mission = try await runMission(team: solo, objective: userText, context: context.missionHandoff, launchedBy: launchedBy, language: language, conversationID: conversationID, ownerID: ownerID, projectName: context.projectName)
                 missionIDs = [mission.id]
                 _ = try await conversations.updateMessage(id: conversationID, ownerID: ownerID, messageID: responseID) { message in
                     message.missionIDs = missionIDs
                 }
                 let finished = try await monitor(missions: [mission], teams: [solo], conversationID: conversationID, ownerID: ownerID, responseID: responseID, ada: activity[0])
                 await beginStep(es ? "Redactando la respuesta" : "Writing the answer", in: ref)
-                responseText = try await consolidate(userText: userMessage.text, missions: finished, coordinator: coordinator, context: context, history: history, language: language)
+                responseText = try await consolidate(userText: userText, missions: finished, coordinator: coordinator, context: context, history: history, language: language)
                 activity = finished.flatMap { mission in
                     (solo.agents).map { AgentActivity(agentID: $0.id, agentName: $0.name, summary: mission.status == .completed ? (es ? "Trabajo completado" : "Work completed") : mission.status.rawValue, state: mission.status == .completed ? "done" : "failed", teamID: solo.id, teamName: solo.name) }
                 }
@@ -191,7 +201,7 @@ public actor ConversationEngine {
                 let selected = Array((decision?.teamIDs ?? []).compactMap { id in teams.first(where: { $0.id == id && !$0.workers.isEmpty }) }.prefix(3))
                 if selected.isEmpty {
                     await beginStep(writing, in: ref)
-                    responseText = try await directAnswer(userText: userMessage.text, coordinator: coordinator, context: context, history: history, language: language, ref: ref, conversationID: conversationID, writtenFiles: &writtenFiles)
+                    responseText = try await directAnswer(userText: directText, photos: photoInput, coordinator: coordinator, context: context, history: history, language: language, ref: ref, conversationID: conversationID, writtenFiles: &writtenFiles)
                 } else {
                     let rationale = shortSummary(decision?.rationale ?? decision?.message, fallback: language == "es" ? "Coordinando equipos especialistas" : "Coordinating specialist teams")
                     activity[0].summary = rationale
@@ -206,7 +216,7 @@ public actor ConversationEngine {
                     let routed = try await withThrowingTaskGroup(of: Mission.self, returning: [Mission].self) { group in
                         for team in selected {
                             group.addTask {
-                                try await self.runMission(team: team, objective: userMessage.text, context: context.missionHandoff, launchedBy: launchedBy, language: language, conversationID: conversationID, ownerID: ownerID, projectName: context.projectName)
+                                try await self.runMission(team: team, objective: userText, context: context.missionHandoff, launchedBy: launchedBy, language: language, conversationID: conversationID, ownerID: ownerID, projectName: context.projectName)
                             }
                         }
                         var launched: [Mission] = []
@@ -221,7 +231,7 @@ public actor ConversationEngine {
                     }
                     let finished = try await monitor(missions: routed, teams: selected, conversationID: conversationID, ownerID: ownerID, responseID: responseID, ada: activity[0])
                     await beginStep(es ? "Combinando los resultados" : "Combining the results", in: ref)
-                    responseText = try await consolidate(userText: userMessage.text, missions: finished, coordinator: coordinator, context: context, history: history, language: language)
+                    responseText = try await consolidate(userText: userText, missions: finished, coordinator: coordinator, context: context, history: history, language: language)
                     activity = finished.flatMap { mission in
                         let team = selected.first(where: { $0.id == mission.teamID })
                         return (team?.agents ?? []).map { AgentActivity(agentID: $0.id, agentName: $0.name, summary: mission.status == .completed ? (language == "es" ? "Trabajo completado" : "Work completed") : mission.status.rawValue, state: mission.status == .completed ? "done" : "failed", teamID: team?.id, teamName: team?.name) }
@@ -232,7 +242,7 @@ public actor ConversationEngine {
                 if let draft = decision?.proposal, let made = try? TeamProposalValidation.make(draft: draft, teams: teams, providers: providers) {
                     await beginStep(es ? "Preparando la propuesta de equipo" : "Drafting a team proposal", in: ref)
                     proposal = made
-                    responseText = try await directAnswer(userText: userMessage.text, coordinator: coordinator, context: context, history: history, language: language, proposal: made, ref: ref, conversationID: conversationID, writtenFiles: &writtenFiles)
+                    responseText = try await directAnswer(userText: directText, photos: photoInput, coordinator: coordinator, context: context, history: history, language: language, proposal: made, ref: ref, conversationID: conversationID, writtenFiles: &writtenFiles)
                     activity[0].summary = language == "es" ? "Propuesta lista para revisar" : "Proposal ready for your review"
                 } else {
                     responseText = language == "es"
@@ -246,10 +256,11 @@ public actor ConversationEngine {
                 quickReplies = ConversationMessage.cleanQuickReplies(decision?.options ?? [])
             case .direct, nil:
                 await beginStep(writing, in: ref)
-                responseText = try await directAnswer(userText: userMessage.text, coordinator: coordinator, context: context, history: history, language: language, ref: ref, conversationID: conversationID, writtenFiles: &writtenFiles)
+                responseText = try await directAnswer(userText: directText, photos: photoInput, coordinator: coordinator, context: context, history: history, language: language, ref: ref, conversationID: conversationID, writtenFiles: &writtenFiles)
             }
 
             if decision?.action != .clarify {
+                // Split even in voice mode, so a stray block never reaches the speaker.
                 let split = ConversationPrompts.extractSuggestions(responseText)
                 if !split.text.isEmpty {
                     responseText = split.text
@@ -340,16 +351,23 @@ public actor ConversationEngine {
     /// Earlier turns as real chat messages, oldest first, ending on an assistant turn so the caller can
     /// append the user's latest message. Consecutive same-role turns are merged because providers
     /// expect alternating roles (a failed reply leaves two user messages in a row).
-    static func chatTurns(from history: [ConversationMessage], limit: Int = 24, characters: Int = 6_000) -> [APIMessage] {
+    static func chatTurns(from history: [ConversationMessage], limit: Int = 24, characters: Int = 6_000, images: [UUID: [APIImage]] = [:]) -> [APIMessage] {
         var turns: [APIMessage] = []
         for message in history.suffix(limit) {
             let role = message.role == .user ? "user" : "assistant"
             // Raw tool-call markup from an earlier reply teaches the model to write calls as text again.
-            let body = String(DSMLToolCalls.strip(message.text).prefix(characters))
+            var body = String(DSMLToolCalls.strip(message.text).prefix(characters))
+            let attached = images[message.id] ?? []
+            if !message.photos.isEmpty && attached.isEmpty {
+                // The photo itself is no longer sent; say it was there so the turn still makes sense.
+                let note = message.photos.count == 1 ? "[The user attached a photo here.]" : "[The user attached \(message.photos.count) photos here.]"
+                body = body.isEmpty ? note : body + "\n" + note
+            }
             if let last = turns.last, last.role == role {
-                turns[turns.count - 1] = APIMessage(role: role, content: (last.content ?? "") + "\n\n" + body)
+                let merged = (last.images ?? []) + attached
+                turns[turns.count - 1] = APIMessage(role: role, content: (last.content ?? "") + "\n\n" + body, images: merged.isEmpty ? nil : merged)
             } else {
-                turns.append(APIMessage(role: role, content: body))
+                turns.append(APIMessage(role: role, content: body, images: attached.isEmpty ? nil : attached))
             }
         }
         while turns.first?.role == "assistant" { turns.removeFirst() }
@@ -363,7 +381,7 @@ public actor ConversationEngine {
         return ConversationDecision.parse(reply.message.content ?? "")
     }
 
-    private func directAnswer(userText: String, coordinator: AgentProfile, context: ConversationPromptContext, history: [ConversationMessage], language: String, proposal: TeamProposal? = nil, ref: ResponseRef? = nil, conversationID: UUID, writtenFiles: inout [String]) async throws -> String {
+    private func directAnswer(userText: String, photos photoInput: PhotoInputs = PhotoInputs(), coordinator: AgentProfile, context: ConversationPromptContext, history: [ConversationMessage], language: String, proposal: TeamProposal? = nil, ref: ResponseRef? = nil, conversationID: UUID, writtenFiles: inout [String]) async throws -> String {
         let connectorTools = await connectors?.toolDefs(readOnly: access == nil) ?? []
         let missionTools = context.missionIDs.isEmpty ? [] : ConversationMissionTools.definitions
         let extendedTools = access == nil ? [] : ExtendedWorkspaceTools.definitions
@@ -373,8 +391,8 @@ public actor ConversationEngine {
         if let proposal {
             text += "\n\nA team proposal has been prepared and is displayed separately for approval. Its name is \(proposal.team.name). Explain the proposal briefly, mention that no team has been created or changed yet, and ask the user to review it. Do not output JSON."
         }
-        var messages = Self.chatTurns(from: history.dropLast())
-        messages.append(.user(text))
+        var messages = Self.chatTurns(from: history.dropLast(), images: photoInput.history)
+        messages.append(.user(text, images: photoInput.current))
         var runs = 0
         for _ in 0..<8 {
             try Task.checkCancellation()
@@ -505,7 +523,7 @@ public actor ConversationEngine {
         return mission
     }
 
-    private func promptContext(conversation: Conversation, history: [ConversationMessage], memory: String, knowledge: String, scheduled: Bool) async -> ConversationPromptContext {
+    private func promptContext(conversation: Conversation, history: [ConversationMessage], memory: String, knowledge: String, scheduled: Bool, spoken: Bool = false) async -> ConversationPromptContext {
         let prior = Array(history.dropLast())
         var seen = Set<UUID>()
         var ids: [UUID] = []
@@ -538,7 +556,8 @@ public actor ConversationEngine {
             scheduled: scheduled,
             projectManifest: projectManifest,
             hostGrants: hostGrants,
-            knowledge: knowledge
+            knowledge: knowledge,
+            spoken: spoken
         )
     }
 
@@ -606,6 +625,7 @@ public actor ConversationEngine {
     private func completeDirect(coordinator: AgentProfile, system: String, messages: [APIMessage], tools: [APIToolDef]?, onDelta: TextDeltaHandler? = nil) async throws -> LLMReply {
         var budget = directContextBudgetTokens
         var overflowRetries = 0
+        var messages = messages
         while true {
             let compacted = ConversationCompactor.compact(messages: messages, budgetTokens: budget)
             do {
@@ -614,8 +634,72 @@ public actor ConversationEngine {
                 overflowRetries += 1
                 guard overflowRetries <= 2 else { throw error }
                 budget = max(ConversationCompactor.minimumBudgetTokens, budget / 2)
+            } catch let error as LLMError where Self.mayBeImageRejection(error) && messages.contains(where: { $0.images?.isEmpty == false }) {
+                // The provider refused the photos (a text-only model we did not know about, or a
+                // format it does not take). Answer without them and say so, rather than failing.
+                messages = Self.withoutImages(messages, model: coordinator.model)
             }
         }
+    }
+
+    static func mayBeImageRejection(_ error: LLMError) -> Bool {
+        guard let status = error.statusCode, !error.isContextOverflow else { return false }
+        return [400, 404, 413, 415, 422].contains(status)
+    }
+
+    /// Drops every image and tells the model, in the turn that had them, why it cannot see them.
+    static func withoutImages(_ messages: [APIMessage], model: String) -> [APIMessage] {
+        messages.map { message in
+            guard let images = message.images, !images.isEmpty else { return message }
+            var copy = message
+            copy.images = nil
+            copy.content = (copy.content ?? "") + "\n\n(The user attached \(images.count == 1 ? "a photo" : "\(images.count) photos"), but the model \(model) rejected it. Say in one sentence that this model can't look at photos and that a vision model such as Claude or GPT can be chosen for Ada in Settings, then help with the rest of the message.)"
+            return copy
+        }
+    }
+
+    /// The images sent with a direct reply: the current message's photos, plus photos from the last
+    /// few turns so follow-ups like "and the one on the left?" still work. Capped to keep cost sane.
+    struct PhotoInputs: Sendable {
+        var current: [APIImage] = []
+        var history: [UUID: [APIImage]] = [:]
+    }
+
+    static let maxHistoryPhotos = 4
+    static let photoHistoryWindow = 6
+
+    private func photoInputs(conversationID: UUID, current: ConversationMessage, history: [ConversationMessage]) -> PhotoInputs {
+        var inputs = PhotoInputs()
+        inputs.current = current.photos.compactMap { photos.image(conversationID: conversationID, attachment: $0) }
+        var budget = Self.maxHistoryPhotos
+        for message in history.dropLast().suffix(Self.photoHistoryWindow).reversed() where message.role == .user && !message.photos.isEmpty {
+            guard budget > 0 else { break }
+            let loaded = message.photos.prefix(budget).compactMap { photos.image(conversationID: conversationID, attachment: $0) }
+            if !loaded.isEmpty { inputs.history[message.id] = Array(loaded) }
+            budget -= message.photos.count
+        }
+        return inputs
+    }
+
+    /// The user's words plus a note about attached photos, for routing, missions, and consolidation,
+    /// none of which look at the images themselves.
+    static func textWithPhotoNote(_ message: ConversationMessage) -> String {
+        guard !message.photos.isEmpty else { return message.text }
+        let count = message.photos.count
+        let note = "[The user attached \(count == 1 ? "a photo" : "\(count) photos"). Only Ada's DIRECT reply can look at photos; SOLO missions and specialist teams cannot see them.]"
+        return message.text.isEmpty ? note : message.text + "\n\n" + note
+    }
+
+    /// The user's turn for Ada's direct reply, which carries the photos as images when the model can see them.
+    static func directText(for message: ConversationMessage, canSee: Bool, model: String, language: String) -> String {
+        guard !message.photos.isEmpty else { return message.text }
+        let count = message.photos.count
+        let photoWord = count == 1 ? "a photo" : "\(count) photos"
+        if !canSee {
+            let note = "(The user attached \(photoWord), but your current model, \(model), can't look at images. Say so in one short sentence, mention that a vision model such as Claude or GPT can be chosen for Ada in Settings, then help with the rest of the message if there is any.)"
+            return message.text.isEmpty ? note : message.text + "\n\n" + note
+        }
+        return message.text.isEmpty ? "(The user sent \(photoWord) without a message. Say briefly what matters in it and what you can do with it.)" : message.text
     }
 
     private func remember(conversationID: UUID, ownerID: String, user: ConversationMessage, assistant: ConversationMessage, coordinator: AgentProfile) {
