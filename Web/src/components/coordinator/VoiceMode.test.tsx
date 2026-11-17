@@ -50,4 +50,20 @@ describe('VoiceMode', () => {
     await waitFor(() => expect(screen.getByText('Text response')).toBeTruthy())
     expect(synthesis.speak).not.toHaveBeenCalled()
   })
+
+  it('shows what Ada is doing under the orb only while she works', () => {
+    const synthesis = { speak: vi.fn(), cancel: vi.fn() }
+    vi.stubGlobal('SpeechSynthesisUtterance', TestUtterance)
+    Object.defineProperty(window, 'speechSynthesis', { value: synthesis, configurable: true })
+    const props = { onSend: vi.fn(), onTranscribe: vi.fn(), onClose: vi.fn() }
+    const view = render(<I18nProvider><VoiceMode {...props} activity={null} /></I18nProvider>)
+    const status = () => view.container.querySelector('.co-voice-status')!
+    expect(status().classList.contains('on')).toBe(false)
+    expect(status().textContent).toBe('')
+    view.rerender(<I18nProvider><VoiceMode {...props} activity="Searching Gmail" /></I18nProvider>)
+    expect(status().classList.contains('on')).toBe(true)
+    expect(status().textContent).toBe('Searching Gmail')
+    view.rerender(<I18nProvider><VoiceMode {...props} activity={null} /></I18nProvider>)
+    expect(status().classList.contains('on')).toBe(false)
+  })
 })

@@ -188,6 +188,9 @@ function audioContextConstructor(): ContextConstructor | null {
 export class Speaker {
   private audio: HTMLAudioElement | null = null
   private context: AudioContext | null = null
+  /** Taps the scheduled sentences so the voice orb can follow how loud Ada is speaking. */
+  private analyser: AnalyserNode | null = null
+  private samples: Uint8Array<ArrayBuffer> | null = null
   private queue: SpeechItem[] = []
   private sources = new Set<AudioBufferSourceNode>()
   private drainWaiters: Array<() => void> = []
@@ -223,6 +226,35 @@ export class Speaker {
       }
     }
     return this.context
+  }
+
+  /** Where scheduled sentences play: through the level meter when it can be made, else straight out. */
+  private output(context: AudioContext): AudioNode {
+    if (!this.analyser) {
+      try {
+        const analyser = context.createAnalyser()
+        analyser.fftSize = 512
+        analyser.connect(context.destination)
+        this.analyser = analyser
+      } catch {
+        return context.destination
+      }
+    }
+    return this.analyser
+  }
+
+  /**
+   * How loud the sentence playing right now is, from 0 to 1. It is 0 when nothing is playing
+   * through the audio graph (the browser's own voice and <audio> playback can't be measured).
+   */
+  level(): number {
+    const analyser = this.analyser
+    if (!analyser || this.sources.size === 0) return 0
+    if (!this.samples || this.samples.length !== analyser.fftSize) this.samples = new Uint8Array(analyser.fftSize)
+    analyser.getByteTimeDomainData(this.samples)
+    let peak = 0
+    for (const sample of this.samples) peak = Math.max(peak, Math.abs(sample - 128))
+    return Math.min(1, peak / 64)
   }
 
   /** Call from a user gesture (tap) so later playback is allowed on iOS. */
@@ -351,7 +383,7 @@ export class Speaker {
       if (generation !== this.generation) return true
       const source = context.createBufferSource()
       source.buffer = buffer
-      source.connect(context.destination)
+      source.connect(this.output(context))
       const startAt = Math.max(context.currentTime + 0.02, this.cursor)
       this.cursor = startAt + buffer.duration
       this.sources.add(source)
