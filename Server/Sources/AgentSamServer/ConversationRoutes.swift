@@ -24,8 +24,12 @@ struct ConversationCreateBody: Content {
 }
 
 struct ConversationMessageBody: Content {
-    var text: String
+    var text: String?
     var language: String?
+    /// Photos uploaded first with `POST conversations/:id/photos`.
+    var photoIDs: [String]?
+    /// True when the user spoke this message in voice mode.
+    var spoken: Bool?
 }
 
 struct MemoryPatchBody: Content {
@@ -71,14 +75,57 @@ func conversationRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
     api.post("conversations", ":id", "messages") { req async throws -> Response in
         let principal = try req.requirePrincipal()
         let body = try req.decodeJSON(ConversationMessageBody.self)
+        let id = try req.conversationID
+        let ids = body.photoIDs ?? []
+        guard ids.count <= ConversationPhotoStore.maxPerMessage else {
+            throw Abort(.badRequest, reason: "Attach at most \(ConversationPhotoStore.maxPerMessage) photos to one message.")
+        }
+        let photoStore = ConversationPhotoStore(root: ctx.store.root)
+        let photos = try ids.map { photoID in
+            guard let photo = photoStore.attachment(conversationID: id, id: photoID) else {
+                throw Abort(.badRequest, reason: "A photo is missing. Remove it and add it again.")
+            }
+            return photo
+        }
         let conversation = try await ctx.conversationEngine.send(
-            conversationID: req.conversationID,
+            conversationID: id,
             ownerID: principal.conversationOwnerID,
-            text: body.text,
+            text: body.text ?? "",
             launchedBy: principal.name,
-            language: body.language ?? SrvL10n.lang(for: req)
+            language: body.language ?? SrvL10n.lang(for: req),
+            photos: photos,
+            spoken: body.spoken ?? false
         )
         return try req.json(conversation, status: .accepted)
+    }
+
+    // Photos are uploaded one at a time as raw bytes (the browser has already shrunk them),
+    // then referenced by id when the message is sent.
+    api.on(.POST, "conversations", ":id", "photos", body: .collect(maxSize: ByteCount(value: ConversationPhotoStore.maxBytes))) { req async throws -> Response in
+        let owner = try req.requirePrincipal().conversationOwnerID
+        let id = try req.conversationID
+        guard try await ctx.conversations.get(id: id, ownerID: owner) != nil else { throw ConversationError.notFound }
+        guard let buffer = req.body.data, buffer.readableBytes > 0,
+              let photo = ConversationPhotoStore(root: ctx.store.root).save(conversationID: id, data: Data(buffer.readableBytesView)) else {
+            throw Abort(.badRequest, reason: "Choose a JPEG, PNG, WebP, or GIF photo of at most 5 MB.")
+        }
+        return try req.json(photo, status: .created)
+    }
+
+    api.get("conversations", ":id", "photos", ":photoID") { req async throws -> Response in
+        let owner = try req.requirePrincipal().conversationOwnerID
+        let id = try req.conversationID
+        guard try await ctx.conversations.get(id: id, ownerID: owner) != nil,
+              let photoID = req.parameters.get("photoID"),
+              let photo = ConversationPhotoStore(root: ctx.store.root).load(conversationID: id, id: photoID) else {
+            throw Abort(.notFound, reason: "Photo not found.")
+        }
+        var headers = HTTPHeaders()
+        headers.replaceOrAdd(name: .contentType, value: photo.mediaType)
+        headers.replaceOrAdd(name: "X-Content-Type-Options", value: "nosniff")
+        // A photo never changes once uploaded.
+        headers.replaceOrAdd(name: .cacheControl, value: "private, max-age=86400, immutable")
+        return Response(status: .ok, headers: headers, body: .init(data: photo.data))
     }
 
     api.post("conversations", ":id", "stop") { req async throws -> Response in
@@ -94,7 +141,9 @@ func conversationRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
 
     api.delete("conversations", ":id") { req async throws -> Response in
         let owner = try req.requirePrincipal().conversationOwnerID
-        try await ctx.conversations.delete(id: req.conversationID, ownerID: owner)
+        let id = try req.conversationID
+        try await ctx.conversations.delete(id: id, ownerID: owner)
+        ConversationPhotoStore(root: ctx.store.root).removeAll(conversationID: id)
         return try req.json(AckResult(ok: true, detail: nil))
     }
 

@@ -629,3 +629,28 @@
 .co-access-audit ul { padding: 0; list-style: none; }
 .co-access-audit li { display: grid; gap: 3px; padding: 8px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
 .co-access-audit time { color: var(--dim); font-size: 9px; }
+
+/* Photos: attach from the camera or library, preview before sending, and show in the chat */
+.co-composer { overflow: visible; }
+.co-drop-hint { border-radius: inherit; }
+.co-photo-picker { position: relative; flex: none; }
+.co-photo-button { flex: none; }
+.co-photo-menu { position: absolute; left: 0; bottom: calc(100% + 6px); min-width: 176px; padding: 5px; border: 1px solid var(--line2); border-radius: 11px; background: var(--panel2, #16221b); box-shadow: 0 14px 36px rgba(0,0,0,.4); z-index: 6; animation: co-fade-in .15s ease; }
+.co-photo-menu button { display: flex; align-items: center; gap: 10px; width: 100%; padding: 11px 12px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); font-size: 13px; text-align: left; }
+.co-photo-menu button:hover, .co-photo-menu button:focus-visible { background: rgba(74,217,158,.09); color: var(--em2); }
+.co-photo-strip { display: flex; gap: 8px; padding: 11px 13px 0; overflow-x: auto; scrollbar-width: thin; }
+.co-photo-thumb { position: relative; flex: none; width: 64px; height: 64px; border: 1px solid var(--line2); border-radius: 10px; overflow: hidden; background: #0c1410; }
+.co-photo-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.co-photo-thumb button { position: absolute; top: 4px; right: 4px; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 50%; background: rgba(5,10,7,.78); color: #fff; }
+.co-photo-thumb button:hover { background: rgba(5,10,7,.95); }
+.co-photo-thumb.preparing { display: grid; place-items: center; }
+.co-photo-spinner { width: 18px; height: 18px; border: 2px solid var(--line2); border-top-color: var(--em2); border-radius: 50%; animation: co-spin .8s linear infinite; }
+.co-message-photos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; width: min(320px, 78%); margin-bottom: 6px; }
+.co-message-photos.count-1 { grid-template-columns: 1fr; }
+.co-message-photos a { display: block; border: 1px solid rgba(148,190,156,.17); border-radius: 12px; overflow: hidden; background: #0c1410; }
+.co-message-photos img { display: block; width: 100%; height: 100%; max-height: 320px; aspect-ratio: 1; object-fit: cover; }
+.co-message-photos.count-1 img { aspect-ratio: auto; object-fit: contain; }
+@media (max-width: 640px) {
+  .co-message-photos { width: min(280px, 88%); }
+  .co-photo-thumb { width: 58px; height: 58px; }
+}

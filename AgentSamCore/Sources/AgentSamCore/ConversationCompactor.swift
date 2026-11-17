@@ -44,7 +44,8 @@ public enum ConversationCompactor {
 
     /// Estimated size of one message: its text plus any tool-call payloads.
     private static func size(of message: APIMessage) -> Int {
-        var total = estimateTokens(message.content ?? "")
+        // A photo resized for upload costs roughly 1,600 input tokens on vision models.
+        var total = estimateTokens(message.content ?? "") + (message.images?.count ?? 0) * 1_600
         for call in message.tool_calls ?? [] {
             total += estimateTokens(call.function.name) + estimateTokens(call.function.arguments)
         }

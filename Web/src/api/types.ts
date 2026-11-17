@@ -118,6 +118,13 @@ export interface TeamProposal {
   createdAt: string
 }
 
+/** A photo attached to a chat message. Fetch the image from `/api/conversations/:id/photos/:photoID`. */
+export interface PhotoAttachment {
+  id: string
+  mediaType: string
+  bytes: number
+}
+
 export interface ConversationMessage {
   id: string
   role: 'user' | 'assistant'
@@ -136,6 +143,10 @@ export interface ConversationMessage {
   fileIDs?: string[]
   /** True when the platform sent this from the conversation's schedule, not the user. */
   scheduled?: boolean
+  /** Photos the user attached; absent on older messages. */
+  photos?: PhotoAttachment[]
+  /** True when the user spoke this message in voice mode. */
+  spoken?: boolean
   completedAt?: string
 }
 

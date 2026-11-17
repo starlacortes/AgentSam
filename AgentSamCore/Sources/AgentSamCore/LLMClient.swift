@@ -113,9 +113,56 @@ public struct OpenAICompatClient: Sendable {
 
     struct WireMessage: Encodable {
         var role: String
-        var content: String?
+        var content: WireContent?
         var tool_calls: [APIToolCall]?
         var tool_call_id: String?
+
+        init(role: String, content: String?, images: [APIImage]? = nil, tool_calls: [APIToolCall]? = nil, tool_call_id: String? = nil) {
+            self.role = role
+            if let images, !images.isEmpty {
+                // OpenAI-style multimodal content: text part, then one image_url part per photo.
+                let text = content ?? ""
+                self.content = .parts((text.isEmpty ? [] : [.text(text)]) + images.map { .image($0.dataURL) })
+            } else {
+                self.content = content.map(WireContent.text)
+            }
+            self.tool_calls = tool_calls
+            self.tool_call_id = tool_call_id
+        }
+    }
+
+    /// A plain string, or a list of text and image parts when the turn carries photos.
+    enum WireContent: Encodable {
+        case text(String)
+        case parts([WirePart])
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.singleValueContainer()
+            switch self {
+            case .text(let text): try container.encode(text)
+            case .parts(let parts): try container.encode(parts)
+            }
+        }
+    }
+
+    enum WirePart: Encodable {
+        case text(String)
+        case image(String)
+
+        private enum CodingKeys: String, CodingKey { case type, text, image_url }
+        private struct ImageURL: Encodable { var url: String }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            switch self {
+            case .text(let text):
+                try container.encode("text", forKey: .type)
+                try container.encode(text, forKey: .text)
+            case .image(let url):
+                try container.encode("image_url", forKey: .type)
+                try container.encode(ImageURL(url: url), forKey: .image_url)
+            }
+        }
     }
 
     struct ChatResponse: Decodable {
@@ -147,7 +194,7 @@ public struct OpenAICompatClient: Sendable {
         onDelta: TextDeltaHandler? = nil
     ) async throws -> LLMReply {
         let wire = [WireMessage(role: "system", content: system)]
-            + messages.map { WireMessage(role: $0.role, content: $0.content, tool_calls: $0.tool_calls, tool_call_id: $0.tool_call_id) }
+            + messages.map { WireMessage(role: $0.role, content: $0.content, images: $0.role == "user" ? $0.images : nil, tool_calls: $0.tool_calls, tool_call_id: $0.tool_call_id) }
         let body = ChatRequest(
             model: model,
             messages: wire,

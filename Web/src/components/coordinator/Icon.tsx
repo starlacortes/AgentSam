@@ -1,9 +1,11 @@
 import type { ReactNode, SVGProps } from 'react'
 
-export type IconName = 'plus' | 'search' | 'chat' | 'folder' | 'chevron' | 'users' | 'plug' | 'settings' | 'memory' | 'mic' | 'arrow' | 'close' | 'menu' | 'collapse' | 'file' | 'copy' | 'spark' | 'check' | 'info' | 'shield' | 'keyboard' | 'stop' | 'trash' | 'activity' | 'more' | 'monitor' | 'terminal' | 'refresh' | 'download' | 'edit' | 'arrowDown' | 'eye' | 'phone' | 'tablet' | 'panel' | 'retry' | 'play'
+export type IconName = 'plus' | 'search' | 'chat' | 'folder' | 'chevron' | 'users' | 'plug' | 'settings' | 'memory' | 'mic' | 'arrow' | 'close' | 'menu' | 'collapse' | 'file' | 'copy' | 'spark' | 'check' | 'info' | 'shield' | 'keyboard' | 'stop' | 'trash' | 'activity' | 'more' | 'monitor' | 'terminal' | 'refresh' | 'download' | 'edit' | 'arrowDown' | 'eye' | 'phone' | 'tablet' | 'panel' | 'retry' | 'play' | 'camera' | 'image'
 
 const paths: Record<IconName, ReactNode> = {
   plus: <path d="M12 5v14M5 12h14" />,
+  camera: <><path d="M4 8a2 2 0 0 1 2-2h2l1.5-2h5L16 6h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z" /><circle cx="12" cy="12.5" r="3.5" /></>,
+  image: <><rect x="3.5" y="4.5" width="17" height="15" rx="2" /><circle cx="9" cy="9.5" r="1.6" /><path d="m4 17 5-5 4 4 2.5-2.5L20 18" /></>,
   search: <><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4 4" /></>,
   chat: <path d="M20 15a3 3 0 0 1-3 3H9l-5 3v-6a3 3 0 0 1-1-2V7a3 3 0 0 1 3-3h11a3 3 0 0 1 3 3z" />,
   folder: <path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />,

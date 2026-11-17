@@ -164,21 +164,38 @@ public struct APIToolCall: Codable, Hashable, Sendable {
     }
 }
 
+/// An image sent to a vision model with a user turn: base64 bytes and their media type.
+public struct APIImage: Codable, Hashable, Sendable {
+    public var mediaType: String
+    public var data: String
+
+    public init(mediaType: String, data: String) {
+        self.mediaType = mediaType
+        self.data = data
+    }
+
+    public var dataURL: String { "data:\(mediaType);base64,\(data)" }
+}
+
 public struct APIMessage: Codable, Hashable, Sendable {
     public var role: String
     public var content: String?
     public var tool_calls: [APIToolCall]?
     public var tool_call_id: String?
+    /// Photos for a user turn. Each provider client turns them into its own image blocks.
+    public var images: [APIImage]?
 
-    public init(role: String, content: String? = nil, tool_calls: [APIToolCall]? = nil, tool_call_id: String? = nil) {
+    public init(role: String, content: String? = nil, tool_calls: [APIToolCall]? = nil, tool_call_id: String? = nil, images: [APIImage]? = nil) {
         self.role = role
         self.content = content
         self.tool_calls = tool_calls
         self.tool_call_id = tool_call_id
+        self.images = images
     }
 
     public static func system(_ text: String) -> APIMessage { .init(role: "system", content: text) }
     public static func user(_ text: String) -> APIMessage { .init(role: "user", content: text) }
+    public static func user(_ text: String, images: [APIImage]) -> APIMessage { .init(role: "user", content: text, images: images.isEmpty ? nil : images) }
     public static func assistant(_ text: String) -> APIMessage { .init(role: "assistant", content: text) }
     public static func tool(id: String, content: String) -> APIMessage {
         .init(role: "tool", content: content, tool_call_id: id)

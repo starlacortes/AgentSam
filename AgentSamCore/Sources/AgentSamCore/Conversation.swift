@@ -49,6 +49,10 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
     public var fileIDs: [String]
     /// True when the platform sent this message from the conversation's schedule, not the user.
     public var scheduled: Bool
+    /// Photos the user attached to this message. The bytes are stored beside the conversation.
+    public var photos: [PhotoAttachment]
+    /// True when the user spoke this message in voice mode, so the reply will be read aloud.
+    public var spoken: Bool
     public var completedAt: Date?
 
     public init(
@@ -65,6 +69,8 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
         quickReplies: [String] = [],
         fileIDs: [String] = [],
         scheduled: Bool = false,
+        photos: [PhotoAttachment] = [],
+        spoken: Bool = false,
         completedAt: Date? = nil
     ) {
         self.id = id
@@ -80,11 +86,13 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
         self.quickReplies = quickReplies
         self.fileIDs = fileIDs
         self.scheduled = scheduled
+        self.photos = photos
+        self.spoken = spoken
         self.completedAt = completedAt
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, role, text, createdAt, status, missionIDs, teamIDs, proposal, activity, steps, quickReplies, fileIDs, scheduled, completedAt
+        case id, role, text, createdAt, status, missionIDs, teamIDs, proposal, activity, steps, quickReplies, fileIDs, scheduled, photos, spoken, completedAt
     }
 
     /// Older conversations on disk predate `steps`, `quickReplies`, and `completedAt`.
@@ -103,6 +111,8 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
         quickReplies = try c.decodeIfPresent([String].self, forKey: .quickReplies) ?? []
         fileIDs = try c.decodeIfPresent([String].self, forKey: .fileIDs) ?? []
         scheduled = try c.decodeIfPresent(Bool.self, forKey: .scheduled) ?? false
+        photos = try c.decodeIfPresent([PhotoAttachment].self, forKey: .photos) ?? []
+        spoken = try c.decodeIfPresent(Bool.self, forKey: .spoken) ?? false
         completedAt = try c.decodeIfPresent(Date.self, forKey: .completedAt)
     }
 
