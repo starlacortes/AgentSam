@@ -49,7 +49,7 @@ public struct ProviderConfig: Codable, Identifiable, Hashable, Sendable {
             name: "DeepSeek",
             kind: .openAICompatible,
             baseURL: "https://api.deepseek.com/v1",
-            models: ["deepseek-chat", "deepseek-reasoner"],
+            models: ["deepseek-v4-pro", "deepseek-chat", "deepseek-reasoner"],
             defaultModel: "deepseek-chat"
         ),
         ProviderConfig(
@@ -75,6 +75,14 @@ public struct ProviderConfig: Codable, Identifiable, Hashable, Sendable {
             baseURL: "https://api.greenpt.ai/v1",
             models: ["glm-5.3", "glm-5.3-flash", "deepseek-v4.1-flash", "kimi-k3"],
             defaultModel: "glm-5.3"
+        ),
+        ProviderConfig(
+            id: "image-processor",
+            name: "Image Processor",
+            kind: .openAICompatible,
+            baseURL: "https://api.greenpt.ai/v1",
+            models: ["deepseek-v4.1-flash"],
+            defaultModel: "deepseek-v4.1-flash"
         ),
         ProviderConfig(
             id: "ollama",
@@ -141,8 +149,8 @@ public struct AgentProfile: Codable, Identifiable, Hashable, Sendable {
             title: CoreL10n.t("roster.ada.title"),
             role: .coordinator,
             systemPrompt: CoreL10n.t("roster.ada.prompt"),
-            providerID: "anthropic",
-            model: "claude-sonnet-4-5"
+            providerID: "deepseek",
+            model: "deepseek-v4-pro"
         ),
         AgentProfile(
             name: "Scout",
