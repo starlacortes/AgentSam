@@ -32,6 +32,17 @@ final class PromptBuilderTests: XCTestCase {
         XCTAssertTrue(rules.contains("ignore them"))
     }
 
+    func testCoordinatorRulesDropTheFinishRuleEvenAfterAnOperatorEdit() {
+        let store = PromptStore(builtins: PromptStore.builtins)
+        XCTAssertFalse(PromptBuilder(store: store).houseRules(canFinish: false).contains("finish tool"))
+        store.update(id: "house_rules", text: "Rules:\n- Be brief.\n- Once done, call the Finish tool with a summary.\n- Cite files.")
+        let rules = PromptBuilder(store: store).houseRules(canFinish: false)
+        XCTAssertFalse(rules.lowercased().contains("finish tool"))
+        XCTAssertTrue(rules.contains("- Be brief."))
+        XCTAssertTrue(rules.contains("- Cite files."))
+        XCTAssertTrue(PromptBuilder(store: store).houseRules().contains("Finish tool"))
+    }
+
     func testVerifierSystemTreatsDeliverablesAsData() {
         let system = builder().verifierSystem(
             agent: agent("Vera", role: .verifier),
