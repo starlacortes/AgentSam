@@ -14,8 +14,12 @@ public struct ConversationPromptContext: Sendable {
     public var knowledge: String
     /// The user is talking in voice mode; the reply will be read aloud.
     public var spoken: Bool
-    /// When the turn started, shown to Ada as the current time.
+    /// When this turn runs. Defaults to the time the context was built.
     public var now: Date
+    /// The person's IANA time zone, when their browser has reported one.
+    public var timeZoneID: String?
+    /// The display name of the person who sent the message (nil for scheduled runs).
+    public var personName: String?
 
     public init(
         projectName: String,
@@ -30,7 +34,9 @@ public struct ConversationPromptContext: Sendable {
         hostGrants: String = "",
         knowledge: String = "",
         spoken: Bool = false,
-        now: Date = Date()
+        now: Date = Date(),
+        timeZoneID: String? = nil,
+        personName: String? = nil
     ) {
         self.projectName = projectName
         self.history = history
@@ -45,6 +51,36 @@ public struct ConversationPromptContext: Sendable {
         self.knowledge = knowledge
         self.spoken = spoken
         self.now = now
+        self.timeZoneID = timeZoneID
+        self.personName = personName
+    }
+
+    /// The person's time zone, or UTC when none is known.
+    public var timeZone: TimeZone {
+        timeZoneID.flatMap(TimeZone.init(identifier:)) ?? TimeZone(identifier: "UTC")!
+    }
+
+    /// "Thursday, 19 November 2026, 05:10 (America/Los_Angeles, UTC-08:00)", in English for the model.
+    public static func describe(_ date: Date, in zone: TimeZone) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = zone
+        formatter.dateFormat = "EEEE, d MMMM yyyy, HH:mm"
+        let seconds = zone.secondsFromGMT(for: date)
+        let sign = seconds < 0 ? "-" : "+"
+        let hours = abs(seconds) / 3600, minutes = (abs(seconds) % 3600) / 60
+        let offset = "UTC\(sign)\(hours < 10 ? "0" : "")\(hours):\(minutes < 10 ? "0" : "")\(minutes)"
+        // Linux names UTC "GMT"; keep one spelling everywhere.
+        let name = zone.identifier == "GMT" ? "UTC" : zone.identifier
+        return "\(formatter.string(from: date)) (\(name), \(offset))"
+    }
+
+    private var timeLine: String {
+        let utc = ISO8601DateFormatter().string(from: now)
+        if timeZoneID.flatMap(TimeZone.init(identifier:)) == nil {
+            return "Current time: \(Self.describe(now, in: timeZone)). The person's time zone is unknown, so this is UTC; say so if a local time matters."
+        }
+        return "Current time for the person: \(Self.describe(now, in: timeZone)); \(utc) in UTC."
     }
 
     private var recent: String {
@@ -70,7 +106,7 @@ public struct ConversationPromptContext: Sendable {
     public var workspaceData: String {
         let scheduleText: String
         if let schedule {
-            let next = ISO8601DateFormatter().string(from: schedule.nextRunAt)
+            let next = Self.describe(schedule.nextRunAt, in: timeZone)
             scheduleText = scheduled
                 ? "Recurring \(schedule.intervalLabel); next run \(next); the current user message is this run's scheduled prompt"
                 : "Recurring \(schedule.intervalLabel); next run \(next); prompt: \(schedule.prompt)"
@@ -79,7 +115,8 @@ public struct ConversationPromptContext: Sendable {
         }
         return """
         Project: \(projectName)
-        Current time: \(ISO8601DateFormatter().string(from: now)) (UTC)
+        \(timeLine)
+        Person: \(personName.map { String($0.prefix(80)) } ?? "not given")
         Trigger: \(scheduled ? "Automatic scheduled run" : "User message")
         Schedule: \(scheduleText)
 

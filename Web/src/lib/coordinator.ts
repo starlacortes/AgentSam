@@ -168,3 +168,13 @@ export function workspaceFileSource(conversationID: string, files: string[] | un
 export function wroteFreshFiles(message: ConversationMessage): boolean {
   return Boolean(message.fileIDs?.length)
 }
+
+/** The browser's IANA time zone (for example "America/Los_Angeles"), sent with each message so Ada knows the local time. */
+export function browserTimeZone(): string | undefined {
+  try {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone
+    return zone && zone.length <= 64 ? zone : undefined
+  } catch {
+    return undefined
+  }
+}

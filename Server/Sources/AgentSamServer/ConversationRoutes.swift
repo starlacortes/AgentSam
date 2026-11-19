@@ -30,6 +30,8 @@ struct ConversationMessageBody: Content {
     var photoIDs: [String]?
     /// True when the user spoke this message in voice mode.
     var spoken: Bool?
+    /// The browser's IANA time zone, e.g. "America/Los_Angeles".
+    var timeZone: String?
 }
 
 /// `retentionDays` is 7, 30, 90, or 365; null (or absent) keeps archived chats forever.
@@ -130,7 +132,8 @@ func conversationRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
             launchedBy: principal.name,
             language: body.language ?? SrvL10n.lang(for: req),
             photos: photos,
-            spoken: body.spoken ?? false
+            spoken: body.spoken ?? false,
+            timeZone: body.timeZone.map { String($0.prefix(64)) }
         )
         return try req.json(conversation, status: .accepted)
     }

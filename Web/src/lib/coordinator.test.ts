@@ -147,3 +147,10 @@ describe('takeSpeakable first piece', () => {
     expect(takeSpeakable(first + long, first.length, true)?.text).toBe(long.trim())
   })
 })
+
+describe('browserTimeZone', () => {
+  it('returns the IANA zone the browser reports', async () => {
+    const { browserTimeZone } = await import('./coordinator')
+    expect(browserTimeZone()).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone)
+  })
+})

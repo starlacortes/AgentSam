@@ -121,6 +121,16 @@ public actor ConversationStore {
         try FileManager.default.removeItem(at: url(id))
     }
 
+    /// Records the person's time zone when it is a valid IANA identifier and has changed.
+    @discardableResult
+    public func setTimeZone(id: UUID, ownerID: String, timeZone: String) throws -> Conversation? {
+        guard TimeZone(identifier: timeZone) != nil, var conversation = try get(id: id, ownerID: ownerID) else { return nil }
+        guard conversation.timeZone != timeZone else { return conversation }
+        conversation.timeZone = timeZone
+        try save(conversation)
+        return conversation
+    }
+
     /// Stores or clears the conversation's recurring schedule. Pass `nil` to cancel it.
     @discardableResult
     public func setSchedule(id: UUID, ownerID: String, schedule: ConversationSchedule?) throws -> Conversation {
