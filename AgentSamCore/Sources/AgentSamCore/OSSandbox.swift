@@ -50,7 +50,7 @@ enum OSSandbox {
         #else
         guard linuxProbeFailure == nil, let bwrap = linuxExecutable else { return nil }
         let start = canonicalPath(directory)
-        return CodeRunner.Plan(executable: bwrap, arguments: linuxArguments(writable: root, directory: start, readable: visible, protecting: hidden) + [executable] + arguments, fileToWrite: "")
+        return CodeRunner.Plan(executable: bwrap, arguments: linuxArguments(writable: root, directory: start, readable: visible, protecting: hidden, mountProc: linuxProbe.mountProc) + [executable] + arguments, fileToWrite: "")
         #endif
     }
 
@@ -92,24 +92,34 @@ enum OSSandbox {
     }
 
     /// bubblewrap can be installed yet unable to create namespaces, for example inside a container
-    /// whose seccomp profile blocks them. One real run tells, so it is checked once per process.
-    static let linuxProbeFailure: String? = {
-        guard let bwrap = linuxExecutable else { return "bubblewrap is not installed" }
-        let scratch = FileManager.default.temporaryDirectory.resolvingSymlinksInPath().standardizedFileURL
-        let plan = CodeRunner.Plan(executable: bwrap, arguments: linuxArguments(writable: scratch.path, directory: scratch.path, protecting: nil) + ["/bin/sh", "-c", "exit 0"], fileToWrite: "")
-        guard let outcome = try? CodeRunner.execute(plan, in: scratch, stdin: "", environment: ["PATH": "/usr/bin:/bin"], timeout: 10) else {
-            return "bubblewrap could not be started"
+    /// whose seccomp profile blocks them. Some containers allow namespaces but refuse a fresh /proc
+    /// mount; the sandbox then runs without /proc, which also keeps host processes out of view.
+    /// One real run tells, so it is checked once per process.
+    static let linuxProbe: (failure: String?, mountProc: Bool) = {
+        guard let bwrap = linuxExecutable else { return ("bubblewrap is not installed", true) }
+        let scratch = canonicalPath(FileManager.default.temporaryDirectory)
+        func attempt(mountProc: Bool) -> String? {
+            let plan = CodeRunner.Plan(executable: bwrap, arguments: linuxArguments(writable: scratch, directory: scratch, protecting: nil, mountProc: mountProc) + ["/bin/sh", "-c", "exit 0"], fileToWrite: "")
+            guard let outcome = try? CodeRunner.execute(plan, in: URL(fileURLWithPath: scratch), stdin: "", environment: ["PATH": "/usr/bin:/bin"], timeout: 10) else {
+                return "bubblewrap could not be started"
+            }
+            return outcome.resultText.hasPrefix("Exit code 0") ? nil : "bubblewrap could not create a sandbox: \(outcome.resultText.prefix(300))"
         }
-        return outcome.resultText.hasPrefix("Exit code 0") ? nil : "bubblewrap could not create a sandbox: \(outcome.resultText.prefix(300))"
+        guard let withProc = attempt(mountProc: true) else { return (nil, true) }
+        return attempt(mountProc: false) == nil ? (nil, false) : (withProc, true)
     }()
+
+    static var linuxProbeFailure: String? { linuxProbe.failure }
 
     /// Order matters: bubblewrap applies mounts in sequence, so the private `/tmp` and the hidden
     /// data folder come before the writable bind, which may live under either of them.
-    static func linuxArguments(writable: String, directory: String, readable: String? = nil, protecting: String?) -> [String] {
+    static func linuxArguments(writable: String, directory: String, readable: String? = nil, protecting: String?, mountProc: Bool = true) -> [String] {
         var arguments = [
             "--die-with-parent", "--new-session", "--unshare-all", "--share-net",
-            "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp",
+            "--dev", "/dev",
         ]
+        if mountProc { arguments += ["--proc", "/proc"] }
+        arguments += ["--tmpfs", "/tmp"]
         for path in linuxSystemPaths where FileManager.default.fileExists(atPath: path) {
             arguments += ["--ro-bind", path, path]
         }
