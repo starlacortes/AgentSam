@@ -423,6 +423,9 @@ public actor ConversationEngine {
         let missionTools = context.missionIDs.isEmpty ? [] : ConversationMissionTools.definitions
         let extendedTools = access == nil ? [] : ExtendedWorkspaceTools.definitions
         let tools = connectorTools + ChatWorkspaceTools.definitions + extendedTools + missionTools + SkillTools.definitions
+        // Only tools offered in this request may run. Without this check a made-up name (or a tool
+        // from another context) fell through to the connector branch and became an approval card.
+        let offered = Set(tools.map(\.function.name))
         let system = ConversationPrompts.directResponseSystem(coordinator: coordinator, context: context, connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedTools: access != nil, store: promptStore, language: language)
         let text = context.userTurn(userText)
         // The context now rides in the user turn instead of the system prompt; budget for it on top
@@ -443,7 +446,9 @@ public actor ConversationEngine {
             for call in calls {
                 await beginStep(ConversationPrompts.toolStepLabel(call.function.name, language: language), in: ref)
                 let outcome: ToolOutcome
-                if ChatWorkspaceTools.owns(call.function.name) {
+                if !offered.contains(call.function.name) {
+                    outcome = .failure(Self.unknownToolMessage(call.function.name, offered: offered))
+                } else if ChatWorkspaceTools.owns(call.function.name) {
                     if call.function.name == "run_program" {
                         runs += 1
                         if runs > ChatWorkspaceTools.maxRunsPerTurn {
@@ -515,6 +520,19 @@ public actor ConversationEngine {
                 : "I used all the tool steps for this reply before finishing. Ask me to continue and I will pick up from here."
         }
         return answer
+    }
+
+    /// The result for a call to a tool that was not offered: names the closest real tools so the
+    /// model can correct itself instead of guessing again.
+    static func unknownToolMessage(_ name: String, offered: Set<String>) -> String {
+        let words = Set(name.lowercased().split(whereSeparator: { $0 == "_" || $0 == "-" }).map(String.init))
+        let scored = offered.map { candidate -> (String, Int) in
+            let parts = Set(candidate.split(separator: "_").map(String.init))
+            return (candidate, parts.intersection(words).count)
+        }
+        let close = scored.filter { $0.1 > 0 }.sorted { $0.1 != $1.1 ? $0.1 > $1.1 : $0.0 < $1.0 }.prefix(3).map(\.0)
+        let suggestion = close.isEmpty ? "" : " Closest available: \(close.joined(separator: ", "))."
+        return "Unknown tool: \(name). It is not available in this reply, so nothing ran and no approval was requested.\(suggestion) Use only the tools listed for this reply."
     }
 
     /// Streams text into the running response, throttled so storage is not rewritten per token.

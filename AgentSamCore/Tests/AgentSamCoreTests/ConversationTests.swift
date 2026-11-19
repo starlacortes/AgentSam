@@ -84,6 +84,55 @@ final class ConversationTests: XCTestCase {
         await engine.shutdown()
     }
 
+    func testUnknownToolNamesFailWithoutCreatingApprovalCards() async throws {
+        let store = MissionStore(root: directory)
+        await store.saveProviders([provider])
+        let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
+        try keys.set("test-key", for: provider.keyAccount)
+        let hub = ConnectorHub(store: store, keyRing: keys, google: GoogleOAuth(clientID: "", clientSecret: ""))
+        let conversations = ConversationStore(root: directory)
+        let memory = WorkspaceMemoryStore(root: directory)
+        let access = ConversationAccess(root: directory)
+        let toolResults = LockedStrings()
+        let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, connectors: hub, missions: MissionEngine(store: store, keyRing: keys), access: access, completion: { _, _, _, system, messages, _ in
+            if system.contains("Decide how to handle") { return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub") }
+            if messages.allSatisfy({ $0.role != "tool" }) {
+                return LLMReply(message: APIMessage(role: "assistant", content: nil, tool_calls: [
+                    APIToolCall(id: "made-up", function: .init(name: "web_browse", arguments: #"{"url":"https://example.test"}"#)),
+                    APIToolCall(id: "mission", function: .init(name: "mission_read_file", arguments: #"{"mission_id":"x","path":"a.md"}"#)),
+                ]), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
+            toolResults.append(contentsOf: messages.filter { $0.role == "tool" }.compactMap(\.content))
+            return LLMReply(message: .assistant("That tool is not available."), inputTokens: 0, outputTokens: 0, model: "stub")
+        })
+        let conversation = try await conversations.create(ownerID: "owner")
+        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Browse example.test", launchedBy: "Owner", language: "en")
+        _ = try await finishedConversation(conversations, id: conversation.id)
+        let actions = await access.actions.list(ownerID: "owner", conversationID: conversation.id)
+        XCTAssertTrue(actions.isEmpty, "A made-up tool created an approval card: \(actions.map(\.toolName))")
+        let results = toolResults.values
+        XCTAssertEqual(results.count, 2)
+        XCTAssertTrue(results.allSatisfy { $0.hasPrefix("Unknown tool:") }, results.joined(separator: "\n"))
+        XCTAssertTrue(results[0].contains("web_browse"))
+        await engine.shutdown()
+    }
+
+    func testUnknownToolMessageSuggestsClosestTools() {
+        let message = ConversationEngine.unknownToolMessage("chat_read", offered: ["chat_read_file", "chat_write_file", "run_program"])
+        XCTAssertTrue(message.contains("Closest available: chat_read_file, chat_write_file."), message)
+        XCTAssertFalse(message.contains("run_program"), message)
+        let none = ConversationEngine.unknownToolMessage("teleport", offered: ["run_program"])
+        XCTAssertFalse(none.contains("Closest"), none)
+    }
+
+    func testScheduleIntervalSchemaUsesIntegerEnum() throws {
+        let tool = try XCTUnwrap(ChatWorkspaceTools.definitions.first { $0.function.name == "chat_schedule_run" })
+        let interval = tool.function.parameters.objectValue?["properties"]?.objectValue?["intervalMinutes"]?.objectValue
+        XCTAssertEqual(interval?["type"]?.stringValue, "integer")
+        guard case .array(let values)? = interval?["enum"] else { return XCTFail("intervalMinutes has no enum") }
+        XCTAssertEqual(values.compactMap(\.numberValue), [15, 30, 60, 360, 720, 1440])
+    }
+
     func testDeleteToolOnlyRequestsApprovalUntilDenied() async throws {
         let store = MissionStore(root: directory)
         await store.saveProviders([provider])
@@ -1019,4 +1068,12 @@ final class ConversationTests: XCTestCase {
         XCTAssertEqual(savedAfterCancel.count, 2)
         XCTAssertNil(savedAfterCancel.last ?? nil)
     }
+}
+
+/// Collects strings from a @Sendable completion stub.
+final class LockedStrings: @unchecked Sendable {
+    private let lock = NSLock()
+    private var items: [String] = []
+    func append(contentsOf strings: [String]) { lock.withLock { items += strings } }
+    var values: [String] { lock.withLock { items } }
 }

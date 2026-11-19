@@ -232,7 +232,7 @@ public enum ChatWorkspaceTools {
                         ("prompt", .object([("type", .string("string")), ("description", .string("The instruction to run each time, written as the user would phrase it, e.g. \"Refresh the list and update the saved file with anything new\""))])),
                         ("intervalMinutes", .object([
                             ("type", .string("integer")),
-                            ("enum", .array([.string("15"), .string("30"), .string("60"), .string("360"), .string("720"), .string("1440")])),
+                            ("enum", .array([.number(15), .number(30), .number(60), .number(360), .number(720), .number(1440)])),
                             ("description", .string("How often to run: 15 or 30 minutes, 60 (hourly), 360 (every 6 hours), 720 (every 12 hours), or 1440 (daily)")),
                         ])),
                     ])),
@@ -548,6 +548,11 @@ enum CodeRunner {
         // the program reads, so it cannot happen here either.
         let stdinData = Data(stdin.utf8)
 
+        // One termination handler signals the exit. Several threads blocking in waitUntilExit on
+        // the same Process race inside swift-corelibs-foundation and can crash on Linux.
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
+
         do {
             try process.run()
         } catch {
@@ -570,16 +575,16 @@ enum CodeRunner {
         // after exec; the group still belongs to the child.
         let pid = process.processIdentifier
         let processGroup = setpgid(pid, pid) == 0 || getpgid(pid) == pid ? pid : -1
-        let timedOut = !waitWithTimeout(process, seconds: timeout)
+        let timedOut = exited.wait(timeout: .now() + timeout) == .timedOut
         if timedOut {
             // The child can inherit a signal mask that blocks SIGTERM (Swift concurrency's worker
             // threads block it on Linux), so SIGKILL always follows. Killing bubblewrap's outer
             // process also ends everything inside the sandbox (--die-with-parent).
             if processGroup > 0 { kill(-processGroup, SIGTERM) } else { process.terminate() }
-            if !waitForExit(process, seconds: 3) {
+            if exited.wait(timeout: .now() + 3) == .timedOut {
                 if processGroup > 0 { kill(-processGroup, SIGKILL) }
                 kill(pid, SIGKILL)
-                _ = waitForExit(process, seconds: 3)
+                _ = exited.wait(timeout: .now() + 3)
             }
         }
         // A stray grandchild that escaped the group could hold the pipes open forever.
@@ -600,30 +605,6 @@ enum CodeRunner {
         }
         let reason = process.terminationReason == .uncaughtSignal ? "the program was stopped" : "exit code \(status)"
         return ToolOutcome(resultText: "Failed (\(reason)). Output:\n\(clipped.isEmpty ? "(no output)" : clipped)")
-    }
-
-    /// Waits for the process to exit, returning false when `seconds` elapse first. A background
-    /// thread blocks in `waitUntilExit` and signals; if it never does, the caller kills the process
-    /// and the thread's wait returns on its own.
-    private static func waitWithTimeout(_ process: Process, seconds: TimeInterval) -> Bool {
-        let sem = DispatchSemaphore(value: 0)
-        let watcher = Thread {
-            process.waitUntilExit()
-            sem.signal()
-        }
-        watcher.start()
-        return sem.wait(timeout: .now() + seconds) == .success
-    }
-
-    /// Same shape as `waitWithTimeout` but for a short, bounded cleanup wait.
-    private static func waitForExit(_ process: Process, seconds: TimeInterval) -> Bool {
-        let sem = DispatchSemaphore(value: 0)
-        let watcher = Thread {
-            process.waitUntilExit()
-            sem.signal()
-        }
-        watcher.start()
-        return sem.wait(timeout: .now() + seconds) == .success
     }
 }
 
