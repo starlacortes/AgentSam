@@ -111,10 +111,6 @@ export function MissionPage() {
     return error ? <ErrorBanner message={error} /> : <div className="center"><Spinner /></div>
   }
 
-  const followUp = mission
-    ? `/missions/new?team=${encodeURIComponent(mission.teamID)}&objective=${encodeURIComponent(`Follow-up to “${mission.objective.trim()}”: `)}`
-    : '/missions/new'
-
   return (
     <>
       <div className="page-head">
@@ -145,8 +141,8 @@ export function MissionPage() {
           ) : null}
           {finished ? (
             <>
-              <Link className="btn ghost" to={followUp}>
-                {t('Follow up')}
+              <Link className="btn ghost" to="/">
+                {t('Follow up with Ada')}
               </Link>
               <button className="btn ghost" disabled={busy} onClick={() => void runAgain()}>
                 {busy ? t('Launching…') : t('Run again')}

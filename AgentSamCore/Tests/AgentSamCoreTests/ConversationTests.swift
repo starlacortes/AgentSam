@@ -704,7 +704,7 @@ final class ConversationTests: XCTestCase {
         let ada = AgentProfile.rosterTemplates[0]
         // Chat calls already send the history as real messages, so the system prompt must not repeat it.
         let direct = ConversationPrompts.directResponseSystem(coordinator: ada, context: context, connectorTools: [], hasLinkedMissions: false, store: prompts, language: "en")
-        let routing = ConversationPrompts.routingSystem(coordinator: ada, teams: [], context: context, store: prompts, language: "en")
+        let routing = ConversationPrompts.routingSystem(coordinator: ada, skills: "", context: context, store: prompts, language: "en")
         for system in [direct, routing] {
             XCTAssertFalse(system.contains("Plan the alpaca newsletter"))
             XCTAssertFalse(system.contains("Recent conversation"))

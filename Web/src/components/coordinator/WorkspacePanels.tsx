@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, errorMessage } from '../../api/client'
-import type { AccessAuditEntry, ConnectorPermissions, ConnectorStatus, HostFolderGrant, Team, WorkspaceKnowledge, WorkspaceKnowledgeDocumentID, WorkspaceMemory } from '../../api/types'
+import type { AccessAuditEntry, ConnectorPermissions, ConnectorStatus, HostFolderGrant, WorkspaceKnowledge, WorkspaceKnowledgeDocumentID, WorkspaceMemory } from '../../api/types'
 import type { VoiceInfo } from '../../api/chatTypes'
 import { useAuth } from '../../auth/AuthContext'
 import { useI18n } from '../../i18n'
@@ -14,14 +14,6 @@ import type { PanelName } from './CoordinatorSidebar'
 
 function Switch({ checked, label, onChange, disabled = false }: { checked: boolean; label: string; onChange: () => void; disabled?: boolean }) {
   return <button type="button" className="co-switch" role="switch" aria-checked={checked} aria-label={label} disabled={disabled} onClick={onChange} />
-}
-
-function TeamsPanel({ teams, onNewTeam }: { teams: Team[]; onNewTeam: () => void }) {
-  const { t } = useI18n()
-  return <section><div className="co-section-heading"><h3>{t('Your teams')}</h3><span>{teams.length}</span></div><p className="co-panel-note">{t('Ada chooses the smallest team that fits. Ask in chat to create or change a roster.')}</p>
-    {teams.map((team) => <article className="co-team-card" key={team.id}><div className="co-team-card-head"><span className="co-team-emoji">{team.emoji}</span><div><b>{team.name}</b><small>{t('{count} agents', { count: team.agents.length })}</small></div></div><p>{team.goal || t('A specialist team for your workspace.')}</p><div className="co-avatar-stack">{team.agents.map((agent) => <span className="co-tiny-avatar" key={agent.id} title={`${agent.name} · ${agent.title}`}>{agent.name[0]}</span>)}</div><div className="co-team-actions"><Link to={`/teams/${team.id}`}>{t('Edit team')} →</Link></div></article>)}
-    <div className="co-panel-actions"><button className="co-primary-button" onClick={onNewTeam}><Icon name="spark" size={14} />{t('Design a team with Ada')}</button><Link className="co-secondary-button" to="/teams/new">{t('Create manually')}</Link><Link className="co-secondary-button" to="/templates">{t('Browse templates')}</Link></div>
-  </section>
 }
 
 function ConnectorCard({ connector, onChange }: { connector: ConnectorStatus; onChange: (connector: ConnectorStatus) => void }) {
@@ -78,7 +70,7 @@ function ConnectorCard({ connector, onChange }: { connector: ConnectorStatus; on
     {isAdmin && (connector.id === 'cloudflare' || connector.id === 'github') ? <form className="co-credential-form" onSubmit={(event) => { event.preventDefault(); void saveCredentials() }}><label className="field"><span>{connector.id === 'github' ? t('GitHub token') : t('Cloudflare API token')}</span><input className="input" type="password" autoComplete="off" value={secret} onChange={(event) => setSecret(event.target.value)} placeholder={connector.configured ? t('Replace saved token') : t('Paste API token')} required /></label><button className="co-secondary-button" disabled={busy || !secret.trim()}>{t('Save token')}</button></form> : null}
     {isAdmin && connector.id === 'googleads' ? <form className="co-credential-form" onSubmit={(event) => { event.preventDefault(); void saveCredentials() }}><label className="field"><span>{t('Developer token')}</span><input className="input" type="password" autoComplete="off" value={secret} onChange={(event) => setSecret(event.target.value)} placeholder={t('Optional if already saved')} /></label><label className="field"><span>{t('Customer ID')}</span><input className="input" value={customerID} onChange={(event) => setCustomerID(event.target.value)} placeholder="1234567890" /></label><button className="co-secondary-button" disabled={busy || (!secret.trim() && !customerID.trim())}>{t('Save credentials')}</button></form> : null}
     {isAdmin ? <div className="co-connector-actions"><button className="co-text-button" disabled={busy || !connector.configured} onClick={() => void test()}>{busy ? t('Testing…') : t('Test connection')}</button>{connector.configured ? <button className="co-text-button danger" disabled={busy} onClick={() => {
-      if (!window.confirm(t('Disconnect {name}? Ada and your teams will lose access.', { name: connector.name }))) return
+      if (!window.confirm(t('Disconnect {name}? Ada will lose access.', { name: connector.name }))) return
       setBusy(true)
       void api(`connectors/${connector.id}/disconnect`, { method: 'POST' }).then(async () => onChange(await api<ConnectorStatus>(`connectors/${connector.id}`))).catch((err) => setError(errorMessage(err))).finally(() => setBusy(false))
     }}>{t('Disconnect')}</button> : null}</div> : null}
@@ -98,7 +90,7 @@ function KnowledgePanel({ knowledge, onChange }: { knowledge: WorkspaceKnowledge
     try { onChange(await api<WorkspaceKnowledge>('workspace/knowledge/refresh', { method: 'POST' })) } catch (err) { setError(errorMessage(err)) } finally { setBusy(false) }
   }
   return <section><div className="co-setting-card"><div className="co-knowledge-toolbar"><div><b>{t('Workspace knowledge')}</b><div className="co-memory-meta">{knowledge?.updatedAt ? `${t('{count} refreshes', { count: knowledge.refreshCount })} · ${new Date(knowledge.updatedAt).toLocaleString()}` : t('Discovering your workspace…')}</div></div><button className="co-secondary-button" disabled={busy} onClick={() => void refresh()}><Icon name="refresh" size={14} />{busy ? t('Refreshing…') : t('Refresh now')}</button></div>
-    <p className="co-panel-note">{t('Built from live teams, providers, tools, connections, and projects. Refreshed on first launch, when changes are detected, and at least daily. No credentials or connected content are included.')}</p>
+    <p className="co-panel-note">{t('Built from live skills, providers, tools, connections, and projects. Refreshed on first launch, when changes are detected, and at least daily. No credentials or connected content are included.')}</p>
     <div className="co-knowledge-tabs" aria-label={t('Knowledge documents')}>{knowledge?.documents.map((item) => <button key={item.id} className={document?.id === item.id ? 'active' : ''} aria-pressed={document?.id === item.id} onClick={() => setSelected(item.id)}>{item.id === 'capabilities' ? t('Capabilities') : item.id === 'connections' ? t('Connections') : t('Projects')}</button>)}</div>
     <pre className="co-memory-doc">{document?.markdown ?? t('Discovering your workspace…')}</pre>
     {document ? <a className="co-secondary-button co-download" href={`/api/workspace/knowledge/${document.id}/export`} download><Icon name="download" size={14} />{t('Export {name}.md', { name: document.id })}</a> : null}
@@ -170,12 +162,12 @@ function SettingsPanel({ onRestartGuide }: { onRestartGuide: () => Promise<void>
   }, [isAdmin])
   return <section><div className="co-setting-card"><h3>{t('Your preferences')}</h3><div className="co-setting-row"><span>{t('Language')}</span><LanguageToggle /></div><Link className="co-setting-link" to="/account">{t('Account & app tokens')} →</Link>{isAdmin ? <><Link className="co-setting-link" to="/settings">{t('Model providers')} →</Link><Link className="co-setting-link" to="/people">{t('People & invitations')} →</Link></> : null}<Link className="co-setting-link" to="/missions">{t('Mission history & files')} →</Link>{voiceInfo ? <VoiceSettingsPanel info={voiceInfo} onSaved={setVoiceInfo} onError={setError} /> : null}</div>
     <HostAccessPanel />
-    <div className="co-guide-reset"><h3>{t('A quick guide, whenever you need it')}</h3><p>{t('Three short steps explain chat, teams, and connections. Restarting changes only the guide—not your chats, teams, providers, connections, or memory.')}</p><button className="co-secondary-button" disabled={busy} onClick={() => { setBusy(true); setError(null); void onRestartGuide().catch((err) => setError(errorMessage(err))).finally(() => setBusy(false)) }}><Icon name="memory" size={14} />{t('Restart the guide')}</button><ErrorBanner message={error} /></div>
+    <div className="co-guide-reset"><h3>{t('A quick guide, whenever you need it')}</h3><p>{t('Three short steps explain chat, how Ada gets help, and connections. Restarting changes only the guide—not your chats, providers, connections, or memory.')}</p><button className="co-secondary-button" disabled={busy} onClick={() => { setBusy(true); setError(null); void onRestartGuide().catch((err) => setError(errorMessage(err))).finally(() => setBusy(false)) }}><Icon name="memory" size={14} />{t('Restart the guide')}</button><ErrorBanner message={error} /></div>
     <button className="co-secondary-button co-signout" onClick={() => void signOut()}>{t('Sign out')}</button>
   </section>
 }
 
-export function WorkspacePanel({ panel, teams, connectors, memory, knowledge, onConnectors, onMemory, onKnowledge, onClose, onNewTeam, onRestartGuide }: { panel: PanelName; teams: Team[]; connectors: ConnectorStatus[]; memory: WorkspaceMemory | null; knowledge: WorkspaceKnowledge | null; onConnectors: (connectors: ConnectorStatus[]) => void; onMemory: (memory: WorkspaceMemory) => void; onKnowledge: (knowledge: WorkspaceKnowledge) => void; onClose: () => void; onNewTeam: () => void; onRestartGuide: () => Promise<void> }) {
+export function WorkspacePanel({ panel, connectors, memory, knowledge, onConnectors, onMemory, onKnowledge, onClose, onRestartGuide }: { panel: PanelName; connectors: ConnectorStatus[]; memory: WorkspaceMemory | null; knowledge: WorkspaceKnowledge | null; onConnectors: (connectors: ConnectorStatus[]) => void; onMemory: (memory: WorkspaceMemory) => void; onKnowledge: (knowledge: WorkspaceKnowledge) => void; onClose: () => void; onRestartGuide: () => Promise<void> }) {
   const { t } = useI18n()
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
@@ -183,14 +175,12 @@ export function WorkspacePanel({ panel, teams, connectors, memory, knowledge, on
     if (panel === 'knowledge') api<WorkspaceKnowledge>('workspace/knowledge').then(onKnowledge).catch((err) => setError(errorMessage(err)))
   }, [panel, onConnectors, onKnowledge])
   const content = {
-    teams: { title: t('Teams'), eyebrow: t('Your specialist workspace'), description: t('One coordinator, the right specialists, one clear response.') },
-    connections: { title: t('Connections'), eyebrow: t('Bring your tools'), description: t('Give Ada and your teams access to the services you choose.') },
+    connections: { title: t('Connections'), eyebrow: t('Bring your tools'), description: t('Give Ada access to the services you choose.') },
     knowledge: { title: t('Workspace knowledge'), eyebrow: t('Discovered and kept current'), description: t('The live guide to your capabilities, connections, and projects, available to Ada in every chat.') },
     memory: { title: t('Workspace memory'), eyebrow: t('Context that carries forward'), description: t('Inspect the actual Markdown Ada uses across your workspace.') },
     settings: { title: t('Settings & guide'), eyebrow: t('Make it yours'), description: t('Simple controls, without resetting your work.') },
   }[panel]
   return <Drawer {...content} onClose={onClose}>
-    {panel === 'teams' ? <TeamsPanel teams={teams} onNewTeam={onNewTeam} /> : null}
     {panel === 'connections' ? <section><ErrorBanner message={error} />{connectors.map((connector) => <ConnectorCard key={connector.id} connector={connector} onChange={(updated) => onConnectors(connectors.map((item) => item.id === updated.id ? updated : item))} />)}<div className="co-safety-note"><Icon name="shield" /><p>{t('External writes always need your explicit, one-use approval. Connector permissions still apply. Review the exact arguments before approving; read tools do not need approval.')}</p></div></section> : null}
     {panel === 'knowledge' ? <KnowledgePanel knowledge={knowledge} onChange={onKnowledge} /> : null}
     {panel === 'memory' ? <MemoryPanel memory={memory} onChange={onMemory} /> : null}

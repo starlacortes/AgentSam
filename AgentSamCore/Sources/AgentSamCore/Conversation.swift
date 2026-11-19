@@ -377,6 +377,9 @@ public struct GuideState: Codable, Hashable, Sendable {
 public enum ConversationRoute: String, Codable, Sendable {
     case direct = "DIRECT"
     case solo = "SOLO"
+    /// Run one or more skills: the server assembles each skill's specialists and runs them as a mission.
+    case useSkill = "USE_SKILL"
+    /// Older routing prompts (kept by operators who edited theirs) still name teams; mapped to skills.
     case routeTeam = "ROUTE_TEAM"
     case proposeTeam = "PROPOSE_TEAM"
     case clarify = "CLARIFY"
@@ -405,15 +408,18 @@ public struct TeamProposalDraft: Decodable, Sendable {
 public struct ConversationDecision: Decodable, Sendable {
     public var action: ConversationRoute
     public var message: String?
+    /// For USE_SKILL: the skill IDs to run, at most three.
+    public var skillIDs: [String]?
     public var teamIDs: [UUID]?
     public var rationale: String?
     public var proposal: TeamProposalDraft?
     /// For CLARIFY: two to four short answers the user can pick with one click.
     public var options: [String]?
 
-    public init(action: ConversationRoute, message: String? = nil, teamIDs: [UUID]? = nil, rationale: String? = nil, proposal: TeamProposalDraft? = nil, options: [String]? = nil) {
+    public init(action: ConversationRoute, message: String? = nil, skillIDs: [String]? = nil, teamIDs: [UUID]? = nil, rationale: String? = nil, proposal: TeamProposalDraft? = nil, options: [String]? = nil) {
         self.action = action
         self.message = message
+        self.skillIDs = skillIDs
         self.teamIDs = teamIDs
         self.rationale = rationale
         self.proposal = proposal

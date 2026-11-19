@@ -16,6 +16,7 @@ public actor ConversationEngine {
     private let missions: MissionEngine
     private let promptStore: PromptStore
     private let access: ConversationAccess?
+    private let skills: SkillStore
     private let directContextBudgetTokens = 20_000
     /// Output cap for spoken replies written without tools (team summaries, the last answer after the tool
     /// budget). A backstop only: the voice style asks for about 60 spoken words plus optional on-screen detail.
@@ -26,7 +27,7 @@ public actor ConversationEngine {
     private var running: [UUID: Task<Void, Never>] = [:]
     private var memoryJobs: [UUID: Task<Void, Never>] = [:]
 
-    public init(store: MissionStore, conversations: ConversationStore, memory: WorkspaceMemoryStore, workspace: ChatWorkspaceStore? = nil, keyRing: KeyRing, client: LLMClient = LLMClient(), connectors: ConnectorHub? = nil, missions: MissionEngine, promptStore: PromptStore? = nil, access: ConversationAccess? = nil, knowledge: WorkspaceKnowledgeStore? = nil, photos: ConversationPhotoStore? = nil) {
+    public init(store: MissionStore, conversations: ConversationStore, memory: WorkspaceMemoryStore, workspace: ChatWorkspaceStore? = nil, keyRing: KeyRing, client: LLMClient = LLMClient(), connectors: ConnectorHub? = nil, missions: MissionEngine, promptStore: PromptStore? = nil, access: ConversationAccess? = nil, knowledge: WorkspaceKnowledgeStore? = nil, photos: ConversationPhotoStore? = nil, skills: SkillStore? = nil) {
         self.store = store
         self.conversations = conversations
         self.memory = memory
@@ -39,11 +40,12 @@ public actor ConversationEngine {
         self.missions = missions
         self.promptStore = promptStore ?? PromptStore(builtins: PromptStore.builtins)
         self.access = access
+        self.skills = skills ?? SkillStore(root: store.root)
         self.completionOverride = nil
         self.missionOverride = nil
     }
 
-    init(store: MissionStore, conversations: ConversationStore, memory: WorkspaceMemoryStore, workspace: ChatWorkspaceStore? = nil, keyRing: KeyRing, connectors: ConnectorHub? = nil, missions: MissionEngine, promptStore: PromptStore? = nil, access: ConversationAccess? = nil, knowledge: WorkspaceKnowledgeStore? = nil, photos: ConversationPhotoStore? = nil, completion: @escaping Completion, missionRunner: MissionRunner? = nil) {
+    init(store: MissionStore, conversations: ConversationStore, memory: WorkspaceMemoryStore, workspace: ChatWorkspaceStore? = nil, keyRing: KeyRing, connectors: ConnectorHub? = nil, missions: MissionEngine, promptStore: PromptStore? = nil, access: ConversationAccess? = nil, knowledge: WorkspaceKnowledgeStore? = nil, photos: ConversationPhotoStore? = nil, skills: SkillStore? = nil, completion: @escaping Completion, missionRunner: MissionRunner? = nil) {
         self.store = store
         self.conversations = conversations
         self.memory = memory
@@ -56,6 +58,7 @@ public actor ConversationEngine {
         self.missions = missions
         self.promptStore = promptStore ?? PromptStore(builtins: PromptStore.builtins)
         self.access = access
+        self.skills = skills ?? SkillStore(root: store.root)
         self.completionOverride = completion
         self.missionOverride = missionRunner
     }
@@ -143,10 +146,13 @@ public actor ConversationEngine {
         do {
             guard let conversation = try await conversations.get(id: conversationID, ownerID: ownerID) else { return }
             let allTeams = await store.loadTeams()
-            // The solo team is Ada's own permanent roster; it is never a routing target.
-            let teams = allTeams.filter { $0.id != Self.soloTeamID }
+            // Any team saved on disk (for example through the API) becomes a skill the first time it
+            // is seen. The solo team is Ada's own roster and is never a skill.
+            await skills.migrate(teams: allTeams, skipping: [Self.soloTeamID])
+            let skillList = await skills.enabled()
             let providers = await store.loadProviders()
             let coordinator = try coordinator(providers: providers)
+            let catalog = SkillTeams.catalog(skillList)
             let history = conversation.messages.filter { $0.status != .running && (!$0.text.isEmpty || !$0.photos.isEmpty) }
             let workspaceMemory = await memory.state(ownerID: ownerID)
             let memoryText = workspaceMemory.enabled ? workspaceMemory.markdown : ""
@@ -164,16 +170,15 @@ public actor ConversationEngine {
             if Self.isQuickSpokenQuestion(userMessage, history: history) {
                 decision = ConversationDecision(action: .direct)
             } else {
-                decision = try await route(userText: userText, coordinator: coordinator, teams: teams, context: context, history: history, language: language)
+                decision = try await route(userText: userText, coordinator: coordinator, skills: catalog, context: context, history: history, language: language)
             }
             if decision == nil {
-                let retrySystem = ConversationPrompts.routingSystem(coordinator: coordinator, teams: teams, context: context, store: promptStore, language: language) + "\nYour previous response was not valid. Return exactly one JSON object matching the contract, with a valid action."
+                let retrySystem = ConversationPrompts.routingSystem(coordinator: coordinator, skills: catalog, context: context, store: promptStore, language: language) + "\nYour previous response was not valid. Return exactly one JSON object matching the contract, with a valid action."
                 let retry = try await complete(coordinator: coordinator, system: retrySystem, messages: Self.chatTurns(from: history.dropLast()) + [.user(userText)], tools: nil)
                 decision = ConversationDecision.parse(retry.message.content ?? "")
             }
 
             var responseText: String
-            var proposal: TeamProposal?
             var missionIDs: [UUID] = []
             var teamIDs: [UUID] = []
             var activity = [AgentActivity(agentID: coordinator.id, agentName: "Ada", summary: language == "es" ? "Respondiendo directamente" : "Answering directly", state: "working")]
@@ -210,13 +215,13 @@ public actor ConversationEngine {
                     (solo.agents).map { AgentActivity(agentID: $0.id, agentName: $0.name, summary: mission.status == .completed ? (es ? "Trabajo completado" : "Work completed") : mission.status.rawValue, state: mission.status == .completed ? "done" : "failed", teamID: solo.id, teamName: solo.name) }
                 }
                 activity.insert(AgentActivity(agentID: coordinator.id, agentName: "Ada", summary: es ? "Respuesta consolidada" : "Response consolidated", state: "done"), at: 0)
-            case .routeTeam:
-                let selected = Array((decision?.teamIDs ?? []).compactMap { id in teams.first(where: { $0.id == id && !$0.workers.isEmpty }) }.prefix(3))
+            case .useSkill, .routeTeam:
+                let selected = await skillTeams(for: decision, skills: skillList, teams: allTeams, coordinator: coordinator, providers: providers)
                 if selected.isEmpty {
                     await beginStep(writing, in: ref)
                     responseText = try await directAnswer(userText: directText, photos: photoInput, coordinator: coordinator, context: context, history: history, language: language, ref: ref, conversationID: conversationID, writtenFiles: &writtenFiles)
                 } else {
-                    let rationale = shortSummary(decision?.rationale ?? decision?.message, fallback: language == "es" ? "Coordinando equipos especialistas" : "Coordinating specialist teams")
+                    let rationale = shortSummary(decision?.rationale ?? decision?.message, fallback: language == "es" ? "Coordinando especialistas" : "Coordinating specialists")
                     activity[0].summary = rationale
                     teamIDs = selected.map(\.id)
                     let teamList = selected.map(\.name).joined(separator: ", ")
@@ -224,7 +229,7 @@ public actor ConversationEngine {
                         message.teamIDs = teamIDs
                         message.activity = activity
                         Self.settleSteps(&message.steps, as: "done")
-                        message.steps.append(MessageStep(label: es ? "Trabajando con \(teamList)" : "Working with \(teamList)"))
+                        message.steps.append(MessageStep(label: es ? "Trabajando con especialistas: \(teamList)" : "Working with specialists: \(teamList)"))
                     }
                     let routed = try await withThrowingTaskGroup(of: Mission.self, returning: [Mission].self) { group in
                         for team in selected {
@@ -251,23 +256,14 @@ public actor ConversationEngine {
                     }
                     activity.insert(AgentActivity(agentID: coordinator.id, agentName: "Ada", summary: language == "es" ? "Respuesta consolidada" : "Response consolidated", state: "done"), at: 0)
                 }
-            case .proposeTeam:
-                if let draft = decision?.proposal, let made = try? TeamProposalValidation.make(draft: draft, teams: teams, providers: providers) {
-                    await beginStep(es ? "Preparando la propuesta de equipo" : "Drafting a team proposal", in: ref)
-                    proposal = made
-                    responseText = try await directAnswer(userText: directText, photos: photoInput, coordinator: coordinator, context: context, history: history, language: language, proposal: made, ref: ref, conversationID: conversationID, writtenFiles: &writtenFiles)
-                    activity[0].summary = language == "es" ? "Propuesta lista para revisar" : "Proposal ready for your review"
-                } else {
-                    responseText = language == "es"
-                        ? "No pude preparar una propuesta válida. Dime qué especialistas necesitas y qué proveedor y modelo deben usar."
-                        : "I couldn’t prepare a valid team draft. Tell me which specialists you need and which configured provider and model they should use."
-                }
             case .clarify:
                 responseText = decision?.message?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 if responseText.isEmpty { responseText = language == "es" ? "¿Qué resultado te gustaría conseguir?" : "What outcome would you like to achieve?" }
                 activity[0].summary = language == "es" ? "Una pregunta antes de continuar" : "One question before continuing"
                 quickReplies = ConversationMessage.cleanQuickReplies(decision?.options ?? [])
-            case .direct, nil:
+            case .direct, .proposeTeam, nil:
+                // Teams are no longer proposed to people; an older stored prompt that still asks to
+                // propose one gets a direct answer instead.
                 await beginStep(writing, in: ref)
                 responseText = try await directAnswer(userText: directText, photos: photoInput, coordinator: coordinator, context: context, history: history, language: language, ref: ref, conversationID: conversationID, writtenFiles: &writtenFiles)
             }
@@ -296,7 +292,6 @@ public actor ConversationEngine {
                 message.text = trimmed
                 message.speech = speech
                 message.status = .complete
-                message.proposal = proposal
                 message.activity = activity
                 message.quickReplies = quickReplies
                 message.fileIDs = fileIDs
@@ -325,6 +320,28 @@ public actor ConversationEngine {
         }
     }
 
+    /// The teams to run for a USE_SKILL decision, at most three. Skills are matched by ID or name;
+    /// an older ROUTE_TEAM decision is matched by the team each skill runs as. Each built-in or
+    /// Ada-saved skill's team is saved so mission history can show who worked on it.
+    private func skillTeams(for decision: ConversationDecision?, skills: [Skill], teams: [Team], coordinator: AgentProfile, providers: [ProviderConfig]) async -> [Team] {
+        var chosen: [Skill] = []
+        for id in decision?.skillIDs ?? [] {
+            let key = id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if let skill = skills.first(where: { $0.id == key || $0.name.lowercased() == key }), !chosen.contains(skill) { chosen.append(skill) }
+        }
+        for id in decision?.teamIDs ?? [] {
+            if let skill = skills.first(where: { $0.teamID == id }), !chosen.contains(skill) { chosen.append(skill) }
+        }
+        var selected: [Team] = []
+        for skill in chosen.prefix(3) {
+            let saved = teams.first(where: { $0.id == skill.teamID })
+            guard let team = SkillTeams.team(for: skill, coordinator: coordinator, providers: providers, hasKey: { self.keyRing.get($0.keyAccount) != nil }, saved: saved) else { continue }
+            if !skill.specialists.isEmpty { await store.saveTeam(team) }
+            selected.append(team)
+        }
+        return selected
+    }
+
     private func coordinator(providers: [ProviderConfig]) throws -> AgentProfile {
         guard !providers.isEmpty else { throw ConversationError.noProvider }
         var ada = AgentProfile.rosterTemplates[0]
@@ -349,7 +366,7 @@ public actor ConversationEngine {
     /// self-directed work gets the full mission pipeline — plan, workspace, run steps, report —
     /// without a persisted specialist team. The team is a stable singleton so its missions
     /// resolve in the UI; it is hidden from the routing roster because SOLO is the way to use it.
-    static let soloTeamID = UUID(uuidString: "AE4DA0A1-5F1D-4C4B-9A5A-DACA0E1E0F1F")!
+    public static let soloTeamID = UUID(uuidString: "AE4DA0A1-5F1D-4C4B-9A5A-DACA0E1E0F1F")!
 
     static func soloTeam(coordinator: AgentProfile, language: String) -> Team {
         var worker = coordinator
@@ -395,22 +412,19 @@ public actor ConversationEngine {
         return turns
     }
 
-    private func route(userText: String, coordinator: AgentProfile, teams: [Team], context: ConversationPromptContext, history: [ConversationMessage], language: String) async throws -> ConversationDecision? {
-        let system = ConversationPrompts.routingSystem(coordinator: coordinator, teams: teams, context: context, store: promptStore, language: language)
+    private func route(userText: String, coordinator: AgentProfile, skills catalog: String, context: ConversationPromptContext, history: [ConversationMessage], language: String) async throws -> ConversationDecision? {
+        let system = ConversationPrompts.routingSystem(coordinator: coordinator, skills: catalog, context: context, store: promptStore, language: language)
         let reply = try await complete(coordinator: coordinator, system: system, messages: Self.chatTurns(from: history.dropLast()) + [.user(userText)], tools: nil)
         return ConversationDecision.parse(reply.message.content ?? "")
     }
 
-    private func directAnswer(userText: String, photos photoInput: PhotoInputs = PhotoInputs(), coordinator: AgentProfile, context: ConversationPromptContext, history: [ConversationMessage], language: String, proposal: TeamProposal? = nil, ref: ResponseRef? = nil, conversationID: UUID, writtenFiles: inout [String]) async throws -> String {
+    private func directAnswer(userText: String, photos photoInput: PhotoInputs = PhotoInputs(), coordinator: AgentProfile, context: ConversationPromptContext, history: [ConversationMessage], language: String, ref: ResponseRef? = nil, conversationID: UUID, writtenFiles: inout [String]) async throws -> String {
         let connectorTools = await connectors?.toolDefs(readOnly: access == nil) ?? []
         let missionTools = context.missionIDs.isEmpty ? [] : ConversationMissionTools.definitions
         let extendedTools = access == nil ? [] : ExtendedWorkspaceTools.definitions
-        let tools = connectorTools + ChatWorkspaceTools.definitions + extendedTools + missionTools
+        let tools = connectorTools + ChatWorkspaceTools.definitions + extendedTools + missionTools + SkillTools.definitions
         let system = ConversationPrompts.directResponseSystem(coordinator: coordinator, context: context, connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedTools: access != nil, store: promptStore, language: language)
-        var text = userText
-        if let proposal {
-            text += "\n\nA team proposal has been prepared and is displayed separately for approval. Its name is \(proposal.team.name). Explain the proposal briefly, mention that no team has been created or changed yet, and ask the user to review it. Do not output JSON."
-        }
+        let text = userText
         var messages = Self.chatTurns(from: history.dropLast(), images: photoInput.history)
         messages.append(.user(text, images: photoInput.current))
         var runs = 0
@@ -458,6 +472,8 @@ public actor ConversationEngine {
                         outcome = await ExtendedWorkspaceTools.run(call: call, workspace: workspace, conversationID: conversationID, project: project, terminal: access.terminal, hosts: access.hosts, actions: access.actions, audit: access.audit)
                     }
                     if !outcome.wroteFiles.isEmpty { writtenFiles.append(contentsOf: outcome.wroteFiles) }
+                } else if SkillTools.owns(call.function.name) {
+                    outcome = await SkillTools.run(call: call, skills: skills)
                 } else if ConversationMissionTools.owns(call.function.name) {
                     outcome = await ConversationMissionTools.run(call: call, store: store, allowedMissionIDs: Set(context.missionIDs))
                 } else if let connectors {

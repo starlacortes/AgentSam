@@ -50,6 +50,8 @@ struct ServerContext: Sendable {
     let provisioningRunner: ProvisioningRunner
     let scheduler: ConversationScheduler
     let knowledgeScheduler: WorkspaceKnowledgeScheduler
+    /// Ada's skills: built-ins plus custom ones, including teams converted from before skills existed.
+    let skills: SkillStore
     /// Compared against when an email isn't found, so failed logins take the same time either way.
     let dummyPasswordHash: String
 
@@ -90,7 +92,8 @@ struct ServerContext: Sendable {
         )
         let conversations = ConversationStore(root: store.root)
         let memory = WorkspaceMemoryStore(root: store.root)
-        let knowledge = WorkspaceKnowledgeStore(store: store, conversations: conversations, connectors: connectors, keyRing: keyRing, includeExtendedTools: true)
+        let skills = SkillStore(root: store.root)
+        let knowledge = WorkspaceKnowledgeStore(store: store, conversations: conversations, connectors: connectors, keyRing: keyRing, includeExtendedTools: true, skills: skills)
         let chatWorkspace = ChatWorkspaceStore(root: store.root)
         let conversationEngine = ConversationEngine(
             store: store,
@@ -102,7 +105,8 @@ struct ServerContext: Sendable {
             missions: engine,
             promptStore: prompts,
             access: access,
-            knowledge: knowledge
+            knowledge: knowledge,
+            skills: skills
         )
 
         var token = (Environment.get("AGENTSAM_TOKEN") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -150,6 +154,7 @@ struct ServerContext: Sendable {
             provisioningRunner: provisioningRunner,
             scheduler: scheduler,
             knowledgeScheduler: knowledgeScheduler,
+            skills: skills,
             dummyPasswordHash: (try? Bcrypt.hash(Secrets.randomToken())) ?? ""
         )
     }
@@ -163,9 +168,13 @@ struct ServerContext: Sendable {
         if !FileManager.default.fileExists(atPath: connectorsURL.path) {
             await store.saveConnectorConfigs(ConnectorConfig.defaults())
         }
+        // Teams are backend-only now. The starter team is still seeded because the legacy coordinator
+        // chat API (/api/chats) runs on a team; it is covered by the built-in Research skill, so the
+        // migration below skips it. Any other team saved before skills existed becomes a custom skill.
         if await store.loadTeams().isEmpty {
             await store.saveTeam(Team.starterTeam())
         }
+        await skills.migrate(teams: await store.loadTeams(), skipping: [ConversationEngine.soloTeamID])
         prompts.ensureSeedFile()
     }
 

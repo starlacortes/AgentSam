@@ -79,7 +79,6 @@ func routes(_ app: Application, ctx: ServerContext) {
 
     authRoutes(app, ctx: ctx, authed: api)
     provisioningRoutes(app, ctx: ctx, admin: adminAPI)
-    templateRoutes(api, ctx: ctx)
     conversationRoutes(api, ctx: ctx)
     accessRoutes(api, ctx: ctx)
     chatRoutes(api, admin: adminAPI, ctx: ctx)
@@ -97,7 +96,14 @@ func routes(_ app: Application, ctx: ServerContext) {
         return try req.json(info)
     }
 
-    // MARK: Teams
+    // MARK: Skills
+
+    /// Ada's skills, read-only. People do not manage them; Ada saves her own with skill_save.
+    api.get("skills") { req async throws -> Response in
+        try req.json(await ctx.skills.all())
+    }
+
+    // MARK: Teams (backend: the specialist groups skills run as)
 
     api.get("teams") { req async throws -> Response in
         let teams = await ctx.store.loadTeams()

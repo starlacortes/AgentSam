@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, errorMessage } from '../../api/client'
-import type { AgentActionRequest, Conversation, ConversationMessage, MissionDetail, TeamProposal } from '../../api/types'
+import type { AgentActionRequest, Conversation, ConversationMessage, MissionDetail } from '../../api/types'
 import { useI18n } from '../../i18n'
-import { canApprove, cappedSpeech, voiceTranscript } from '../../lib/coordinator'
+import { cappedSpeech, voiceTranscript } from '../../lib/coordinator'
 import { Speaker } from '../../lib/voice'
 import { isHTML, isPreviewableLanguage, pickEntry } from '../../lib/preview'
 import { Markdown, type CodeTools } from '../Markdown'
@@ -12,32 +12,6 @@ import { Icon } from './Icon'
 import type { CanvasState } from './SidePanel'
 import { ThinkingIndicator, WorkSummary } from './ThinkingIndicator'
 import { photoURL } from '../../lib/photos'
-
-export function ProposalCard({ conversationID, message, onUpdated, onRevise }: { conversationID: string; message: ConversationMessage; onUpdated: (conversation: Conversation) => void; onRevise: () => void }) {
-  const { t } = useI18n()
-  const proposal = message.proposal as TeamProposal
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const act = async (action: 'apply' | 'dismiss') => {
-    setBusy(true)
-    setError(null)
-    try {
-      const result = await api<Conversation | { conversation: Conversation }>(`conversations/${conversationID}/proposals/${proposal.id}/${action}`, { method: 'POST' })
-      onUpdated('conversation' in result ? result.conversation : result)
-    } catch (err) { setError(errorMessage(err)) } finally { setBusy(false) }
-  }
-  const permissions = [proposal.toolScope.permissions.sendEmail ? t('Send email') : null, proposal.toolScope.permissions.createDraft ? t('Create drafts') : null, proposal.toolScope.permissions.dnsWrite ? t('DNS writes') : null, proposal.toolScope.permissions.githubWrite ? t('GitHub writes') : null, proposal.toolScope.permissions.adsWrite ? t('Google Ads changes') : null].filter(Boolean)
-  return <div className="co-team-proposal">
-    <div className="co-proposal-head"><Icon name="users" /><div><b>{proposal.team.name}</b><span>{proposal.baseTeamID ? t('Team modification proposal') : t('New team proposal')}</span></div><span className="co-chip">{t(proposal.status)}</span></div>
-    <p className="co-proposal-rationale">{proposal.rationale}</p>
-    <div className="co-proposal-agents">{proposal.team.agents.map((agent) => <div key={agent.id}><span className="co-tiny-avatar">{agent.name[0]}</span><div><b>{agent.name} · {agent.title}</b><small>{t(agent.role)} · {agent.providerID}/{agent.model}</small></div></div>)}</div>
-    <div className="co-proposal-permissions"><Icon name="shield" size={14} /><span>{proposal.toolScope.connectorIDs.length ? `${t('Connectors')}: ${proposal.toolScope.connectorIDs.join(', ')}` : t('No connector access')}{permissions.length ? ` · ${permissions.join(', ')}` : ` · ${t('Read only')}`}</span></div>
-    {proposal.baseTeamID ? <p className="co-proposal-warning">{t('Approval updates this roster. Past missions and files are preserved.')}</p> : null}
-    {proposal.status === 'applied' ? <Link className="co-text-link" to={`/teams/${proposal.team.id}`}>{t('Review the approved team')} →</Link> : null}
-    {canApprove(message) ? <div className="co-proposal-actions"><button className="co-primary-button" disabled={busy} onClick={() => void act('apply')}><Icon name="check" size={14} />{t('Approve team')}</button><button className="co-secondary-button" disabled={busy} onClick={onRevise}>{t('Request changes')}</button><button className="co-secondary-button" disabled={busy} onClick={() => void act('dismiss')}>{t('Not now')}</button></div> : null}
-    <ErrorBanner message={error} />
-  </div>
-}
 
 export function formatActionArguments(action: AgentActionRequest): string {
   const raw = action.arguments.raw
@@ -73,7 +47,6 @@ export function ActionApprovalCard({ action, onResolved }: { action: AgentAction
 
 export interface MessageHandlers {
   onUpdated: (conversation: Conversation) => void
-  onRevise: () => void
   onRetry: (text: string) => void
   onEdit: (text: string) => void
   onQuickReply: (text: string) => void
@@ -176,7 +149,6 @@ function Message({ conversationID, message, latest, busy, handlers, retry }: { c
           return <button key={name} type="button" className="co-source-chip" onClick={() => onOpenCanvas({ tab: isHTML(name) ? 'preview' : 'files', source: { kind: project ? 'project' : 'chat', conversationID, entry: isHTML(name) ? entry : undefined } })}><Icon name="file" size={12} />{name}</button>
         })}
       </div> : null}
-      {message.proposal ? <ProposalCard conversationID={conversationID} message={message} onUpdated={handlers.onUpdated} onRevise={handlers.onRevise} /> : null}
       {message.status === 'complete' ? <div className="co-message-actions">
         <button onClick={() => copy(message.text)}><Icon name={copied ? 'check' : 'copy'} size={12} />{copied ? t('Copied') : t('Copy')}</button>
         <button onClick={togglePlay} aria-pressed={playing}><Icon name={playing ? 'stop' : 'play'} size={12} />{playing ? t('Stop') : t('Play')}</button>
@@ -197,10 +169,10 @@ export function ConversationMessages({ conversation, busy = false, handlers, act
     const element = box.current
     if (element && pinned.current) element.scrollTop = element.scrollHeight
   }, [conversation?.messages.length, last?.status, last?.steps?.length, last?.text])
-  if (!conversation || (!conversation.messages.length && !actions.length)) return <div className="co-messages" ref={box}><div className="co-empty-chat"><span className="co-empty-orb">A</span><h1>{t('What can Ada help with?')}</h1><p>{t('Ask directly, or describe the outcome you need. Ada will bring in a team only when it helps.')}</p><div className="co-starters">
-    <button onClick={() => handlers.onStarter(t('What can you help me accomplish?'))}><Icon name="spark" /><b>{t('Start with a question')}</b><span>{t('Get a direct answer, without assembling a team.')}</span></button>
+  if (!conversation || (!conversation.messages.length && !actions.length)) return <div className="co-messages" ref={box}><div className="co-empty-chat"><span className="co-empty-orb">A</span><h1>{t('What can Ada help with?')}</h1><p>{t('Ask directly, or describe the outcome you need. Ada brings in specialists behind the scenes only when it helps.')}</p><div className="co-starters">
+    <button onClick={() => handlers.onStarter(t('What can you help me accomplish?'))}><Icon name="spark" /><b>{t('Start with a question')}</b><span>{t('Get a direct, concise answer.')}</span></button>
     <button onClick={() => handlers.onStarter(t('Build me a simple landing page for '))}><Icon name="monitor" /><b>{t('Build a web page')}</b><span>{t('Preview it live beside the chat as it takes shape.')}</span></button>
-    <button onClick={() => handlers.onStarter(t('Create a team for customer research and feedback analysis.'))}><Icon name="plus" /><b>{t('Describe your ideal team')}</b><span>{t('Ada proposes a roster for your approval.')}</span></button>
+    <button onClick={() => handlers.onStarter(t('Whenever I ask for '))}><Icon name="plus" /><b>{t('Teach Ada a routine')}</b><span>{t('She remembers the steps and follows them next time.')}</span></button>
   </div></div></div>
   const lastAssistant = conversation.messages.reduce((found, message, index) => message.role === 'assistant' ? index : found, -1)
   const jump = () => { const element = box.current; if (element) element.scrollTo({ top: element.scrollHeight, behavior: 'smooth' }) }
