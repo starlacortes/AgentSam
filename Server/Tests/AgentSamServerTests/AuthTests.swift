@@ -248,21 +248,26 @@ final class AuthTests: XCTestCase {
     }
 }
 
-final class TemplateTests: XCTestCase {
-    func testTemplatesResolveToConfiguredProviders() {
-        let team = ServerTemplateCatalog.all[0].makeTeam(providers: ProviderConfig.builtin)
-        XCTAssertEqual(team.agents.count, ServerTemplateCatalog.all[0].memberNames.count)
-        for agent in team.agents {
-            let provider = ProviderConfig.builtin.first { $0.id == agent.providerID }
-            XCTAssertNotNil(provider)
-            XCTAssertTrue(provider?.models.contains(agent.model) ?? false)
+final class SkillCatalogTests: XCTestCase {
+    func testBuiltInSkillsResolveToRunnableTeams() {
+        let ada = AgentProfile.rosterTemplates[0]
+        for skill in Skill.builtIns {
+            let team = SkillTeams.team(for: skill, coordinator: ada, providers: ProviderConfig.builtin, hasKey: { _ in true }, saved: nil)
+            XCTAssertNotNil(team, skill.id)
+            XCTAssertEqual(team?.id, skill.teamID)
+            XCTAssertFalse(team?.workers.isEmpty ?? true, skill.id)
+            for agent in team?.agents ?? [] {
+                let provider = ProviderConfig.builtin.first { $0.id == agent.providerID }
+                XCTAssertNotNil(provider, "\(skill.id): \(agent.name)")
+                XCTAssertTrue(provider?.models.contains(agent.model) ?? false, "\(skill.id): \(agent.name)")
+            }
         }
     }
 
-    func testEveryTemplateMemberExistsInRoster() {
-        for template in ServerTemplateCatalog.all {
-            for name in template.memberNames {
-                XCTAssertNotNil(AgentProfile.rosterTemplates.first { $0.name == name }, "\(template.id): \(name)")
+    func testEveryBuiltInSpecialistExistsInRoster() {
+        for skill in Skill.builtIns {
+            for name in skill.specialists {
+                XCTAssertNotNil(AgentProfile.rosterTemplates.first { $0.name == name }, "\(skill.id): \(name)")
             }
         }
     }

@@ -80,6 +80,7 @@ public actor WorkspaceKnowledgeStore {
     private let connectors: ConnectorHub
     private let keyRing: KeyRing
     private let includeExtendedTools: Bool
+    private let skills: SkillStore
     private var refreshing: Set<String> = []
 
     private nonisolated var directory: URL {
@@ -87,7 +88,8 @@ public actor WorkspaceKnowledgeStore {
             .appendingPathComponent("knowledge", isDirectory: true)
     }
 
-    public init(store: MissionStore, conversations: ConversationStore, connectors: ConnectorHub, keyRing: KeyRing, includeExtendedTools: Bool = false) {
+    public init(store: MissionStore, conversations: ConversationStore, connectors: ConnectorHub, keyRing: KeyRing, includeExtendedTools: Bool = false, skills: SkillStore? = nil) {
+        self.skills = skills ?? SkillStore(root: store.root)
         self.root = store.root
         self.store = store
         self.conversations = conversations
@@ -223,6 +225,8 @@ public actor WorkspaceKnowledgeStore {
 
     private func discover(ownerID: String) async throws -> [WorkspaceKnowledgeDraft] {
         let teams = await store.loadTeams()
+        await skills.migrate(teams: teams, skipping: [ConversationEngine.soloTeamID])
+        let skillList = await skills.all()
         let providers = await store.loadProviders()
         let chats = try await conversations.list(ownerID: ownerID)
         var statuses: [ConnectorStatus] = []
@@ -231,13 +235,13 @@ public actor WorkspaceKnowledgeStore {
         }
         let activeTools = await connectors.toolDefs()
         return [
-            WorkspaceKnowledgeDraft(id: .capabilities, title: title(for: .capabilities), markdown: capabilitiesDocument(teams: teams, providers: providers)),
+            WorkspaceKnowledgeDraft(id: .capabilities, title: title(for: .capabilities), markdown: capabilitiesDocument(skills: skillList, teams: teams, providers: providers)),
             WorkspaceKnowledgeDraft(id: .connections, title: title(for: .connections), markdown: connectionsDocument(statuses: statuses, activeTools: activeTools)),
             WorkspaceKnowledgeDraft(id: .projects, title: title(for: .projects), markdown: projectsDocument(chats: chats)),
         ]
     }
 
-    private func capabilitiesDocument(teams: [Team], providers: [ProviderConfig]) -> String {
+    private func capabilitiesDocument(skills: [Skill], teams: [Team], providers: [ProviderConfig]) -> String {
         var lines = [
             "# Workspace capabilities",
             "",
@@ -255,34 +259,31 @@ public actor WorkspaceKnowledgeStore {
             }
         }
         lines += ["", "## Direct chat tools"]
-        var directTools = ChatWorkspaceTools.definitions
+        var directTools = ChatWorkspaceTools.definitions + SkillTools.definitions
         if includeExtendedTools { directTools += ExtendedWorkspaceTools.definitions }
         for tool in directTools.sorted(by: { $0.function.name < $1.function.name }) {
             lines.append("- `\(tool.function.name)`: \(Self.inline(tool.function.description, limit: 360))")
         }
         lines += [
             "",
-            "Ada can answer directly, work alone on a multi-step mission, route work to an approved specialist team, or propose a new team for user approval. Direct chat and mission schedules run through the server. Workspace memory retains durable user context across projects.",
+            "Ada can answer directly, work alone on a multi-step mission, or use a skill: a procedure she watches for, run by specialist subagents behind the scenes. People never manage the specialists. Ada saves new skills with skill_save when asked to remember a procedure. Direct chat and mission schedules run through the server. Workspace memory retains durable user context across projects.",
             "",
-            "## Specialist teams",
+            "## Skills",
         ]
-        if teams.isEmpty {
-            lines.append("- No specialist teams exist yet.")
+        if skills.isEmpty {
+            lines.append("- No skills are available.")
         } else {
-            for team in teams.sorted(by: { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }) {
-                lines.append("- **\(Self.inline(team.name))** (`\(team.id.uuidString)`): \(Self.inline(team.goal.isEmpty ? "No goal provided." : team.goal))")
-                for agent in team.agents {
-                    lines.append("  - \(Self.inline(agent.name)) — \(Self.inline(agent.title)); \(agent.role.rawValue); \(agent.providerID)/\(Self.inline(agent.model)).")
+            for skill in skills {
+                let state = skill.enabled ? "" : " (off)"
+                lines.append("- **\(Self.inline(skill.name))** (`\(skill.id)`)\(state): \(Self.inline(skill.whenToUse))")
+                var specialists: [String] = skill.specialists.map { Self.inline($0) }
+                if specialists.isEmpty, let team = teams.first(where: { $0.id == skill.teamID }) {
+                    for agent in team.agents where agent.role != .coordinator {
+                        specialists.append("\(Self.inline(agent.name)) — \(Self.inline(agent.title))")
+                    }
                 }
-                if let scope = team.toolScope {
-                    let connectorNames = scope.connectorIDs.map(\.rawValue).joined(separator: ", ")
-                    var permissions: [String] = []
-                    if scope.permissions.sendEmail { permissions.append("send email") }
-                    if scope.permissions.createDraft { permissions.append("create drafts") }
-                    if scope.permissions.dnsWrite { permissions.append("DNS writes") }
-                    if scope.permissions.githubWrite { permissions.append("GitHub writes") }
-                    lines.append("  - Connector scope: \(connectorNames.isEmpty ? "none" : connectorNames). Optional writes: \(permissions.isEmpty ? "none" : permissions.joined(separator: ", ")).")
-                }
+                if !specialists.isEmpty { lines.append("  - Specialists: \(specialists.joined(separator: ", ")).") }
+                if !skill.procedure.isEmpty { lines.append("  - Procedure: \(skill.procedure.map { Self.inline($0) }.joined(separator: " → "))") }
             }
         }
         return lines.joined(separator: "\n") + "\n"

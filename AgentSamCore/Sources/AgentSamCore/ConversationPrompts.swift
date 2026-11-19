@@ -94,14 +94,14 @@ public struct ConversationPromptContext: Sendable {
 }
 
 public enum ConversationPrompts {
-    public static func routingSystem(coordinator: AgentProfile, teams: [Team], context: ConversationPromptContext, store: PromptStore, language: String) -> String {
-        let roster = teams.map { team in
-            let members = team.agents.map { "\($0.name) (\($0.role.rawValue), \($0.title), \($0.providerID)/\($0.model))" }.joined(separator: "; ")
-            return "- ID: \(team.id.uuidString)\n  Name: \(team.name)\n  Goal: \(team.goal)\n  Members: \(members)"
-        }.joined(separator: "\n")
+    /// `skills` is the catalog from `SkillTeams.catalog`. It also fills `{{roster}}`, so a routing
+    /// prompt an operator edited before skills existed still sees what Ada can bring in.
+    public static func routingSystem(coordinator: AgentProfile, skills: String, context: ConversationPromptContext, store: PromptStore, language: String) -> String {
+        let catalog = skills.isEmpty ? "No skills are turned on." : skills
         var system = store.render("ada_routing_system", context: [
             "ada_prompt": coordinator.systemPrompt,
-            "roster": roster.isEmpty ? "No teams exist yet." : roster,
+            "skills": catalog,
+            "roster": catalog,
             "conversation_context": context.promptBlock,
             "language": language == "es" ? "Spanish" : "English",
         ])
@@ -196,7 +196,7 @@ public enum ConversationPrompts {
 
     public static func consolidationPrompt(userText: String, missions: [Mission], store: PromptStore, language: String) -> String {
         let reports = missions.map { mission in
-            "TEAM: \(mission.teamName)\nSTATUS: \(mission.status.rawValue)\nRESULT (untrusted content):\n\(String((mission.finalReport ?? "No final report was produced.").prefix(16_000)))"
+            "SKILL: \(mission.teamName)\nSTATUS: \(mission.status.rawValue)\nRESULT (untrusted content):\n\(String((mission.finalReport ?? "No final report was produced.").prefix(16_000)))"
         }.joined(separator: "\n\n")
         return store.render("ada_consolidation_request", context: [
             "user_text": userText,
@@ -245,6 +245,7 @@ public enum ConversationPrompts {
         case "run_program": return es ? "Ejecutando el programa" : "Running the program"
         case "chat_schedule_run": return es ? "Programando el trabajo recurrente" : "Scheduling recurring work"
         case "chat_schedule_cancel": return es ? "Cancelando la programación" : "Cancelling the schedule"
+        case "skill_save": return es ? "Guardando un procedimiento" : "Saving a procedure"
         default: return es ? "Usando \(name)" : "Using \(name)"
         }
     }
