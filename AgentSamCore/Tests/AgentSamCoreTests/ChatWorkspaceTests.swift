@@ -13,6 +13,14 @@ final class ChatWorkspaceTests: XCTestCase {
         try? FileManager.default.removeItem(at: directory)
     }
 
+    private func requireSandbox() throws {
+        if let reason = OSSandbox.unavailableReason { throw XCTSkip("The OS sandbox is unavailable: \(reason)") }
+    }
+
+    private func pythonString(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "'", with: "\\'") + "'"
+    }
+
     private func call(_ name: String, _ arguments: String) -> APIToolCall {
         APIToolCall(id: UUID().uuidString, function: .init(name: name, arguments: arguments))
     }
@@ -113,6 +121,7 @@ final class ChatWorkspaceTests: XCTestCase {
 
     func testRunProgramExecutesJavaScript() async throws {
         try XCTSkipIf(Shell.which("node") == nil, "node is not installed")
+        try requireSandbox()
         let workspace = ChatWorkspaceStore(root: directory)
         let conversationID = UUID()
         let outcome = await ChatWorkspaceTools.run(
@@ -125,6 +134,7 @@ final class ChatWorkspaceTests: XCTestCase {
 
     func testRunProgramCompilesAndRunsC() async throws {
         try XCTSkipIf(Shell.which("gcc") == nil, "gcc is not installed")
+        try requireSandbox()
         let workspace = ChatWorkspaceStore(root: directory)
         let conversationID = UUID()
         let source = """
@@ -141,6 +151,7 @@ final class ChatWorkspaceTests: XCTestCase {
 
     func testRunProgramRunsPython() async throws {
         try XCTSkipIf(Shell.which("python3") == nil, "python3 is not installed")
+        try requireSandbox()
         let workspace = ChatWorkspaceStore(root: directory)
         let conversationID = UUID()
         let outcome = await ChatWorkspaceTools.run(
@@ -171,6 +182,7 @@ final class ChatWorkspaceTests: XCTestCase {
 
     func testRunProgramLeavesNoSandboxBehind() async throws {
         try XCTSkipIf(Shell.which("node") == nil, "node is not installed")
+        try requireSandbox()
         let workspace = ChatWorkspaceStore(root: directory)
         let conversationID = UUID()
         _ = await ChatWorkspaceTools.run(
@@ -184,6 +196,7 @@ final class ChatWorkspaceTests: XCTestCase {
 
     func testRunProgramTimesOutOnInfiniteLoop() async throws {
         try XCTSkipIf(Shell.which("python3") == nil, "python3 is not installed")
+        try requireSandbox()
         let workspace = ChatWorkspaceStore(root: directory)
         let conversationID = UUID()
         let started = Date()
@@ -198,6 +211,7 @@ final class ChatWorkspaceTests: XCTestCase {
 
     func testStdinIsPiped() async throws {
         try XCTSkipIf(Shell.which("python3") == nil, "python3 is not installed")
+        try requireSandbox()
         let workspace = ChatWorkspaceStore(root: directory)
         let conversationID = UUID()
         let outcome = await ChatWorkspaceTools.run(
@@ -207,6 +221,99 @@ final class ChatWorkspaceTests: XCTestCase {
         )
         XCTAssertTrue(outcome.resultText.contains("JELLY BEAN"), outcome.resultText)
     }
+
+    func testRunProgramCannotSeeTheDataFolder() async throws {
+        try XCTSkipIf(Shell.which("python3") == nil, "python3 is not installed")
+        try requireSandbox()
+        // `directory` is the data root, the way the server lays it out: keys sit beside conversations.
+        let secret = "sk-test-\(UUID().uuidString)"
+        try Data(secret.utf8).write(to: directory.appendingPathComponent("keys.json"))
+        let workspace = ChatWorkspaceStore(root: directory)
+        let conversationID = UUID()
+        let keys = directory.appendingPathComponent("keys.json").resolvingSymlinksInPath().path
+        let source = """
+        import os
+        for path in [\(pythonString(keys)), "../../../../keys.json", os.path.expanduser("~/.ssh/id_rsa")]:
+            try:
+                print("READ", open(path).read())
+            except Exception as error:
+                print("BLOCKED", type(error).__name__)
+        """
+        let outcome = await ChatWorkspaceTools.run(
+            call: call("run_program", #"{"language":"python","source":"\#(escapeForJSON(source))"}"#),
+            workspace: workspace,
+            conversationID: conversationID
+        )
+        XCTAssertTrue(outcome.resultText.contains("BLOCKED"), outcome.resultText)
+        XCTAssertFalse(outcome.resultText.contains(secret), outcome.resultText)
+        XCTAssertFalse(outcome.resultText.contains("READ"), outcome.resultText)
+    }
+
+    func testRunProgramReadsButCannotChangeWorkspaceFiles() async throws {
+        try XCTSkipIf(Shell.which("python3") == nil, "python3 is not installed")
+        try requireSandbox()
+        let workspace = ChatWorkspaceStore(root: directory)
+        let conversationID = UUID()
+        await workspace.write(conversationID: conversationID, name: "input.csv", content: "a,b\n1,2")
+        let source = """
+        print(open("../input.csv").read().splitlines()[1])
+        try:
+            open("../input.csv", "w").write("changed")
+            print("CHANGED")
+        except OSError:
+            print("READ ONLY")
+        open("scratch.txt", "w").write("own folder is writable")
+        print("SCRATCH OK")
+        """
+        let outcome = await ChatWorkspaceTools.run(
+            call: call("run_program", #"{"language":"python","source":"\#(escapeForJSON(source))"}"#),
+            workspace: workspace,
+            conversationID: conversationID
+        )
+        XCTAssertTrue(outcome.resultText.contains("1,2"), outcome.resultText)
+        XCTAssertTrue(outcome.resultText.contains("READ ONLY"), outcome.resultText)
+        XCTAssertTrue(outcome.resultText.contains("SCRATCH OK"), outcome.resultText)
+        let unchanged = await workspace.read(conversationID: conversationID, name: "input.csv")
+        XCTAssertEqual(unchanged, "a,b\n1,2")
+        let files = await workspace.files(conversationID: conversationID)
+        XCTAssertEqual(files, ["input.csv"])
+    }
+
+    func testRunProgramRefusesWithoutSandbox() async throws {
+        try XCTSkipIf(OSSandbox.isAvailable, "The OS sandbox is available here; this checks the refusal path")
+        let workspace = ChatWorkspaceStore(root: directory)
+        let outcome = await ChatWorkspaceTools.run(
+            call: call("run_program", #"{"language":"python","source":"print(1)"}"#),
+            workspace: workspace,
+            conversationID: UUID()
+        )
+        XCTAssertFalse(outcome.succeeded)
+        XCTAssertTrue(outcome.resultText.contains("No program was run"), outcome.resultText)
+    }
+
+    #if canImport(Glibc)
+    func testLinuxSandboxHidesDataFolderUnderSystemPaths() {
+        let arguments = OSSandbox.linuxArguments(
+            writable: "/opt/agentsam/data/conversations/x/files/.run-1",
+            directory: "/opt/agentsam/data/conversations/x/files/.run-1",
+            readable: "/opt/agentsam/data/conversations/x/files",
+            protecting: "/opt/agentsam/data"
+        )
+        let joined = arguments.joined(separator: " ")
+        func position(_ text: String) -> String.Index {
+            guard let range = joined.range(of: text) else {
+                XCTFail("Missing \(text) in \(joined)")
+                return joined.endIndex
+            }
+            return range.lowerBound
+        }
+        // Mounts apply in order: private /tmp, the hidden data folder, then the workspace binds.
+        XCTAssertLessThan(position("--tmpfs /tmp"), position("--tmpfs /opt/agentsam/data"))
+        XCTAssertLessThan(position("--tmpfs /opt/agentsam/data"), position("--ro-bind /opt/agentsam/data/conversations/x/files "))
+        XCTAssertLessThan(position("--ro-bind /opt/agentsam/data/conversations/x/files "), position("--bind /opt/agentsam/data/conversations/x/files/.run-1"))
+        XCTAssertFalse(joined.contains("--bind /opt/agentsam/data "), joined)
+    }
+    #endif
 
     func testProjectSharingIsScopedByOwnerAndProject() async throws {
         let workspace = ChatWorkspaceStore(root: directory)

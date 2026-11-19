@@ -29,7 +29,11 @@ jobs:
 
   server:
     runs-on: ubuntu-latest
-    container: swift:6.4-noble
+    container:
+      image: swift:6.4-noble
+      # Docker's default seccomp and AppArmor profiles stop bubblewrap from creating namespaces,
+      # which would skip every run_program and terminal sandbox test.
+      options: --security-opt seccomp=unconfined --security-opt apparmor=unconfined
     steps:
       - uses: actions/checkout@v4
       - name: Cache SwiftPM build
@@ -38,8 +42,14 @@ jobs:
           path: Server/.build
           key: swiftpm-${{ runner.os }}-${{ hashFiles('Server/Package.resolved', 'Server/Package.swift', 'AgentSamCore/Package.swift') }}
           restore-keys: swiftpm-${{ runner.os }}-
+      - name: Install the OS sandbox and toolchains used by run_program tests
+        run: apt-get update && apt-get install -y --no-install-recommends bubblewrap python3
       - name: Build and test
         working-directory: Server
+        run: swift test
+      - name: Engine tests (includes the run_program and terminal sandbox tests)
+        timeout-minutes: 20
+        working-directory: AgentSamCore
         run: swift test
 
   docker:

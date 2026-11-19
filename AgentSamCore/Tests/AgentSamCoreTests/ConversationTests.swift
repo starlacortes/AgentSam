@@ -1,5 +1,8 @@
 import XCTest
 @testable import AgentSamCore
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 final class ConversationTests: XCTestCase {
     private var directory: URL!
