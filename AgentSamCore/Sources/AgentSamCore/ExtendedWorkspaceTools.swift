@@ -51,10 +51,6 @@ public enum ExtendedWorkspaceTools {
         return definitions
     }
 
-    public static func owns(_ name: String) -> Bool {
-        name.hasPrefix("project_") || name.hasPrefix("host_") || name == "run_terminal"
-            || name == "chat_patch_file" || name == "chat_move_file" || name == "chat_delete_file"
-    }
 
     public static func run(
         call: APIToolCall,

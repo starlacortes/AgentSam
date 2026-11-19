@@ -163,6 +163,25 @@ final class ConversationTests: XCTestCase {
         XCTAssertLessThan(kept.count, 3_200)
     }
 
+    func testOfferedToolsDecideFamiliesAndAvailability() {
+        let connector = APIToolDef(name: "gmail_search", description: "", parameters: .object([]))
+        let full = OfferedTools.direct(connectorTools: [connector], hasLinkedMissions: true, hasExtendedAccess: true)
+        XCTAssertEqual(full.family(of: "gmail_search"), .connector)
+        XCTAssertEqual(full.family(of: "chat_read_file"), .chat)
+        XCTAssertEqual(full.family(of: "run_program"), .chat)
+        XCTAssertEqual(full.family(of: "chat_patch_file"), .extended)
+        XCTAssertEqual(full.family(of: "host_read_file"), .extended)
+        XCTAssertEqual(full.family(of: "mission_read_file"), .mission)
+        XCTAssertEqual(full.family(of: "skill_save"), .skill)
+        XCTAssertNil(full.family(of: "web_browse"))
+        XCTAssertEqual(full.definitions.count, full.names.count, "Each tool is offered once")
+
+        let basic = OfferedTools.direct(connectorTools: [], hasLinkedMissions: false, hasExtendedAccess: false)
+        XCTAssertNil(basic.family(of: "project_write_file"), "Extended tools need workspace access")
+        XCTAssertNil(basic.family(of: "mission_read_file"), "Mission tools need a linked mission")
+        XCTAssertEqual(basic.family(of: "chat_write_file"), .chat)
+    }
+
     func testUnknownToolMessageSuggestsClosestTools() {
         let message = ConversationEngine.unknownToolMessage("chat_read", offered: ["chat_read_file", "chat_write_file", "run_program"])
         XCTAssertTrue(message.contains("Closest available: chat_read_file, chat_write_file."), message)

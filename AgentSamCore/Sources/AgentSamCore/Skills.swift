@@ -373,7 +373,6 @@ public enum SkillTeams {
 public enum SkillTools {
     public static let names: Set<String> = ["skill_save"]
 
-    public static func owns(_ name: String) -> Bool { names.contains(name) }
 
     /// The specialists a saved skill may use: the shared roster, without Ada herself.
     static var specialistNames: [String] {
