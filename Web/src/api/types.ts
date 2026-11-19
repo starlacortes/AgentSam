@@ -166,6 +166,14 @@ export interface ConversationSummary {
   projectName: string
   updatedAt: string
   running: boolean
+  /** Set while the chat is archived (hidden from the sidebar until restored or purged). */
+  archivedAt?: string | null
+}
+
+/** How long archived chats are kept. `retentionDays` absent or null means never delete. */
+export interface ArchiveSettings {
+  retentionDays?: number | null
+  configured: boolean
 }
 
 /** A recurring prompt the platform sends on a timer (prompt, interval). */

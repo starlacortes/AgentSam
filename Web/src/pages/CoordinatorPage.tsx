@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, errorMessage, uploadPhoto, uploadProjectFile } from '../api/client'
-import type { AgentActionRequest, ConnectorStatus, Conversation, ConversationSummary, GuideState, MissionDetail, ProviderStatus, Team, WorkspaceKnowledge, WorkspaceMemory } from '../api/types'
+import type { AgentActionRequest, ArchiveSettings, ConnectorStatus, Conversation, ConversationSummary, GuideState, MissionDetail, ProviderStatus, Team, WorkspaceKnowledge, WorkspaceMemory } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { AgentWorkroom } from '../components/coordinator/AgentWorkroom'
 import { CoordinatorSidebar, type PanelName } from '../components/coordinator/CoordinatorSidebar'
 import { ConversationMessages, type MessageHandlers } from '../components/coordinator/ConversationMessages'
 import { SidePanel, type CanvasState } from '../components/coordinator/SidePanel'
 import { ScheduleModal } from '../components/coordinator/ScheduleModal'
+import { ArchivedChats, RetentionPrompt } from '../components/coordinator/ArchiveModals'
 import { Guide } from '../components/coordinator/Guide'
 import { Icon } from '../components/coordinator/Icon'
 import { VoiceMode, type VoicePartial, type VoiceReply } from '../components/coordinator/VoiceMode'
@@ -48,7 +49,10 @@ export function attachmentBlock(name: string, text: string): string {
 }
 
 function mergeConversation(list: ConversationSummary[], conversation: Conversation): ConversationSummary[] {
-  return [conversation, ...list.filter((item) => item.id !== conversation.id)].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  const rest = list.filter((item) => item.id !== conversation.id)
+  // An archived chat stays out of the sidebar even while it is open.
+  if (conversation.archivedAt) return rest
+  return [conversation, ...rest].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
 }
 
 export function CoordinatorPage() {
@@ -71,6 +75,10 @@ export function CoordinatorPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [voiceOpen, setVoiceOpen] = useState(false)
   const [scheduleOpen, setScheduleOpen] = useState(false)
+  const [archiveSettings, setArchiveSettings] = useState<ArchiveSettings | null>(null)
+  const [retentionFor, setRetentionFor] = useState<string | null>(null)
+  const [archivedOpen, setArchivedOpen] = useState(false)
+  const [archivedNotice, setArchivedNotice] = useState<{ id: string; title: string } | null>(null)
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -524,6 +532,47 @@ export function CoordinatorPage() {
     } catch (err) { setError(errorMessage(err)) }
   }
 
+  // Archive: the first time, ask how long archives are kept; then archive straight away.
+  const archiveNow = async (chatID: string) => {
+    try {
+      const archived = await api<Conversation>(`conversations/${chatID}/archive`, { method: 'POST' })
+      setConversations((current) => current.filter((item) => item.id !== chatID))
+      setArchivedNotice({ id: chatID, title: archived.title })
+      if (conversation?.id === chatID) {
+        setConversation(null)
+        navigate('/')
+      }
+    } catch (err) { setError(errorMessage(err)) }
+  }
+
+  const archiveChat = async (chatID: string) => {
+    try {
+      const settings = archiveSettings ?? await api<ArchiveSettings>('workspace/archive')
+      setArchiveSettings(settings)
+      if (settings.configured) await archiveNow(chatID)
+      else setRetentionFor(chatID)
+    } catch (err) { setError(errorMessage(err)) }
+  }
+
+  const restored = (chat: Conversation) => {
+    setConversations((current) => mergeConversation(current, chat))
+    setConversation((current) => current?.id === chat.id ? chat : current)
+  }
+
+  const undoArchive = async () => {
+    const notice = archivedNotice
+    if (!notice) return
+    setArchivedNotice(null)
+    try { restored(await api<Conversation>(`conversations/${notice.id}/archive`, { method: 'DELETE' })) } catch (err) { setError(errorMessage(err)) }
+  }
+
+  // The undo offer fades after a few seconds.
+  useEffect(() => {
+    if (!archivedNotice) return
+    const timer = window.setTimeout(() => setArchivedNotice(null), 6000)
+    return () => window.clearTimeout(timer)
+  }, [archivedNotice])
+
   const finishGuide = async () => {
     const state = await api<GuideState>('workspace/guide', { method: 'PATCH', body: { completed: true } })
     setGuide(state)
@@ -559,12 +608,16 @@ export function CoordinatorPage() {
   }
 
   return <div className={`co-app ${canvas ? 'with-canvas' : ''}`} style={canvas ? { ['--co-canvas-width' as string]: `${clampCanvasWidth(canvasWidth)}px` } : undefined}>
-    <CoordinatorSidebar conversations={conversations} teams={teams} selectedID={conversation?.id ?? null} open={sidebarOpen} onClose={() => setSidebarOpen(false)} onSelect={(chatID) => navigate(`/chats/${chatID}`)} onNew={(project) => void newChat(project)} onPanel={openPanel} memoryEnabled={memory?.enabled ?? false} />
+    <CoordinatorSidebar conversations={conversations} teams={teams} selectedID={conversation?.id ?? null} open={sidebarOpen} onClose={() => setSidebarOpen(false)} onSelect={(chatID) => navigate(`/chats/${chatID}`)} onNew={(project) => void newChat(project)} onPanel={openPanel} memoryEnabled={memory?.enabled ?? false} onArchive={(chatID) => void archiveChat(chatID)} onShowArchived={() => {
+      setArchivedOpen(true)
+      if (!archiveSettings) void api<ArchiveSettings>('workspace/archive').then(setArchiveSettings).catch(() => {})
+    }} archivedNotice={archivedNotice} onUndoArchive={() => void undoArchive()} />
     <main className="co-main">
       <header className="co-chat-header">
         <button className="co-icon-button co-menu-button" aria-label={t('Open workspace sidebar')} onClick={() => setSidebarOpen(true)}><Icon name="menu" /></button>
         <div className="co-chat-heading"><span>{t(conversation?.projectName ?? projectName)} <span className="co-path-separator">/</span></span><h1>{conversation?.title ?? t('New conversation')}</h1></div>
         <div className="co-header-actions">
+          {conversation?.archivedAt ? <button className="co-archived-pill" title={t('Restore this chat to the sidebar')} onClick={() => void api<Conversation>(`conversations/${conversation.id}/archive`, { method: 'DELETE' }).then(restored).catch((err) => setError(errorMessage(err)))}><Icon name="archive" size={13} /><span>{t('Archived')}</span><b>{t('Restore')}</b></button> : null}
           <button className={`co-connection-pill ${gmail?.configured && gmail.enabled ? 'connected' : ''}`} onClick={() => openPanel('connections')}><Icon name="plug" size={13} /><span>{t(connectorLabel(gmail))}</span><i /></button>
           {conversation ? <button className={`co-icon-button co-schedule-toggle ${conversation.schedule ? 'active' : ''}`} aria-label={conversation.schedule ? t('Recurring schedule on — open settings') : t('Set a recurring schedule')} aria-pressed={Boolean(conversation.schedule)} title={t('Recurring schedule')} disabled={!conversation.schedule && running} onClick={() => setScheduleOpen(true)}><Icon name="refresh" size={16} /></button> : null}
           <button className="co-icon-button co-help-button" aria-label={t('Open the guide')} onClick={() => void restartGuide().catch((err) => setError(errorMessage(err)))}><Icon name="info" size={17} /></button>
@@ -596,6 +649,13 @@ export function CoordinatorPage() {
       </div>
     </main>
     {canvas ? <SidePanel state={canvas} missionIDs={missionIDs} onChange={setCanvas} onClose={() => setCanvas(null)} onResize={resizeCanvas} /> : null}
+    {retentionFor ? <RetentionPrompt onClose={() => setRetentionFor(null)} onChosen={(settings) => {
+      const chatID = retentionFor
+      setArchiveSettings(settings)
+      setRetentionFor(null)
+      void archiveNow(chatID)
+    }} /> : null}
+    {archivedOpen ? <ArchivedChats settings={archiveSettings} onSettings={setArchiveSettings} onRestored={restored} onClose={() => setArchivedOpen(false)} onOpen={(chatID) => { setArchivedOpen(false); navigate(`/chats/${chatID}`) }} /> : null}
     {scheduleOpen && conversation ? <ScheduleModal conversation={conversation} onUpdated={updateProposal} onClose={() => setScheduleOpen(false)} /> : null}
     {panel ? <WorkspacePanel panel={panel} teams={teams} connectors={connectors} memory={memory} knowledge={knowledge} onConnectors={setConnectors} onMemory={setMemory} onKnowledge={setKnowledge} onClose={() => setPanel(null)} onNewTeam={() => prompt(t('I need a team for '))} onRestartGuide={restartGuide} /> : null}
     {guide && (!guide.completed || searchParams.get('guide') === '1') ? <Guide onFinish={finishGuide} /> : null}
