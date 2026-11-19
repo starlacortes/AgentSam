@@ -1,6 +1,9 @@
 import Foundation
 import XCTest
 @testable import AgentSamCore
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Captures request bodies so the wire contract can be asserted without a
 /// live provider.
