@@ -42,7 +42,7 @@ public struct AnthropicClient: Sendable {
         case text(String)
         case image(mediaType: String, data: String)
         case toolUse(id: String, name: String, input: JSONValue)
-        case toolResult(id: String, content: String)
+        case toolResult(id: String, content: String, isError: Bool = false)
         /// The wrapped block with a cache breakpoint after it.
         case cached(ContentBlock)
 
@@ -53,6 +53,7 @@ public struct AnthropicClient: Sendable {
             case name
             case input
             case tool_use_id
+            case is_error
             case content
             case source
             case cache_control
@@ -78,10 +79,11 @@ public struct AnthropicClient: Sendable {
                 try container.encode(id, forKey: .id)
                 try container.encode(name, forKey: .name)
                 try container.encode(input, forKey: .input)
-            case .toolResult(let id, let content):
+            case .toolResult(let id, let content, let isError):
                 try container.encode("tool_result", forKey: .type)
                 try container.encode(id, forKey: .tool_use_id)
                 try container.encode(content, forKey: .content)
+                if isError { try container.encode(true, forKey: .is_error) }
             case .cached(let inner):
                 try inner.encode(to: encoder)
                 try container.encode(CacheControl(), forKey: .cache_control)
@@ -306,7 +308,7 @@ public struct AnthropicClient: Sendable {
                     wire.append(WireMessage(role: "assistant", content: blocks))
                 }
             case "tool":
-                pendingToolResults.append(.toolResult(id: message.tool_call_id ?? "", content: message.content ?? ""))
+                pendingToolResults.append(.toolResult(id: message.tool_call_id ?? "", content: message.content ?? "", isError: message.is_error == true))
             default:
                 continue
             }

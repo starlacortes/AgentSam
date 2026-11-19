@@ -425,7 +425,7 @@ public actor MissionEngine {
                         await store.appendEvent(mission.id, kind: .deliverable, agent: agent, text: task.deliverable, deliverableName: name)
                     }
                     await store.appendEvent(mission.id, kind: .toolCall, agent: agent, text: "\(call.function.name): \(outcome.resultText.prefix(400))")
-                    messages.append(.tool(id: call.id, content: outcome.resultText))
+                    messages.append(.tool(id: call.id, content: outcome.resultText, isError: !outcome.succeeded))
                     if outcome.finished {
                         finished = true
                         if let summary = outcome.finishSummary { handoff = summary }
@@ -509,7 +509,7 @@ public actor MissionEngine {
                         } else {
                             let outcome = AgentTools.run(call: call, workspace: store.deliverablesDirectory(mission.id), readOnly: true)
                             await store.appendEvent(mission.id, kind: .toolCall, agent: verifier, text: "\(call.function.name): \(outcome.resultText.prefix(400))")
-                            messages.append(.tool(id: call.id, content: outcome.resultText))
+                            messages.append(.tool(id: call.id, content: outcome.resultText, isError: !outcome.succeeded))
                         }
                     }
 

@@ -92,6 +92,12 @@ public struct LLMClient: Sendable {
         public var data: [Model]?
     }
 
+    /// OpenAI-style APIs have no error flag on a tool result, so a failed result says so in its text.
+    static func wireContent(_ message: APIMessage) -> String? {
+        guard message.role == "tool", message.is_error == true, let content = message.content else { return message.content }
+        return "ERROR: " + content
+    }
+
     static func snippet(of data: Data, limit: Int = 240) -> String {
         let text = String(data: data.prefix(4096), encoding: .utf8) ?? ""
         return String(text.replacingOccurrences(of: "\n", with: " ").prefix(limit))
@@ -199,7 +205,7 @@ public struct OpenAICompatClient: Sendable {
         onDelta: TextDeltaHandler? = nil
     ) async throws -> LLMReply {
         let wire = [WireMessage(role: "system", content: system)]
-            + messages.map { WireMessage(role: $0.role, content: $0.content, images: $0.role == "user" ? $0.images : nil, tool_calls: $0.tool_calls, tool_call_id: $0.tool_call_id) }
+            + messages.map { WireMessage(role: $0.role, content: LLMClient.wireContent($0), images: $0.role == "user" ? $0.images : nil, tool_calls: $0.tool_calls, tool_call_id: $0.tool_call_id) }
         let body = ChatRequest(
             model: model,
             messages: wire,

@@ -453,7 +453,7 @@ public actor ConversationEngine {
                     if call.function.name == "run_program" {
                         runs += 1
                         if runs > ChatWorkspaceTools.maxRunsPerTurn {
-                            outcome = ToolOutcome(resultText: "Program and terminal run limit reached for this reply (4).")
+                            outcome = .failure("Program and terminal run limit reached for this reply (4).")
                         } else {
                             outcome = await ChatWorkspaceTools.run(call: call, workspace: workspace, conversationID: conversationID)
                         }
@@ -475,7 +475,7 @@ public actor ConversationEngine {
                     let isTerminal = call.function.name == "run_terminal" || call.function.name == "project_terminal"
                     if isTerminal { runs += 1 }
                     if isTerminal && runs > ChatWorkspaceTools.maxRunsPerTurn {
-                        outcome = ToolOutcome(resultText: "Program and terminal run limit reached for this reply (4).")
+                        outcome = .failure("Program and terminal run limit reached for this reply (4).")
                     } else {
                         let project = ProjectScope(ownerID: ref?.ownerID ?? "", projectName: context.projectName)
                         outcome = await ExtendedWorkspaceTools.run(call: call, workspace: workspace, conversationID: conversationID, project: project, terminal: access.terminal, hosts: access.hosts, actions: access.actions, audit: access.audit)
@@ -497,15 +497,15 @@ public actor ConversationEngine {
                         if let saved = await access?.actions.request(action) {
                             outcome = ToolOutcome(resultText: "Approval requested (\(saved.id.uuidString)). Do not retry this write. Tell the user to review the approval card; the external action has not happened.")
                         } else {
-                            outcome = ToolOutcome(resultText: "Connector approvals are not available. No external write was performed.")
+                            outcome = .failure("Connector approvals are not available. No external write was performed.")
                         }
                     } else {
-                        outcome = ToolOutcome(resultText: "A user-owned conversation is required to approve connector writes.")
+                        outcome = .failure("A user-owned conversation is required to approve connector writes.")
                     }
                 } else {
-                    outcome = ToolOutcome(resultText: "No connector is available for this tool.")
+                    outcome = .failure("No connector is available for this tool.")
                 }
-                messages.append(.tool(id: call.id, content: String(outcome.resultText.prefix(32_000))))
+                messages.append(.tool(id: call.id, content: String(outcome.resultText.prefix(32_000)), isError: !outcome.succeeded))
             }
             await beginStep(language == "es" ? "Redactando la respuesta" : "Writing the answer", in: ref)
         }

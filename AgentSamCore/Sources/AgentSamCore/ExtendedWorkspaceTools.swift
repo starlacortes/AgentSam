@@ -77,31 +77,31 @@ public enum ExtendedWorkspaceTools {
             return ToolOutcome(resultText: files.isEmpty ? "The shared project workspace is empty." : files.joined(separator: "\n"))
         case "project_read_file":
             let start = args["start_line"]?.numberValue.map(Int.init) ?? 1
-            guard let text = ScopedFiles.read(path, in: root, startLine: start) else { return ToolOutcome(resultText: "File not found, invalid start_line, or not readable UTF-8 text: \(path)") }
+            guard let text = ScopedFiles.read(path, in: root, startLine: start) else { return .failure("File not found, invalid start_line, or not readable UTF-8 text: \(path)") }
             return ToolOutcome(resultText: AgentTools.clip(text, startLine: start))
         case "project_write_file":
             guard let written = ScopedFiles.write(path, content: args["content"]?.stringValue ?? "", in: root) else {
-                return ToolOutcome(resultText: "Invalid path or content over 200 KB.")
+                return .failure("Invalid path or content over 200 KB.")
             }
             await audit?.record(ownerID: project.ownerID, action: "project.write", detail: "\(project.projectName): \(written)")
             return ToolOutcome(resultText: "Wrote shared project file \(written).", wroteFiles: ["project:\(written)"])
         case "chat_patch_file", "project_patch_file":
             guard let old = args["old_string"]?.stringValue, let new = args["new_string"]?.stringValue,
                   let patched = ScopedFiles.patch(path, old: old, new: new, in: root) else {
-                return ToolOutcome(resultText: "Patch failed. The old text must occur exactly once and the result must remain readable text under 200 KB.")
+                return .failure("Patch failed. The old text must occur exactly once and the result must remain readable text under 200 KB.")
             }
             await audit?.record(ownerID: project.ownerID, action: "file.patch", detail: patched)
             return ToolOutcome(resultText: "Patched \(patched).", wroteFiles: [fileScope == .project ? "project:\(patched)" : patched])
         case "chat_move_file", "project_move_file":
             guard let requestedDestination = args["destination"]?.stringValue, ScopedFiles.move(path, to: requestedDestination, in: root) else {
-                return ToolOutcome(resultText: "Move failed. Both paths must be inside the workspace and the destination must not already exist.")
+                return .failure("Move failed. Both paths must be inside the workspace and the destination must not already exist.")
             }
             await audit?.record(ownerID: project.ownerID, action: "file.move", detail: "\(path) → \(requestedDestination)")
             let destination = AgentTools.normalized(requestedDestination)
             return ToolOutcome(resultText: "Moved \(path) to \(destination).", wroteFiles: [fileScope == .project ? "project:\(destination)" : destination])
         case "chat_delete_file", "project_delete_file":
             guard !path.isEmpty, ScopedFiles.resolve(path, in: root) != nil, FileManager.default.fileExists(atPath: ScopedFiles.resolve(path, in: root)!.path),
-                  let actions else { return ToolOutcome(resultText: "File not found, or approvals are not available.") }
+                  let actions else { return .failure("File not found, or approvals are not available.") }
             let action = AgentActionRequest(
                 ownerID: project.ownerID, conversationID: conversationID, kind: .fileDelete,
                 title: "Delete \(path)?", detail: "Ada requested deletion from the \(fileScope == .project ? "shared project" : "conversation") workspace. This cannot be undone.",
@@ -110,34 +110,34 @@ public enum ExtendedWorkspaceTools {
             let saved = await actions.request(action)
             return ToolOutcome(resultText: "Approval requested (\(saved.id.uuidString)). Do not retry the deletion. Tell the user to review the approval card; no file has been deleted.")
         case "run_terminal", "project_terminal":
-            guard let command = args["command"]?.stringValue else { return ToolOutcome(resultText: "A shell command is required.") }
+            guard let command = args["command"]?.stringValue else { return .failure("A shell command is required.") }
             let key = "\(conversationID.uuidString):\(fileScope.rawValue)"
             await audit?.record(ownerID: project.ownerID, action: "terminal.run", detail: "\(fileScope.rawValue): \(String(command.prefix(500)))")
             return await terminal.run(command: command, root: root, key: key, requestedDirectory: args["cwd"]?.stringValue, protecting: workspace.root)
         case "host_list_grants":
-            guard let hosts else { return ToolOutcome(resultText: "Host folder access is not available on this server.") }
+            guard let hosts else { return .failure("Host folder access is not available on this server.") }
             let grants = await hosts.list(ownerID: project.ownerID)
             return ToolOutcome(resultText: grants.isEmpty ? "No host folders have been granted. The user can add one in Settings." : grants.map { "ID: \($0.id.uuidString); \($0.path); \($0.canWrite ? "read/write" : "read only")" }.joined(separator: "\n"))
         case "host_list_files", "host_read_file", "host_write_file":
             guard let hosts, let idString = args["grant_id"]?.stringValue, let id = UUID(uuidString: idString) else {
-                return ToolOutcome(resultText: "A valid grant_id from host_list_grants is required.")
+                return .failure("A valid grant_id from host_list_grants is required.")
             }
             if name == "host_list_files" {
-                guard let root = await hosts.root(ownerID: project.ownerID, id: id) else { return ToolOutcome(resultText: "Folder grant not found or no longer available.") }
+                guard let root = await hosts.root(ownerID: project.ownerID, id: id) else { return .failure("Folder grant not found or no longer available.") }
                 return ToolOutcome(resultText: ScopedFiles.manifest(in: root))
             }
             if name == "host_read_file" {
                 guard let text = await hosts.read(ownerID: project.ownerID, id: id, path: path, startLine: args["start_line"]?.numberValue.map(Int.init) ?? 1) else {
-                    return ToolOutcome(resultText: "File not found, outside the grant, secret-like, binary, or over 200 KB.")
+                    return .failure("File not found, outside the grant, secret-like, binary, or over 200 KB.")
                 }
                 return ToolOutcome(resultText: AgentTools.clip(text, startLine: args["start_line"]?.numberValue.map(Int.init) ?? 1))
             }
             guard let written = await hosts.write(ownerID: project.ownerID, id: id, path: path, content: args["content"]?.stringValue ?? "") else {
-                return ToolOutcome(resultText: "Write refused. The grant must allow writes, and the file must be safe relative UTF-8 text under 200 KB.")
+                return .failure("Write refused. The grant must allow writes, and the file must be safe relative UTF-8 text under 200 KB.")
             }
             return ToolOutcome(resultText: "Wrote \(written) in the granted host folder.")
         default:
-            return ToolOutcome(resultText: "Unknown extended workspace tool: \(name)")
+            return .failure("Unknown extended workspace tool: \(name)")
         }
     }
 }

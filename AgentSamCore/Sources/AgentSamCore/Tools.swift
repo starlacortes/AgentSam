@@ -205,12 +205,17 @@ public enum AgentTools {
 
         case "read_file":
             guard let rawPath = args["path"]?.stringValue else {
-                return ToolOutcome(resultText: "read_file requires a path.")
+                return .failure("read_file requires a path.")
             }
             guard let url = resolve(rawPath, in: workspace), let data = try? Data(contentsOf: url) else {
-                return ToolOutcome(resultText: "File not found: \(rawPath)")
+                return .failure("File not found: \(rawPath)")
             }
-            var text = String(data: data.prefix(maxFileBytes), encoding: .utf8) ?? "(binary file)"
+            guard var text = utf8Prefix(data, maxBytes: maxFileBytes) else {
+                return .failure("Can't read \(rawPath): it is not UTF-8 text.")
+            }
+            if data.count > maxFileBytes {
+                text += "\n…[the file is \(data.count) bytes; only the first \(maxFileBytes) were read]"
+            }
             if let start = args["start_line"], let line = start.numberValue, line > 1 {
                 let lines = text.components(separatedBy: "\n")
                 let idx = Int(line) - 1
@@ -222,14 +227,17 @@ public enum AgentTools {
 
         case "write_file":
             if readOnly {
-                return ToolOutcome(resultText: "This agent is read-only and cannot write files.")
+                return .failure("This agent is read-only and cannot write files.")
             }
             guard let rawPath = args["path"]?.stringValue,
                   let content = args["content"]?.stringValue else {
-                return ToolOutcome(resultText: "write_file requires path and content.")
+                return .failure("write_file requires path and content.")
             }
             guard let url = resolve(rawPath, in: workspace) else {
-                return ToolOutcome(resultText: "Invalid path: \(rawPath). Use a simple relative path with no .. or absolute paths.")
+                return .failure("Invalid path: \(rawPath). Use a simple relative path with no .. or absolute paths.")
+            }
+            guard content.utf8.count <= maxFileBytes else {
+                return .failure("Can't write \(rawPath): it is \(content.utf8.count) bytes and the limit is \(maxFileBytes). Split it into smaller files.")
             }
             do {
                 try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -239,20 +247,20 @@ public enum AgentTools {
                     wroteFiles: [normalized(rawPath)]
                 )
             } catch {
-                return ToolOutcome(resultText: "Could not write \(rawPath): \(error.localizedDescription)")
+                return .failure("Could not write \(rawPath): \(error.localizedDescription)")
             }
 
         case "run_program":
             guard let language = args["language"]?.stringValue,
                   let source = args["source"]?.stringValue else {
-                return ToolOutcome(resultText: "run_program requires language and source.")
+                return .failure("run_program requires language and source.")
             }
             let stdin = args["stdin"]?.stringValue ?? ""
             let filename = args["filename"]?.stringValue
             return CodeRunner.run(language: language, source: source, stdin: stdin, filename: filename, sandbox: workspace, protecting: protecting)
 
         default:
-            return ToolOutcome(resultText: "Unknown tool: \(call.function.name).")
+            return .failure("Unknown tool: \(call.function.name).")
         }
     }
 
@@ -288,6 +296,17 @@ public enum AgentTools {
         rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "\\", with: "/")
             .split(separator: "/").joined(separator: "/")
+    }
+
+    /// Decodes up to `maxBytes` of UTF-8, stepping back to a character boundary so a cut through a
+    /// multi-byte character does not make the whole file look binary. Nil when the bytes are not UTF-8.
+    static func utf8Prefix(_ data: Data, maxBytes: Int) -> String? {
+        let head = data.prefix(maxBytes)
+        for trim in 0...min(3, head.count) {
+            if let text = String(data: head.dropLast(trim), encoding: .utf8) { return text }
+            if head.count < maxBytes { break }
+        }
+        return nil
     }
 
     public static func clip(_ text: String) -> String {
