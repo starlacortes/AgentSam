@@ -108,7 +108,7 @@ public enum ExtendedWorkspaceTools {
                 toolName: name, arguments: .object([("path", .string(path))]), fileScope: fileScope, projectName: project.projectName
             )
             let saved = await actions.request(action)
-            return ToolOutcome(resultText: "Approval requested (\(saved.id.uuidString)). Do not retry the deletion. Tell the user to review the approval card; no file has been deleted.")
+            return ToolOutcome(resultText: "Approval requested (\(saved.id.uuidString)). Do not retry the deletion. Tell the user to review the approval card; no file has been deleted. The outcome will appear under approval requests in your context on a later turn.")
         case "run_terminal", "project_terminal":
             guard let command = args["command"]?.stringValue else { return .failure("A shell command is required.") }
             let key = "\(conversationID.uuidString):\(fileScope.rawValue)"
