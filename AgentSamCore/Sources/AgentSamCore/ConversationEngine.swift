@@ -152,7 +152,7 @@ public actor ConversationEngine {
             let skillList = await skills.enabled()
             let providers = await store.loadProviders()
             let coordinator = try coordinator(providers: providers)
-            let catalog = SkillTeams.catalog(skillList, teams: allTeams)
+            let catalog = SkillTeams.catalog(skillList)
             let history = conversation.messages.filter { $0.status != .running && (!$0.text.isEmpty || !$0.photos.isEmpty) }
             let workspaceMemory = await memory.state(ownerID: ownerID)
             let memoryText = workspaceMemory.enabled ? workspaceMemory.markdown : ""
@@ -366,7 +366,7 @@ public actor ConversationEngine {
     /// self-directed work gets the full mission pipeline — plan, workspace, run steps, report —
     /// without a persisted specialist team. The team is a stable singleton so its missions
     /// resolve in the UI; it is hidden from the routing roster because SOLO is the way to use it.
-    static let soloTeamID = UUID(uuidString: "AE4DA0A1-5F1D-4C4B-9A5A-DACA0E1E0F1F")!
+    public static let soloTeamID = UUID(uuidString: "AE4DA0A1-5F1D-4C4B-9A5A-DACA0E1E0F1F")!
 
     static func soloTeam(coordinator: AgentProfile, language: String) -> Team {
         var worker = coordinator

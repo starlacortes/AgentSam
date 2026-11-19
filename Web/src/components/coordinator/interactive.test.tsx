@@ -20,7 +20,7 @@ function chat(messages: ConversationMessage[]): Conversation {
 }
 
 function handlers(): MessageHandlers {
-  return { onUpdated: vi.fn(), onRevise: vi.fn(), onRetry: vi.fn(), onEdit: vi.fn(), onQuickReply: vi.fn(), onOpenCanvas: vi.fn(), onStarter: vi.fn() }
+  return { onUpdated: vi.fn(), onRetry: vi.fn(), onEdit: vi.fn(), onQuickReply: vi.fn(), onOpenCanvas: vi.fn(), onStarter: vi.fn() }
 }
 
 function renderUI(ui: React.ReactNode) {

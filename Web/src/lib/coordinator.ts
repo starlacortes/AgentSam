@@ -1,23 +1,24 @@
-import type { AgentActivity, Conversation, ConversationMessage, ConnectorStatus, Team } from '../api/types'
+import type { AgentActivity, Conversation, ConversationMessage, ConnectorStatus } from '../api/types'
 import { pickEntry, type PreviewSource } from './preview'
 
 export interface WorkPresentation {
   activities: AgentActivity[]
   running: boolean
   direct: boolean
-  teamNames: string[]
+  /** Names of the kinds of help Ada brought in (the skills that ran), from the activity itself. */
+  helpNames: string[]
 }
 
-export function presentWork(conversation: Conversation | null, teams: Team[]): WorkPresentation {
+export function presentWork(conversation: Conversation | null): WorkPresentation {
   const messages = conversation?.messages ?? []
   const running = [...messages].reverse().find((message) => message.role === 'assistant' && message.status === 'running')
   const latest = running ?? [...messages].reverse().find((message) => message.role === 'assistant' && message.activity.length > 0)
-  const teamNames = (latest?.teamIDs ?? []).map((id) => teams.find((team) => team.id === id)?.name).filter((name): name is string => Boolean(name))
+  const helpNames = [...new Set((latest?.activity ?? []).map((item) => item.teamName).filter((name): name is string => Boolean(name)))]
   return {
     activities: latest?.activity ?? [],
     running: Boolean(running),
     direct: !latest || latest.teamIDs.length === 0,
-    teamNames,
+    helpNames,
   }
 }
 
@@ -166,8 +167,4 @@ export function workspaceFileSource(conversationID: string, files: string[] | un
 /** True when this message finished with workspace files Ada wrote this reply. */
 export function wroteFreshFiles(message: ConversationMessage): boolean {
   return Boolean(message.fileIDs?.length)
-}
-
-export function canApprove(message: ConversationMessage): boolean {
-  return message.proposal?.status === 'pending' && message.status === 'complete'
 }

@@ -1,16 +1,15 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { ConversationSummary, Team } from '../../api/types'
+import type { ConversationSummary } from '../../api/types'
 import { useAuth } from '../../auth/AuthContext'
 import { useI18n } from '../../i18n'
 import { groupedConversations } from '../../lib/coordinator'
 import { Icon } from './Icon'
 
-export type PanelName = 'teams' | 'connections' | 'knowledge' | 'memory' | 'settings'
+export type PanelName = 'connections' | 'knowledge' | 'memory' | 'settings'
 
 interface Props {
   conversations: ConversationSummary[]
-  teams: Team[]
   selectedID: string | null
   open: boolean
   onClose: () => void
@@ -20,7 +19,7 @@ interface Props {
   memoryEnabled: boolean
 }
 
-export function CoordinatorSidebar({ conversations, teams, selectedID, open, onClose, onSelect, onNew, onPanel, memoryEnabled }: Props) {
+export function CoordinatorSidebar({ conversations, selectedID, open, onClose, onSelect, onNew, onPanel, memoryEnabled }: Props) {
   const { t } = useI18n()
   const { me } = useAuth()
   const [query, setQuery] = useState('')
@@ -30,6 +29,8 @@ export function CoordinatorSidebar({ conversations, teams, selectedID, open, onC
   }, [conversations, query])
   const groups = groupedConversations(filtered)
   const select = (id: string) => { onSelect(id); onClose() }
+  const [workspaceOpen, setWorkspaceOpen] = useState(readWorkspaceOpen)
+  const toggleWorkspace = () => { writeWorkspaceOpen(!workspaceOpen); setWorkspaceOpen(!workspaceOpen) }
 
   return <>
     {open ? <div className="co-nav-scrim" onClick={onClose} /> : null}
@@ -53,18 +54,28 @@ export function CoordinatorSidebar({ conversations, teams, selectedID, open, onC
           </div>)}
           {groups.length === 0 ? <p className="co-side-empty">{t('No conversations found.')}</p> : null}
         </section>
-        <section className="co-side-section">
-          <div className="co-side-label">{t('Active teams')}</div>
-          {teams.slice(0, 5).map((team) => <button className="co-side-item" key={team.id} onClick={() => onPanel('teams')}><Icon name="users" size={14} /><span>{team.name}</span><span className="co-count">{team.agents.length}</span></button>)}
-        </section>
       </div>
       <div className="co-sidebar-foot">
-        <button className="co-side-item" onClick={() => onPanel('teams')}><Icon name="users" size={15} />{t('Teams')}</button>
-        <button className="co-side-item" onClick={() => onPanel('connections')}><Icon name="plug" size={15} />{t('Connections')}</button>
-        <button className="co-side-item" onClick={() => onPanel('knowledge')}><Icon name="memory" size={15} />{t('Knowledge')}</button>
-        <button className="co-side-item" onClick={() => onPanel('settings')}><Icon name="settings" size={15} />{t('Settings & guide')}</button>
+        {/* Lower-use panels fold into one collapsible group so the sidebar stays about chats. */}
+        <button className="co-side-item co-side-toggle" aria-expanded={workspaceOpen} aria-controls="co-workspace-links" onClick={toggleWorkspace}><Icon name="settings" size={15} /><span>{t('Workspace')}</span><span className="co-toggle-caret" aria-hidden="true">{workspaceOpen ? '▴' : '▾'}</span></button>
+        {workspaceOpen ? <div className="co-side-group" id="co-workspace-links">
+          <button className="co-side-item" onClick={() => onPanel('connections')}><Icon name="plug" size={15} />{t('Connections')}</button>
+          <button className="co-side-item" onClick={() => onPanel('knowledge')}><Icon name="memory" size={15} />{t('Knowledge')}</button>
+          <button className="co-side-item" onClick={() => onPanel('settings')}><Icon name="settings" size={15} />{t('Settings & guide')}</button>
+        </div> : null}
         <button className="co-profile" onClick={() => onPanel('memory')}><span className="co-profile-avatar">{(me?.name.trim()[0] ?? 'A').toUpperCase()}</span><span><b>{me?.name}</b><small>{memoryEnabled ? t('Workspace memory on') : t('Workspace memory paused')}</small></span><i className={memoryEnabled ? 'co-online-dot' : 'co-offline-dot'} /></button>
       </div>
     </aside>
   </>
+}
+
+const WORKSPACE_OPEN_KEY = 'agentsam.sidebar.workspaceOpen'
+
+/** Whether the Workspace group was left open. Closed by default; storage may be unavailable. */
+function readWorkspaceOpen(): boolean {
+  try { return localStorage.getItem(WORKSPACE_OPEN_KEY) === '1' } catch { return false }
+}
+
+function writeWorkspaceOpen(open: boolean) {
+  try { localStorage.setItem(WORKSPACE_OPEN_KEY, open ? '1' : '0') } catch { /* a convenience only */ }
 }

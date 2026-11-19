@@ -43,6 +43,8 @@
 .co-side-item > span:not(.co-count) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .co-side-empty { padding: 10px; color: var(--dim); font-size: 11px; }
 .co-sidebar-foot { flex: none; padding: 8px 9px 10px; border-top: 1px solid var(--line); }
+.co-side-toggle .co-toggle-caret { margin-left: auto; font-size: 10px; color: var(--dim); }
+.co-side-group { padding-left: 10px; }
 .co-profile { display: flex; align-items: center; gap: 9px; width: 100%; padding: 12px 9px 5px; margin-top: 4px; border: 0; border-top: 1px solid var(--line); background: transparent; text-align: left; }
 .co-profile-avatar { width: 29px; height: 29px; display: grid; place-items: center; flex: none; border-radius: 50%; background: #27382d; color: var(--ink); font-size: 11px; font-weight: 700; }
 .co-profile > span:nth-child(2) { min-width: 0; }

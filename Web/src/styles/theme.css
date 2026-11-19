@@ -76,6 +76,17 @@ input, textarea, button, select { font-family: inherit; font-size: inherit; colo
 .pill:hover { color: var(--ink); text-decoration: none; }
 .pill.active { color: var(--em); background: rgba(74, 217, 158, 0.08); box-shadow: inset 0 0 0 1px rgba(74, 217, 158, 0.22); }
 .whoami { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+/* The collapsible Workspace menu: setup and admin pages, out of the way of everyday tabs. */
+.nav-group { position: relative; }
+.nav-group-scrim { position: fixed; inset: 0; z-index: 40; }
+.nav-group-menu {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 41; min-width: 190px;
+  display: flex; flex-direction: column; gap: 2px; padding: 6px;
+  background: var(--panel2); border: 1px solid var(--line2); border-radius: 12px; box-shadow: var(--shadow-pop);
+}
+.nav-menu-item { color: var(--ink); font-size: 13.5px; padding: 9px 12px; border-radius: 8px; }
+.nav-menu-item:hover { text-decoration: none; background: rgba(148, 190, 156, 0.06); }
+.nav-menu-item.active { color: var(--em); }
 
 main.page { width: 100%; max-width: 1160px; margin: 0 auto; padding: 28px 20px 80px; }
 .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 22px; flex-wrap: wrap; }

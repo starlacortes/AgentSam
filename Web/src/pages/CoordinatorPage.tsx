@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, errorMessage, uploadPhoto, uploadProjectFile } from '../api/client'
-import type { AgentActionRequest, ConnectorStatus, Conversation, ConversationSummary, GuideState, MissionDetail, ProviderStatus, Team, WorkspaceKnowledge, WorkspaceMemory } from '../api/types'
+import type { AgentActionRequest, ConnectorStatus, Conversation, ConversationSummary, GuideState, MissionDetail, ProviderStatus, WorkspaceKnowledge, WorkspaceMemory } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { AgentWorkroom } from '../components/coordinator/AgentWorkroom'
 import { CoordinatorSidebar, type PanelName } from '../components/coordinator/CoordinatorSidebar'
@@ -59,7 +59,6 @@ export function CoordinatorPage() {
   const { isAdmin } = useAuth()
   const [conversations, setConversations] = useState<ConversationSummary[]>([])
   const [conversation, setConversation] = useState<Conversation | null>(null)
-  const [teams, setTeams] = useState<Team[]>([])
   const [connectors, setConnectors] = useState<ConnectorStatus[]>([])
   const [providers, setProviders] = useState<ProviderStatus[]>([])
   const [memory, setMemory] = useState<WorkspaceMemory | null>(null)
@@ -178,15 +177,13 @@ export function CoordinatorPage() {
   }, [])
 
   const refreshWorkspace = useCallback(async () => {
-    const [chats, teamList, currentMemory, currentKnowledge] = await Promise.all([
+    const [chats, currentMemory, currentKnowledge] = await Promise.all([
       api<ConversationSummary[]>('conversations'),
-      api<Team[]>('teams'),
       api<WorkspaceMemory>('workspace/memory'),
       api<WorkspaceKnowledge>('workspace/knowledge'),
     ])
     if (!mounted.current) return
     setConversations(chats)
-    setTeams(teamList)
     setMemory(currentMemory)
     setKnowledge(currentKnowledge)
   }, [])
@@ -219,9 +216,8 @@ export function CoordinatorPage() {
     let active = true
     void (async () => {
       try {
-        const [chats, teamList, connectionList, providerList, currentMemory, currentKnowledge, guideState] = await Promise.all([
+        const [chats, connectionList, providerList, currentMemory, currentKnowledge, guideState] = await Promise.all([
           api<ConversationSummary[]>('conversations'),
-          api<Team[]>('teams'),
           api<ConnectorStatus[]>('connectors'),
           api<ProviderStatus[]>('providers'),
           api<WorkspaceMemory>('workspace/memory'),
@@ -230,7 +226,6 @@ export function CoordinatorPage() {
         ])
         if (!active) return
         setConversations(chats)
-        setTeams(teamList)
         setConnectors(connectionList)
         setProviders(providerList)
         setMemory(currentMemory)
@@ -515,7 +510,7 @@ export function CoordinatorPage() {
   }
 
   const remove = async () => {
-    if (!conversation || !window.confirm(t('Delete this conversation? Its messages will be removed; missions, teams, and files stay intact.'))) return
+    if (!conversation || !window.confirm(t('Delete this conversation? Its messages will be removed; missions and files stay intact.'))) return
     try {
       await api(`conversations/${conversation.id}`, { method: 'DELETE' })
       setConversations((current) => current.filter((item) => item.id !== conversation.id))
@@ -550,7 +545,6 @@ export function CoordinatorPage() {
 
   const handlers: MessageHandlers = {
     onUpdated: updateProposal,
-    onRevise: () => prompt(t('Please revise the proposed team: ')),
     onRetry: (text) => void sendMessage(text),
     onEdit: prompt,
     onQuickReply: (text) => void sendMessage(text),
@@ -559,7 +553,7 @@ export function CoordinatorPage() {
   }
 
   return <div className={`co-app ${canvas ? 'with-canvas' : ''}`} style={canvas ? { ['--co-canvas-width' as string]: `${clampCanvasWidth(canvasWidth)}px` } : undefined}>
-    <CoordinatorSidebar conversations={conversations} teams={teams} selectedID={conversation?.id ?? null} open={sidebarOpen} onClose={() => setSidebarOpen(false)} onSelect={(chatID) => navigate(`/chats/${chatID}`)} onNew={(project) => void newChat(project)} onPanel={openPanel} memoryEnabled={memory?.enabled ?? false} />
+    <CoordinatorSidebar conversations={conversations} selectedID={conversation?.id ?? null} open={sidebarOpen} onClose={() => setSidebarOpen(false)} onSelect={(chatID) => navigate(`/chats/${chatID}`)} onNew={(project) => void newChat(project)} onPanel={openPanel} memoryEnabled={memory?.enabled ?? false} />
     <main className="co-main">
       <header className="co-chat-header">
         <button className="co-icon-button co-menu-button" aria-label={t('Open workspace sidebar')} onClick={() => setSidebarOpen(true)}><Icon name="menu" /></button>
@@ -573,7 +567,7 @@ export function CoordinatorPage() {
           {conversation ? <button className="co-icon-button co-delete-chat" aria-label={t('Delete conversation')} disabled={running} onClick={() => void remove()}><Icon name="trash" size={16} /></button> : null}
         </div>
       </header>
-      <AgentWorkroom conversation={conversation} teams={teams} />
+      <AgentWorkroom conversation={conversation} />
       <div className="co-chat-body">
         {loading && id ? <div className="co-loading"><Spinner /></div> : <ConversationMessages conversation={conversation} busy={sending || running} handlers={handlers} actions={actions} onActions={setActions} />}
       </div>
@@ -590,14 +584,14 @@ export function CoordinatorPage() {
             {Array.from({ length: preparing }, (_, index) => <div className="co-photo-thumb preparing" key={`preparing-${index}`} role="status" aria-label={t('Preparing photo')}><span className="co-photo-spinner" /></div>)}
           </div> : null}
           <textarea ref={input} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={composeKey} onPaste={paste} aria-label={t('Message Ada')} placeholder={t('Ask a question, or describe an outcome…')} rows={1} maxLength={20000} disabled={running} />
-          <div className="co-composer-foot"><button type="button" className="co-icon-button co-upload-button" aria-label={t('Upload files to project')} title={t('Upload files to the shared project workspace (5 MB each)')} disabled={uploading} onClick={() => uploadInput.current?.click()}><Icon name={uploading ? 'refresh' : 'plus'} size={16} /></button><div className="co-photo-picker"><button type="button" className="co-icon-button co-photo-button" aria-label={t('Add photos')} title={t('Add photos')} aria-haspopup={touch ? 'menu' : undefined} aria-expanded={touch ? photoMenu : undefined} disabled={running || photos.length + preparing >= MAX_PHOTOS} onClick={() => touch ? setPhotoMenu((open) => !open) : libraryInput.current?.click()}><Icon name="camera" size={16} /></button>{photoMenu ? <div className="co-photo-menu" role="menu"><button type="button" role="menuitem" onClick={() => { setPhotoMenu(false); cameraInput.current?.click() }}><Icon name="camera" size={15} />{t('Take a photo')}</button><button type="button" role="menuitem" onClick={() => { setPhotoMenu(false); libraryInput.current?.click() }}><Icon name="image" size={15} />{t('Photo library')}</button></div> : null}</div><span className="co-composer-hint">{t('Ada answers directly or brings in the right team.')}<span className="co-enter-hint"> · {t('Enter to send · Shift + Enter for a new line')}</span></span>{running ? <button className="co-stop-button" type="button" onClick={() => void stop()} title={t('Stop (Esc)')}><Icon name="stop" size={12} />{t('Stop')}</button> : <button className="co-send-button" type="submit" aria-label={t('Send message')} disabled={sending || preparing > 0 || (!draft.trim() && !photos.length) || !hasProvider}><Icon name="arrow" size={18} /></button>}</div>
+          <div className="co-composer-foot"><button type="button" className="co-icon-button co-upload-button" aria-label={t('Upload files to project')} title={t('Upload files to the shared project workspace (5 MB each)')} disabled={uploading} onClick={() => uploadInput.current?.click()}><Icon name={uploading ? 'refresh' : 'plus'} size={16} /></button><div className="co-photo-picker"><button type="button" className="co-icon-button co-photo-button" aria-label={t('Add photos')} title={t('Add photos')} aria-haspopup={touch ? 'menu' : undefined} aria-expanded={touch ? photoMenu : undefined} disabled={running || photos.length + preparing >= MAX_PHOTOS} onClick={() => touch ? setPhotoMenu((open) => !open) : libraryInput.current?.click()}><Icon name="camera" size={16} /></button>{photoMenu ? <div className="co-photo-menu" role="menu"><button type="button" role="menuitem" onClick={() => { setPhotoMenu(false); cameraInput.current?.click() }}><Icon name="camera" size={15} />{t('Take a photo')}</button><button type="button" role="menuitem" onClick={() => { setPhotoMenu(false); libraryInput.current?.click() }}><Icon name="image" size={15} />{t('Photo library')}</button></div> : null}</div><span className="co-composer-hint">{t('Ada answers directly or brings in help when it’s needed.')}<span className="co-enter-hint"> · {t('Enter to send · Shift + Enter for a new line')}</span></span>{running ? <button className="co-stop-button" type="button" onClick={() => void stop()} title={t('Stop (Esc)')}><Icon name="stop" size={12} />{t('Stop')}</button> : <button className="co-send-button" type="submit" aria-label={t('Send message')} disabled={sending || preparing > 0 || (!draft.trim() && !photos.length) || !hasProvider}><Icon name="arrow" size={18} /></button>}</div>
         </form>
-        <p className="co-composer-note">{t('Agent activity shows concise work summaries, not private reasoning. Review team proposals and connections before granting access.')}</p>
+        <p className="co-composer-note">{t('Agent activity shows concise work summaries, not private reasoning. Review connections before granting access.')}</p>
       </div>
     </main>
     {canvas ? <SidePanel state={canvas} missionIDs={missionIDs} onChange={setCanvas} onClose={() => setCanvas(null)} onResize={resizeCanvas} /> : null}
     {scheduleOpen && conversation ? <ScheduleModal conversation={conversation} onUpdated={updateProposal} onClose={() => setScheduleOpen(false)} /> : null}
-    {panel ? <WorkspacePanel panel={panel} teams={teams} connectors={connectors} memory={memory} knowledge={knowledge} onConnectors={setConnectors} onMemory={setMemory} onKnowledge={setKnowledge} onClose={() => setPanel(null)} onNewTeam={() => prompt(t('I need a team for '))} onRestartGuide={restartGuide} /> : null}
+    {panel ? <WorkspacePanel panel={panel} connectors={connectors} memory={memory} knowledge={knowledge} onConnectors={setConnectors} onMemory={setMemory} onKnowledge={setKnowledge} onClose={() => setPanel(null)} onRestartGuide={restartGuide} /> : null}
     {guide && (!guide.completed || searchParams.get('guide') === '1') ? <Guide onFinish={finishGuide} /> : null}
     {voiceOpen ? <VoiceMode onSend={sendMessage} onTranscribe={transcribeVoice} onClose={() => setVoiceOpen(false)} activity={liveActivity} /> : null}
   </div>

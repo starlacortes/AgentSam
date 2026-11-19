@@ -7,16 +7,12 @@ import { ConnectorsPage } from './pages/ConnectorsPage'
 import { CoordinatorPage } from './pages/CoordinatorPage'
 import { MissionPage } from './pages/MissionPage'
 import { MissionsPage } from './pages/MissionsPage'
-import { NewMissionPage } from './pages/NewMissionPage'
 import { InvitePage } from './pages/InvitePage'
 import { LoginPage } from './pages/LoginPage'
 import { PeoplePage } from './pages/PeoplePage'
 import { ProvisioningPage } from './pages/ProvisioningPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { SetupPage } from './pages/SetupPage'
-import { TeamEditPage } from './pages/TeamEditPage'
-import { TeamsPage } from './pages/TeamsPage'
-import { TemplatesPage } from './pages/TemplatesPage'
 
 export function App() {
   const { state, isAdmin } = useAuth()
@@ -44,11 +40,11 @@ export function App() {
             <Route path="chats/:id" element={<CoordinatorPage />} />
             <Route path="coordinator" element={<Navigate to="/" replace />} />
             <Route path="missions" element={<MissionsPage />} />
-            <Route path="missions/new" element={<NewMissionPage />} />
+            {/* Teams and templates are now Ada's skills, run behind the scenes. Old links go to chat. */}
+            <Route path="missions/new" element={<Navigate to="/" replace />} />
             <Route path="missions/:id" element={<MissionPage />} />
-            <Route path="teams" element={<TeamsPage />} />
-            <Route path="teams/:id" element={<TeamEditPage />} />
-            <Route path="templates" element={<TemplatesPage />} />
+            <Route path="teams/*" element={<Navigate to="/" replace />} />
+            <Route path="templates" element={<Navigate to="/" replace />} />
             <Route path="account" element={<AccountPage />} />
             <Route path="welcome" element={<Navigate to="/?guide=1" replace />} />
             {isAdmin ? <Route path="people" element={<PeoplePage />} /> : null}

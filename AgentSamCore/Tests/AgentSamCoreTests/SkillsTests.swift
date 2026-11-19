@@ -165,7 +165,8 @@ final class SkillsTests: XCTestCase {
         XCTAssertEqual(last.teamIDs, [research.teamID])
         XCTAssertEqual(last.missionIDs.count, 1)
         let routing = await seen.routing
-        XCTAssertTrue(routing.contains("ID: research"))
+        XCTAssertTrue(routing.contains("- research (Research): use when the user wants facts found"))
+        XCTAssertFalse(routing.contains("SKILL: Research"))
         XCTAssertTrue(routing.contains("USE_SKILL"))
         XCTAssertFalse(routing.contains("PROPOSE_TEAM"))
         let team = await seen.team

@@ -71,10 +71,10 @@ export function MissionsPage() {
       <div className="page-head">
         <div>
           <div className="kicker">{t('Missions')}</div>
-          <h1>{t('What your teams are working on')}</h1>
+          <h1>{t('What Ada has been working on')}</h1>
         </div>
-        <Link className="btn" to="/missions/new">
-          {t('New mission')}
+        <Link className="btn" to="/">
+          {t('Ask Ada')}
         </Link>
       </div>
       <ErrorBanner message={error} />
@@ -90,7 +90,7 @@ export function MissionsPage() {
         <input
           className="input"
           style={{ flex: '1 1 260px' }}
-          placeholder={t('Search objectives and teams')}
+          placeholder={t('Search missions')}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           aria-label={t('Search missions')}
@@ -111,9 +111,9 @@ export function MissionsPage() {
         <div className="card empty">
           {missions.length === 0 ? (
             <>
-              <p style={{ marginBottom: 14 }}>{t('No missions yet. Give a team its first objective.')}</p>
-              <Link className="btn" to="/missions/new">
-                {t('Launch a mission')}
+              <p style={{ marginBottom: 14 }}>{t('Nothing here yet. Bigger jobs you give Ada show up here.')}</p>
+              <Link className="btn" to="/">
+                {t('Ask Ada')}
               </Link>
             </>
           ) : (

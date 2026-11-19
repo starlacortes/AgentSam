@@ -349,21 +349,22 @@ public enum SkillTeams {
         "\n\nSKILL: \(skill.name)\nFollow this procedure, adapting it to the objective:\n\(skill.procedureText)"
     }
 
-    /// The skill catalog as Ada sees it in her routing prompt.
-    public static func catalog(_ skills: [Skill], teams: [Team]) -> String {
+    /// The skill catalog as Ada sees it in her routing prompt: one "use when" line per skill. The
+    /// procedure is not included; it goes to the coordinating agent when the skill runs. Kept out of
+    /// the per-message conversation context so the prompt prefix stays stable.
+    public static func catalog(_ skills: [Skill]) -> String {
         skills.map { skill in
-            let who: String
-            if skill.specialists.isEmpty {
-                let team = teams.first(where: { $0.id == skill.teamID })
-                who = (team?.agents.filter { $0.role != .coordinator }.map { "\($0.name) (\($0.title))" } ?? []).joined(separator: ", ")
-            } else {
-                who = skill.specialists.joined(separator: ", ")
-            }
-            var lines = ["- ID: \(skill.id)", "  Name: \(skill.name)", "  Use when: \(skill.whenToUse)"]
-            if !who.isEmpty { lines.append("  Specialists: \(who)") }
-            if !skill.procedure.isEmpty { lines.append("  Procedure: \(skill.procedure.joined(separator: " → "))") }
-            return lines.joined(separator: "\n")
+            let line = skill.whenToUse.components(separatedBy: .newlines).joined(separator: " ")
+            return "- \(skill.id) (\(skill.name)): use when \(lowerFirst(line))"
         }.joined(separator: "\n")
+    }
+
+    /// "The user wants…" reads as "use when the user wants…"; an acronym such as "PDF" is left alone.
+    static func lowerFirst(_ text: String) -> String {
+        let characters = Array(text)
+        guard let first = characters.first, first.isUppercase else { return text }
+        if characters.count > 1, characters[1].isUppercase { return text }
+        return first.lowercased() + String(characters.dropFirst())
     }
 }
 

@@ -7,7 +7,7 @@ import { Logo } from './ui'
 interface NavItem {
   to: string
   label: string
-  /** Shorter label for the phone tab bar, where five tabs share the width. */
+  /** Shorter label for the phone tab bar. */
   tabLabel?: string
   end?: boolean
 }
@@ -33,15 +33,15 @@ export function Layout() {
   const { t } = useI18n()
   const location = useLocation()
   const [moreOpen, setMoreOpen] = useState(false)
+  const [workspaceOpen, setWorkspaceOpen] = useState(false)
   const pill = ({ isActive }: { isActive: boolean }) => (isActive ? 'pill active' : 'pill')
 
+  // Two everyday tabs. Setup and admin pages sit in one collapsible Workspace menu.
   const primary: NavItem[] = [
     { to: '/', label: t('Chat'), end: true },
-    { to: '/teams', label: t('Teams') },
-    { to: '/templates', label: t('Library') },
+    { to: '/missions', label: t('History') },
   ]
   const secondary: NavItem[] = [
-    { to: '/missions', label: t('History') },
     ...(isAdmin ? [{ to: '/settings', label: t('Providers') }] : []),
     ...(isAdmin ? [{ to: '/connectors', label: t('Connectors') }] : []),
     ...(isAdmin ? [{ to: '/people', label: t('People') }] : []),
@@ -49,7 +49,10 @@ export function Layout() {
   ]
 
   // Close the phone menu whenever the page changes.
-  useEffect(() => setMoreOpen(false), [location.pathname])
+  useEffect(() => {
+    setMoreOpen(false)
+    setWorkspaceOpen(false)
+  }, [location.pathname])
 
   const moreActive = secondary.some((item) => location.pathname.startsWith(item.to))
 
@@ -62,11 +65,33 @@ export function Layout() {
           <Logo />
         </NavLink>
         <nav className="nav" aria-label={t('Main')}>
-          {[...primary, ...secondary].map((item) => (
+          {primary.map((item) => (
             <NavLink key={item.to} to={item.to} end={item.end} className={pill}>
               {item.label}
             </NavLink>
           ))}
+          <div className="nav-group">
+            <button
+              className={moreActive || workspaceOpen ? 'pill active' : 'pill'}
+              aria-expanded={workspaceOpen}
+              aria-controls="nav-workspace-menu"
+              onClick={() => setWorkspaceOpen((open) => !open)}
+            >
+              {t('Workspace')} <span aria-hidden="true">{workspaceOpen ? '▴' : '▾'}</span>
+            </button>
+            {workspaceOpen ? (
+              <>
+                <div className="nav-group-scrim" onClick={() => setWorkspaceOpen(false)} />
+                <div className="nav-group-menu" id="nav-workspace-menu" role="menu">
+                  {secondary.map((item) => (
+                    <NavLink key={item.to} to={item.to} role="menuitem" className={({ isActive }) => (isActive ? 'nav-menu-item active' : 'nav-menu-item')}>
+                      {item.label}
+                    </NavLink>
+                  ))}
+                </div>
+              </>
+            ) : null}
+          </div>
         </nav>
         <span className="whoami">
           {me?.name} · {me?.role ? t(me.role) : ''}

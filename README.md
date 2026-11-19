@@ -1,6 +1,6 @@
 # AgentSam
 
-Hire a team of AI agents. Bring your own API keys. No subscription lock-in.
+One assistant, Ada, who brings in specialist agents behind the scenes. Bring your own API keys. No subscription lock-in.
 
 AgentSam is one server that runs the agent engine and serves a web app. Use it in any browser; on a phone, add it to the home screen and it opens like an app.
 
@@ -19,6 +19,16 @@ AgentSam is one server that runs the agent engine and serves a web app. Use it i
 
 The Mac and iPhone apps were retired to keep one product surface. They live in git history at commit `5a44abe` (`git checkout 5a44abe -- AppMac AppIOS AppShared AgentSam.xcodeproj` brings them back).
 
+## Skills: how Ada brings in specialists
+
+People never set up or pick teams. Ada has a catalog of **skills**: each says when to use it, gives a short step-by-step procedure, and names the specialists it needs. Her routing prompt carries one "use when" line per skill; when a request matches, she routes it as `USE_SKILL` with up to three skill IDs. The server then builds each skill's specialist group (Ada coordinating with the procedure added to her prompt, specialists from the shared roster) and runs it as an ordinary mission, below. A specialist whose provider has no key runs on Ada's provider and model.
+
+- **Built-in skills** (`Skill.builtIns`): Research, Content writing, Data analysis, News briefing, Idea pressure-test, and Deep reading. They replace the old team templates, with the same specialists.
+- **Ada's own skills:** when someone says "whenever I ask for X, do it this way", Ada saves a skill with the `skill_save` tool (name, when to use it, steps, one to four roster specialists, or `enabled: false` to turn it off). Built-ins cannot be changed.
+- **Migrated teams:** on startup, and whenever Ada routes, any team saved in `teams/` that is not Ada's solo team, not already behind a skill, and not an unmodified starter or template team becomes a custom skill that runs that team exactly as saved. Team files are never changed or deleted. Custom skills live in `skills.json`; `GET /api/skills` lists them all, read-only.
+
+Teams remain the execution unit on disk (`teams/<uuid>.json`), so mission history keeps linking to who did the work.
+
 ## How a mission runs
 
 1. **Plan** — the team's coordinator turns your objective into concrete tasks, each assigned to a worker by name with a deliverable filename (strict `TASK / Agent / Goal / Deliverable` contract, retried and gracefully degraded).
@@ -34,7 +44,8 @@ Every turn, tool call, deliverable, finding, and cost is a `RunEvent`, appended 
 <data dir>/
   providers.json          provider configs (base URLs, models)
   keys.json               API keys (server only; chmod 600; or env vars)
-  teams/<uuid>.json       teams and rosters
+  teams/<uuid>.json       specialist groups that skills run as (backend only)
+  skills.json             custom skills (Ada-saved and migrated teams); built-ins ship in the binary
   missions/<uuid>/
     mission.json          status, phase, cost, tokens, final report
     events.jsonl          append-only RunEvent ledger
@@ -49,7 +60,7 @@ Every turn, tool call, deliverable, finding, and cost is a `RunEvent`, appended 
   action-requests/         expiring, one-use connector-write and file-delete approvals
   workspace/knowledge/<user>/
     state.json            discovery state, snapshot fingerprint, and refresh timestamps
-    capabilities.md       providers, direct tools, teams, and permissions
+    capabilities.md       providers, direct tools, and skill names
     connections.md        connector state and active tools (never credentials or content)
     projects.md           the user's project names, conversation counts, and activity
 ```
@@ -68,15 +79,15 @@ In a direct chat, Ada can do more than answer. She has a private workspace for t
 
 When a task is Ada's to do herself but is a real job — several steps, deliverables to produce, code to verify — she routes it as **SOLO** instead of answering inline. A SOLO run is a full mission on the **Ada (solo)** team, her permanent one-agent roster: Ada as coordinator and only worker, with the mission workspace, the full step budget, `run_program`, and a final report. Readable files from the conversation workspace are copied into every SOLO or specialist mission before launch, so follow-up work starts from the actual files. Shared project text files are also copied under `project/`; after a linked mission completes, its readable deliverables are synchronized back into the same owner's shared project. The run appears in chat with the usual mission chips ("Watch work" console, deliverables, preview) and in mission history like any other run. Ada never routes specialist work to the solo team; it exists only for self-directed work.
 
-Connector reads remain available directly. Connector write tools (sending or drafting mail, committing to GitHub, DNS changes, pausing campaigns) follow the toggles on the Connectors page and require an approval card showing the exact operation and arguments, in direct chat and linked missions as well as for teams; nothing runs before approval. The same auto-open applies to a finished SOLO or team run: if the run produced an HTML page, the preview opens on it when the run completes.
+Connector reads remain available directly. Connector write tools (sending or drafting mail, committing to GitHub, DNS changes, pausing campaigns) follow the toggles on the Connectors page and require an approval card showing the exact operation and arguments, in direct chat and linked missions as well as for skill runs; nothing runs before approval. The same auto-open applies to a finished SOLO or skill run: if the run produced an HTML page, the preview opens on it when the run completes.
 
-**Photos.** The camera button in the composer attaches up to 4 photos to a message: on a phone it offers *Take a photo* or *Photo library*; on a computer it opens the file picker, and pasted or dropped images attach too. The browser shrinks each photo to 1568 px on the long edge as a JPEG (which also strips metadata such as GPS location) and shows a removable preview before sending. Photos upload to `POST /api/conversations/:id/photos`, are stored beside the conversation under `conversations/<uuid>/photos/` (never inside the conversation JSON or the chat workspace), and the message refers to them by id. Only Ada's direct reply looks at photos: they go to the model as Anthropic `image` blocks or OpenAI-style `image_url` parts, along with photos from the last few turns (at most 4) so follow-up questions still work. Routing, SOLO and team missions, and consolidation get a note that photos were attached. When Ada's model is known to be text-only (for example DeepSeek, Llama 3, or gpt-oss), or the provider rejects the images, Ada answers without them and says in one sentence that a vision model can be chosen in Settings.
+**Photos.** The camera button in the composer attaches up to 4 photos to a message: on a phone it offers *Take a photo* or *Photo library*; on a computer it opens the file picker, and pasted or dropped images attach too. The browser shrinks each photo to 1568 px on the long edge as a JPEG (which also strips metadata such as GPS location) and shows a removable preview before sending. Photos upload to `POST /api/conversations/:id/photos`, are stored beside the conversation under `conversations/<uuid>/photos/` (never inside the conversation JSON or the chat workspace), and the message refers to them by id. Only Ada's direct reply looks at photos: they go to the model as Anthropic `image` blocks or OpenAI-style `image_url` parts, along with photos from the last few turns (at most 4) so follow-up questions still work. Routing, SOLO and skill missions, and consolidation get a note that photos were attached. When Ada's model is known to be text-only (for example DeepSeek, Llama 3, or gpt-oss), or the provider rejects the images, Ada answers without them and says in one sentence that a vision model can be chosen in Settings.
 
 **Voice replies.** Messages sent from voice mode are flagged `spoken`, and every reply prompt for them (direct, consolidation, and the clarify question) gets a voice style: lead with the answer, two to four short sentences, no Markdown, lists, links, or file paths. A short spoken question (25 words or fewer, no photo, no work words like *build*, *send*, or *schedule*, and not an answer to a question Ada just asked) skips the routing call and goes straight to Ada's direct reply, so speech starts sooner. Anything else is routed as usual. Typed replies follow the direct prompt's length rules: answer first, as short as the request allows, structure only when it helps.
 
 Workspace memory is compacted separately for each signed-in user and is never shared across accounts. Installations using the legacy shared server token retain the original shared-token memory files. Direct-chat, routing, consolidation, identity, and memory prompts use the same versioned `prompts.json` store as mission prompts (an untouched version-1 seed in that file follows the built-in prompt of the running release; a prompt edited through the API keeps the edit); direct tool loops also compact oversized turns and retry provider context overflows.
 
-Workspace knowledge is discovered on each user's first launch and maintained as three per-user Markdown documents: `capabilities.md`, `connections.md`, and `projects.md`. Open **Knowledge** in any project's sidebar to inspect, refresh, or export them. Discovery reads the actual provider, team, tool, connector, and project registries without a model call, without testing external services, and without reading connector content. Credentials and private agent prompts are excluded. Ada receives a compact version in direct chats and mission handoffs. A background scheduler checks for changes every minute and reconciles documents at least daily; unchanged snapshots are not rewritten. Users can also force a refresh with `POST /api/workspace/knowledge/refresh`.
+Workspace knowledge is discovered on each user's first launch and maintained as three per-user Markdown documents: `capabilities.md`, `connections.md`, and `projects.md`. Open **Knowledge** in any project's sidebar to inspect, refresh, or export them. Discovery reads the actual provider, skill, tool, connector, and project registries without a model call, without testing external services, and without reading connector content. Credentials and private agent prompts are excluded. Ada receives a compact version in direct chats and mission handoffs. A background scheduler checks for changes every minute and reconciles documents at least daily; unchanged snapshots are not rewritten. Users can also force a refresh with `POST /api/workspace/knowledge/refresh`.
 
 ## Deploy on Railway
 
@@ -115,7 +126,7 @@ GreenPT works as an OpenAI-compatible provider with base URL `https://api.greenp
 The server also serves a browser UI at `/` (built from `Web/`, a Vite + React + TypeScript app, into the Docker image).
 
 - **First run:** open the server URL and create the admin account. This step asks for `AGENTSAM_TOKEN` to prove you own the server, and only works while no accounts exist.
-- **People:** admins invite others from the People page. An invite is a one-time link that expires in 7 days. Roles: **admin** (manage people, provider configs and keys, delete missions) and **member** (teams and missions). Everyone shares the same teams and missions.
+- **People:** admins invite others from the People page. An invite is a one-time link that expires in 7 days. Roles: **admin** (manage people, provider configs and keys, delete missions) and **member** (chat and missions). Everyone shares the same skills and mission history.
 - **Sessions:** sign-in sets an `HttpOnly`, `Secure`, `SameSite=Strict` cookie (14 days). Passwords are bcrypt-hashed in `accounts.json`; sessions are stored hashed in `sessions.json` (both 0600). Repeated failed sign-ins from one address are locked out for 15 minutes.
 - **App tokens:** each user can create personal tokens (`asam_…`) on their Account page and use one in place of `AGENTSAM_TOKEN` (for example in a script), so it acts as that user with their role. Tokens are stored hashed and can be revoked.
 - `AGENTSAM_TOKEN` keeps working for scripts and acts as an admin. Keep it private; share invite links and app tokens instead.
@@ -134,7 +145,8 @@ The persistent terminal uses macOS's built-in `sandbox-exec` or Linux `bubblewra
 ```
 GET    /healthz
 GET    /api/info
-GET    /api/teams            POST /api/teams
+GET    /api/skills           (Ada's skills, read-only)
+GET    /api/teams            POST /api/teams   (backend; not shown in the web app)
 GET    /api/teams/:id        PUT/DELETE /api/teams/:id
 GET    /api/providers        POST /api/providers
 POST   /api/providers/:id/key        (store a provider key server-side)
@@ -179,7 +191,6 @@ POST   /api/auth/login | logout      (public)
 GET    /api/auth/invite/:secret      POST /api/auth/accept-invite   (public)
 GET    /api/auth/me                  POST /api/auth/password
 GET    /api/auth/tokens  POST /api/auth/tokens  DELETE /api/auth/tokens/:id   (personal app tokens)
-GET    /api/templates    POST /api/templates/:id/hire
 DELETE /api/providers/:id  DELETE /api/providers/:id/key                     (admin)
 GET    /api/users    PATCH/DELETE /api/users/:id                    (admin)
 GET    /api/invites  POST /api/invites  DELETE /api/invites/:id     (admin)
@@ -236,6 +247,7 @@ GET    /api/connectors/:id/callback           (Google's OAuth callback; returns 
 ```
 AgentSamCore/            the engine (Swift package)
   Models.swift             teams, agents, missions, run events, verification
+  Skills.swift             Ada's skills: built-ins, the skill store, team migration, skill_save
   LLMClient.swift          OpenAI-compatible chat completions + retries + tool calling
   AnthropicClient.swift    native Anthropic /v1/messages adapter (tool use)
   CoordinatorChat.swift    the legacy team-coordinator chat and its tools

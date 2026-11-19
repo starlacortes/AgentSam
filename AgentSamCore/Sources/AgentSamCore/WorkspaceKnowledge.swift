@@ -235,13 +235,13 @@ public actor WorkspaceKnowledgeStore {
         }
         let activeTools = await connectors.toolDefs()
         return [
-            WorkspaceKnowledgeDraft(id: .capabilities, title: title(for: .capabilities), markdown: capabilitiesDocument(skills: skillList, teams: teams, providers: providers)),
+            WorkspaceKnowledgeDraft(id: .capabilities, title: title(for: .capabilities), markdown: capabilitiesDocument(skills: skillList, providers: providers)),
             WorkspaceKnowledgeDraft(id: .connections, title: title(for: .connections), markdown: connectionsDocument(statuses: statuses, activeTools: activeTools)),
             WorkspaceKnowledgeDraft(id: .projects, title: title(for: .projects), markdown: projectsDocument(chats: chats)),
         ]
     }
 
-    private func capabilitiesDocument(skills: [Skill], teams: [Team], providers: [ProviderConfig]) -> String {
+    private func capabilitiesDocument(skills: [Skill], providers: [ProviderConfig]) -> String {
         var lines = [
             "# Workspace capabilities",
             "",
@@ -264,28 +264,15 @@ public actor WorkspaceKnowledgeStore {
         for tool in directTools.sorted(by: { $0.function.name < $1.function.name }) {
             lines.append("- `\(tool.function.name)`: \(Self.inline(tool.function.description, limit: 360))")
         }
+        let skillNames = skills.map { Self.inline($0.name) + ($0.enabled ? "" : " (off)") }
         lines += [
             "",
             "Ada can answer directly, work alone on a multi-step mission, or use a skill: a procedure she watches for, run by specialist subagents behind the scenes. People never manage the specialists. Ada saves new skills with skill_save when asked to remember a procedure. Direct chat and mission schedules run through the server. Workspace memory retains durable user context across projects.",
             "",
             "## Skills",
+            // Names only: Ada's routing prompt already carries each skill's "use when" line.
+            skillNames.isEmpty ? "- No skills are available." : "- " + skillNames.joined(separator: ", "),
         ]
-        if skills.isEmpty {
-            lines.append("- No skills are available.")
-        } else {
-            for skill in skills {
-                let state = skill.enabled ? "" : " (off)"
-                lines.append("- **\(Self.inline(skill.name))** (`\(skill.id)`)\(state): \(Self.inline(skill.whenToUse))")
-                var specialists: [String] = skill.specialists.map { Self.inline($0) }
-                if specialists.isEmpty, let team = teams.first(where: { $0.id == skill.teamID }) {
-                    for agent in team.agents where agent.role != .coordinator {
-                        specialists.append("\(Self.inline(agent.name)) — \(Self.inline(agent.title))")
-                    }
-                }
-                if !specialists.isEmpty { lines.append("  - Specialists: \(specialists.joined(separator: ", ")).") }
-                if !skill.procedure.isEmpty { lines.append("  - Procedure: \(skill.procedure.map { Self.inline($0) }.joined(separator: " → "))") }
-            }
-        }
         return lines.joined(separator: "\n") + "\n"
     }
 
