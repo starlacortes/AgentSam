@@ -27,7 +27,7 @@ People never set up or pick teams. Ada has a catalog of **skills**: each says wh
 - **Ada's own skills:** when someone says "whenever I ask for X, do it this way", Ada saves a skill with the `skill_save` tool (name, when to use it, steps, one to four roster specialists, or `enabled: false` to turn it off). Built-ins cannot be changed.
 - **Migrated teams:** on startup, and whenever Ada routes, any team saved in `teams/` that is not Ada's solo team, not already behind a skill, and not an unmodified starter or template team becomes a custom skill that runs that team exactly as saved. Team files are never changed or deleted. Custom skills live in `skills.json`; `GET /api/skills` lists them all, read-only.
 
-Teams remain the execution unit on disk (`teams/<uuid>.json`), so mission history keeps linking to who did the work.
+Teams remain the execution unit on disk (`teams/<uuid>.json`), so mission history keeps linking to who did the work. The starter team is still seeded for the legacy `/api/chats` coordinator API; the Research skill covers it, so it is not duplicated as a skill.
 
 ## How a mission runs
 
