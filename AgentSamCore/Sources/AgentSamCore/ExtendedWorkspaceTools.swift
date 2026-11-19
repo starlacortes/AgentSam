@@ -113,7 +113,7 @@ public enum ExtendedWorkspaceTools {
             guard let command = args["command"]?.stringValue else { return ToolOutcome(resultText: "A shell command is required.") }
             let key = "\(conversationID.uuidString):\(fileScope.rawValue)"
             await audit?.record(ownerID: project.ownerID, action: "terminal.run", detail: "\(fileScope.rawValue): \(String(command.prefix(500)))")
-            return await terminal.run(command: command, root: root, key: key, requestedDirectory: args["cwd"]?.stringValue)
+            return await terminal.run(command: command, root: root, key: key, requestedDirectory: args["cwd"]?.stringValue, protecting: workspace.root)
         case "host_list_grants":
             guard let hosts else { return ToolOutcome(resultText: "Host folder access is not available on this server.") }
             let grants = await hosts.list(ownerID: project.ownerID)

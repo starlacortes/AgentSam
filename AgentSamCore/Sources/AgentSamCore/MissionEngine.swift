@@ -418,7 +418,7 @@ public actor MissionEngine {
                             outcome = await connectors.run(call: call, scope: team.toolScope)
                         }
                     } else {
-                        outcome = AgentTools.run(call: call, workspace: workspace)
+                        outcome = AgentTools.run(call: call, workspace: workspace, protecting: store.root)
                     }
                     if let name = outcome.wroteFiles.first {
                         deliverables = Array(Set(deliverables + outcome.wroteFiles)).sorted()

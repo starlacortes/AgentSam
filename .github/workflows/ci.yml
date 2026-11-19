@@ -38,6 +38,8 @@ jobs:
           path: Server/.build
           key: swiftpm-${{ runner.os }}-${{ hashFiles('Server/Package.resolved', 'Server/Package.swift', 'AgentSamCore/Package.swift') }}
           restore-keys: swiftpm-${{ runner.os }}-
+      - name: Install the OS sandbox and toolchains used by run_program tests
+        run: apt-get update && apt-get install -y --no-install-recommends bubblewrap python3
       - name: Build and test
         working-directory: Server
         run: swift test

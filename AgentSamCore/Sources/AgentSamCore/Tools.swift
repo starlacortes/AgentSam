@@ -64,7 +64,7 @@ public enum AgentTools {
             ),
             APIToolDef(
                 name: "run_program",
-                description: "Run code in a fresh throwaway sandbox and see its output. Languages: \"js\" (Node.js), \"python\", \"c\" (compiled with gcc). Nothing is saved; use write_file for deliverables. Run the program you wrote to verify it actually works before finishing.",
+                description: "Run code in a fresh, OS-sandboxed folder and see its output. The program can read mission workspace files at ../<path> but cannot change them, and it cannot see server data. Languages: \"js\" (Node.js), \"python\", \"c\" (compiled with gcc). 20-second timeout. Nothing is saved; use write_file for deliverables. Run the program you wrote to verify it actually works before finishing.",
                 parameters: .object([
                     ("type", .string("object")),
                     ("properties", .object([
@@ -189,7 +189,7 @@ public enum AgentTools {
     /// structured review submission.
     public static var verifierTools: [APIToolDef] { readTools + [submitReviewTool] }
 
-    public static func run(call: APIToolCall, workspace: URL, readOnly: Bool = false) -> ToolOutcome {
+    public static func run(call: APIToolCall, workspace: URL, readOnly: Bool = false, protecting: URL? = nil) -> ToolOutcome {
         let args = arguments(of: call)
 
         switch call.function.name {
@@ -249,7 +249,7 @@ public enum AgentTools {
             }
             let stdin = args["stdin"]?.stringValue ?? ""
             let filename = args["filename"]?.stringValue
-            return CodeRunner.run(language: language, source: source, stdin: stdin, filename: filename, sandbox: workspace)
+            return CodeRunner.run(language: language, source: source, stdin: stdin, filename: filename, sandbox: workspace, protecting: protecting)
 
         default:
             return ToolOutcome(resultText: "Unknown tool: \(call.function.name).")

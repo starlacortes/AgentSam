@@ -201,10 +201,12 @@ public enum ChatWorkspaceTools {
             APIToolDef(
                 name: "run_program",
                 description: """
-                Run code in a fresh throwaway sandbox and return its output. Nothing is saved unless you write it \
-                with chat_write_file. Languages: "js" (Node.js), "python", and "c" (compiled and run with gcc). \
-                Use it to compute, verify, or demonstrate — run the program you wrote, or a quick check, and \
-                report the actual output.
+                Run code in a fresh, OS-sandboxed folder and return its output. The program can read this \
+                conversation's workspace files at ../<path> but cannot change them, and it cannot see the home \
+                folder or server data. Nothing it writes is saved; use chat_write_file for files. Languages: "js" \
+                (Node.js), "python", and "c" (compiled and run with gcc). Limits: 20-second timeout, 60,000-character source, 12,000 characters of output, and 4 program or \
+                terminal runs per reply. Use it to compute, verify, or demonstrate: run the program you wrote, or a \
+                quick check, and report the actual output.
                 """,
                 parameters: .object([
                     ("type", .string("object")),
@@ -329,7 +331,8 @@ public enum ChatWorkspaceTools {
                 source: source,
                 stdin: stdin,
                 filename: filename,
-                sandbox: workspace.directory(conversationID)
+                sandbox: workspace.directory(conversationID),
+                protecting: workspace.root
             )
             #else
             return ToolOutcome(resultText: "Running programs is not supported on this device.")
@@ -414,12 +417,12 @@ public enum ConversationMissionTools {
 
 /// Runs one short program in a fresh sandbox under the conversation's workspace folder.
 ///
-/// The sandbox is a throwaway directory inside the conversation's files tree; nothing outside it is
-/// reachable because every run is a plain `Process` with `currentDirectoryURL` set there. The
-/// language toolchains are jail-free: they run as the server's own (unprivileged) user, with a hard
-/// wall-clock timeout, an output cap, and a PATH-only environment so nothing from the server's
-/// environment (tokens, keys) leaks into the child. Only the server runs programs; the package also
-/// builds for iOS, where `Process` does not exist and running code is unsupported.
+/// Each run gets a throwaway directory inside the conversation's files tree and runs inside the OS
+/// sandbox (`OSSandbox`: bubblewrap on Linux, sandbox-exec on macOS), which lets it write only to that
+/// directory and hides the home folder and the AgentSam data folder (keys, other conversations). Runs
+/// also have a hard wall-clock timeout, an output cap, and a minimal environment so nothing from the
+/// server's environment (tokens, keys) leaks into the child. Without an OS sandbox nothing runs. Only
+/// the server runs programs; the package also builds for iOS, where `Process` does not exist.
 #if canImport(Darwin) && !os(iOS) || canImport(Glibc)
 enum CodeRunner {
     struct Plan: Sendable {
@@ -456,7 +459,8 @@ enum CodeRunner {
         "python": "program.py", "py": "program.py", "c": "main.c",
     ]
 
-    static func run(language rawLanguage: String, source: String, stdin: String, filename: String?, sandbox baseURL: URL) -> ToolOutcome {
+    /// `protecting` is a folder the program must never see, normally the AgentSam data folder.
+    static func run(language rawLanguage: String, source: String, stdin: String, filename: String?, sandbox baseURL: URL, protecting: URL? = nil) -> ToolOutcome {
         let language = rawLanguage.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard let makePlan = plans[language] else {
             return ToolOutcome(resultText: "Unsupported language: \(language). Available: js, python, c.")
@@ -476,17 +480,35 @@ enum CodeRunner {
         let sourceName = resolved.lastPathComponent
         let plan = makePlan(sourceName)
 
-        // The sandbox directory is created inside the conversation's files tree and removed after
-        // the run, so nothing the program writes survives in the workspace listing.
+        // The run directory is created inside the conversation's files tree and removed after the
+        // run, so nothing the program writes survives in the workspace listing. The OS sandbox lets
+        // the program write only there and hides the home and data folders.
         let sandbox = baseURL.appendingPathComponent(".run-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: sandbox) }
         do {
             try FileManager.default.createDirectory(at: sandbox, withIntermediateDirectories: true)
             try Data(source.utf8).write(to: sandbox.appendingPathComponent(plan.fileToWrite), options: [.atomic])
-            return try execute(plan, in: sandbox, stdin: stdin)
+            guard let sandboxed = OSSandbox.wrap(executable: plan.executable, arguments: plan.arguments, writable: sandbox, directory: sandbox, readable: baseURL, protecting: protecting) else {
+                return .failure(sandboxUnavailable(OSSandbox.unavailableReason))
+            }
+            return try execute(sandboxed, in: sandbox, stdin: stdin, environment: environment(sandbox: sandbox))
         } catch {
             return ToolOutcome(resultText: "Could not run the program: \(error.localizedDescription)")
         }
+    }
+
+    static func sandboxUnavailable(_ reason: String?) -> String {
+        "No program was run: running programs needs the OS sandbox (bubblewrap on Linux, sandbox-exec on macOS), and it is not available on this server (\(reason ?? "unknown reason")). Tell the user; do not try to work around it."
+    }
+
+    /// Only what the toolchains need. Nothing from the server's environment (tokens, keys) is passed on.
+    static func environment(sandbox: URL) -> [String: String] {
+        [
+            "PATH": "/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin",
+            "HOME": sandbox.path,
+            "TMPDIR": sandbox.path,
+            "LANG": "C.UTF-8",
+        ]
     }
 
     static func execute(_ plan: Plan, in sandbox: URL, stdin: String, environment: [String: String]? = nil, timeout: TimeInterval = ChatWorkspaceTools.runTimeout) throws -> ToolOutcome {
