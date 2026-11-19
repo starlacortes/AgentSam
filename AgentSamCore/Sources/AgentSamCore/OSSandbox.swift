@@ -1,4 +1,9 @@
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 #if canImport(Darwin) && !os(iOS) || canImport(Glibc)
 /// Wraps a command in the operating system's sandbox so it can write only inside one folder.
@@ -34,9 +39,9 @@ enum OSSandbox {
     ///   - protecting: a folder the command must never read, such as the AgentSam data folder.
     ///     It may contain `writable` and `readable`; only those stay reachable.
     static func wrap(executable: String, arguments: [String], writable: URL, directory: URL, readable: URL? = nil, protecting: URL? = nil) -> CodeRunner.Plan? {
-        let root = writable.resolvingSymlinksInPath().standardizedFileURL.path
-        let visible = readable.map { $0.resolvingSymlinksInPath().standardizedFileURL.path }
-        let hidden = protecting.map { $0.resolvingSymlinksInPath().standardizedFileURL.path }
+        let root = canonicalPath(writable)
+        let visible = readable.map(canonicalPath)
+        let hidden = protecting.map(canonicalPath)
         #if canImport(Darwin)
         // sandbox-exec has no chdir option; the caller's Process sets the working directory.
         guard FileManager.default.isExecutableFile(atPath: macExecutable) else { return nil }
@@ -44,9 +49,19 @@ enum OSSandbox {
         return CodeRunner.Plan(executable: macExecutable, arguments: ["-p", profile, executable] + arguments, fileToWrite: "")
         #else
         guard linuxProbeFailure == nil, let bwrap = linuxExecutable else { return nil }
-        let start = directory.resolvingSymlinksInPath().standardizedFileURL.path
+        let start = canonicalPath(directory)
         return CodeRunner.Plan(executable: bwrap, arguments: linuxArguments(writable: root, directory: start, readable: visible, protecting: hidden) + [executable] + arguments, fileToWrite: "")
         #endif
+    }
+
+    /// The real path the kernel checks. `realpath` keeps macOS's `/private` prefix, which
+    /// `URL.resolvingSymlinksInPath` strips (`/private/var/folders/…` becomes `/var/folders/…`),
+    /// and a sandbox-exec rule on the stripped form never matches.
+    static func canonicalPath(_ url: URL) -> String {
+        let path = url.standardizedFileURL.path
+        guard let resolved = realpath(path, nil) else { return path }
+        defer { free(resolved) }
+        return String(cString: resolved)
     }
 
     #if canImport(Darwin)
@@ -62,8 +77,9 @@ enum OSSandbox {
         (deny file-read* file-write* (subpath \"\(quoted(home))\") (subpath \"/private/var/folders\") (subpath \"/var/folders\"))\(hiddenRule)\(readableRule)
         (allow file-read* file-write* (subpath \"\(quoted(writable))\"))
         (allow file-read-metadata (subpath "/private/var/folders") (subpath "/var/folders"))
+        (allow file-read* file-write* (regex #"^/private/var/folders/[^/]+/[^/]+/T/xcrun_db"))
         (deny file-write* (subpath \"/\"))
-        (allow file-write* (subpath \"\(quoted(writable))\") (subpath \"/dev\"))
+        (allow file-write* (subpath \"\(quoted(writable))\") (subpath \"/dev\") (regex #"^/private/var/folders/[^/]+/[^/]+/T/xcrun_db"))
         """
     }
 
