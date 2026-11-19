@@ -44,6 +44,22 @@ final class StreamingTests: XCTestCase {
         XCTAssertEqual(accumulator.outputTokens, 9)
     }
 
+    func testAccumulatorsReportCachedPromptTokens() {
+        var anthropic = AnthropicStreamAccumulator()
+        _ = anthropic.consume(#"{"type":"message_start","message":{"usage":{"input_tokens":20,"cache_read_input_tokens":900,"cache_creation_input_tokens":80,"output_tokens":1}}}"#)
+        XCTAssertEqual(anthropic.inputTokens, 1_000, "input stays the total, cached tokens included")
+        XCTAssertEqual(anthropic.cachedInputTokens, 900)
+
+        var openAI = OpenAIStreamAccumulator()
+        _ = openAI.consume(#"{"choices":[],"usage":{"prompt_tokens":500,"completion_tokens":7,"prompt_tokens_details":{"cached_tokens":384}}}"#)
+        XCTAssertEqual(openAI.inputTokens, 500)
+        XCTAssertEqual(openAI.cachedInputTokens, 384)
+
+        var deepSeek = OpenAIStreamAccumulator()
+        _ = deepSeek.consume(#"{"choices":[],"usage":{"prompt_tokens":500,"completion_tokens":7,"prompt_cache_hit_tokens":448,"prompt_cache_miss_tokens":52}}"#)
+        XCTAssertEqual(deepSeek.cachedInputTokens, 448)
+    }
+
     func testAnthropicAccumulatorReportsMidStreamError() {
         var accumulator = AnthropicStreamAccumulator()
         _ = accumulator.consume(#"{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#)
@@ -142,9 +158,21 @@ final class StreamingClientTests: XCTestCase {
     }
 
     func testNonStreamingRequestDoesNotAskForStream() async throws {
-        let wire = AnthropicClient.WireRequest(model: "m", system: "s", messages: [], tools: nil, max_tokens: 1, temperature: nil, stream: nil)
+        let wire = AnthropicClient.WireRequest(model: "m", system: AnthropicClient.systemBlocks("s"), messages: [], tools: nil, max_tokens: 1, temperature: nil, stream: nil)
         let json = String(decoding: try JSONEncoder().encode(wire), as: UTF8.self)
         XCTAssertFalse(json.contains("stream"))
+    }
+
+    func testAnthropicRequestMarksCacheBreakpoints() throws {
+        let messages = AnthropicClient.withCacheBreakpoint(AnthropicClient.translate(messages: [.user("first"), .assistant("reply"), .user("second")]))
+        let wire = AnthropicClient.WireRequest(model: "m", system: AnthropicClient.systemBlocks("stable"), messages: messages, tools: nil, max_tokens: 1, temperature: nil, stream: nil)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let json = String(decoding: try encoder.encode(wire), as: UTF8.self)
+        XCTAssertTrue(json.contains(#""system":[{"cache_control":{"type":"ephemeral"},"text":"stable","type":"text"}]"#))
+        XCTAssertTrue(json.contains(#"{"cache_control":{"type":"ephemeral"},"text":"second","type":"text"}"#))
+        XCTAssertTrue(json.contains(#"{"text":"first","type":"text"}"#), "only the last message carries a breakpoint")
+        XCTAssertNil(AnthropicClient.systemBlocks(""))
     }
 
     func testStreamingHTTPErrorSurfacesWithoutRetryForClientErrors() async {

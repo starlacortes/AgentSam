@@ -241,12 +241,15 @@ public struct LLMReply: Sendable {
     public var inputTokens: Int
     public var outputTokens: Int
     public var model: String
+    /// The part of `inputTokens` the provider served from its prompt cache, when it reports it.
+    public var cachedInputTokens: Int
 
-    public init(message: APIMessage, inputTokens: Int, outputTokens: Int, model: String) {
+    public init(message: APIMessage, inputTokens: Int, outputTokens: Int, model: String, cachedInputTokens: Int = 0) {
         self.message = message
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
         self.model = model
+        self.cachedInputTokens = cachedInputTokens
     }
 }
 
