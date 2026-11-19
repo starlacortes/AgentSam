@@ -32,6 +32,11 @@ struct ConversationMessageBody: Content {
     var spoken: Bool?
 }
 
+/// `retentionDays` is 7, 30, 90, or 365; null (or absent) keeps archived chats forever.
+struct ArchiveSettingsBody: Content {
+    var retentionDays: Int?
+}
+
 struct MemoryPatchBody: Content {
     var enabled: Bool
 }
@@ -56,7 +61,38 @@ func conversationRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
 
     api.get("conversations") { req async throws -> Response in
         let owner = try req.requirePrincipal().conversationOwnerID
-        return try req.json(await ctx.conversations.list(ownerID: owner))
+        let archived = ["1", "true"].contains(req.query[String.self, at: "archived"]?.lowercased() ?? "")
+        // The archive view sweeps expired chats first, so it never shows one past its retention.
+        if archived { _ = try? await ctx.conversations.purgeExpiredArchives(ownerID: owner) }
+        return try req.json(await ctx.conversations.list(ownerID: owner, archived: archived))
+    }
+
+    // Archive hides a chat from the sidebar; restore brings it back. Archives older than the
+    // owner's retention (see `workspace/archive`) are deleted by the scheduler.
+    api.post("conversations", ":id", "archive") { req async throws -> Response in
+        let owner = try req.requirePrincipal().conversationOwnerID
+        return try req.json(try await ctx.conversations.setArchived(id: req.conversationID, ownerID: owner, archived: true))
+    }
+
+    api.delete("conversations", ":id", "archive") { req async throws -> Response in
+        let owner = try req.requirePrincipal().conversationOwnerID
+        return try req.json(try await ctx.conversations.setArchived(id: req.conversationID, ownerID: owner, archived: false))
+    }
+
+    api.get("workspace", "archive") { req async throws -> Response in
+        let owner = try req.requirePrincipal().conversationOwnerID
+        return try req.json(await ctx.conversations.archiveSettings(ownerID: owner))
+    }
+
+    api.put("workspace", "archive") { req async throws -> Response in
+        let owner = try req.requirePrincipal().conversationOwnerID
+        let body = try req.decodeJSON(ArchiveSettingsBody.self)
+        if let days = body.retentionDays, !ArchiveSettings.allowedRetentionDays.contains(days) {
+            throw Abort(.badRequest, reason: "Keep archived chats for \(ArchiveSettings.allowedRetentionDays.map(String.init).joined(separator: ", ")) days, or never delete them.")
+        }
+        let settings = try await ctx.conversations.saveArchiveSettings(ownerID: owner, retentionDays: body.retentionDays)
+        _ = try? await ctx.conversations.purgeExpiredArchives(ownerID: owner)
+        return try req.json(settings)
     }
 
     api.post("conversations") { req async throws -> Response in

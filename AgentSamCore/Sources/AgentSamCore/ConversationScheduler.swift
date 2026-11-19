@@ -15,6 +15,9 @@ public actor ConversationScheduler {
     private let conversations: ConversationStore
     private let engine: ConversationEngine
     private var ticker: Task<Void, Never>?
+    /// Expired archives are swept at most this often (and on the first tick after boot).
+    public static let archivePurgeSeconds: TimeInterval = 3_600
+    private var lastArchivePurge: Date?
 
     public init(conversations: ConversationStore, engine: ConversationEngine) {
         self.conversations = conversations
@@ -52,6 +55,10 @@ public actor ConversationScheduler {
     /// One scan-and-dispatch pass, public for tests: due schedules fire, not-due ones don't,
     /// and already-running conversations are left alone.
     public func tick(now: Date = Date()) async {
+        if lastArchivePurge.map({ now.timeIntervalSince($0) >= Self.archivePurgeSeconds }) ?? true {
+            lastArchivePurge = now
+            _ = try? await conversations.purgeExpiredArchives(now: now)
+        }
         guard let due = try? await conversations.dueSchedules(now: now) else { return }
         for item in due {
             // Mark first, dispatch second: a crash mid-run still counts as the run happening,

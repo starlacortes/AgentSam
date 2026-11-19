@@ -49,18 +49,30 @@ public actor ConversationStore {
         return conversation
     }
 
-    public func list(ownerID: String) throws -> [ConversationSummary] {
+    private func all() throws -> [Conversation] {
         let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
         return files.compactMap { file -> Conversation? in
             guard file.pathExtension == "json", let data = try? Data(contentsOf: file) else { return nil }
             return try? Self.decoder.decode(Conversation.self, from: data)
-        }.filter { $0.ownerID == ownerID }.sorted { $0.updatedAt > $1.updatedAt }.prefix(200).map(\.summary)
+        }
+    }
+
+    /// The owner's chats, newest first. Archived chats are listed only when `archived` is true,
+    /// and then sorted by when they were archived.
+    public func list(ownerID: String, archived: Bool = false) throws -> [ConversationSummary] {
+        let mine = try all().filter { $0.ownerID == ownerID && ($0.archivedAt != nil) == archived }
+        let sorted = archived
+            ? mine.sorted { ($0.archivedAt ?? .distantPast) > ($1.archivedAt ?? .distantPast) }
+            : mine.sorted { $0.updatedAt > $1.updatedAt }
+        return sorted.prefix(200).map(\.summary)
     }
 
     public func append(id: UUID, ownerID: String, message: ConversationMessage) throws -> Conversation {
         guard var conversation = try get(id: id, ownerID: ownerID) else { throw ConversationError.notFound }
         conversation.messages.append(message)
         conversation.updatedAt = Date()
+        // Writing in an archived chat brings it back to the sidebar.
+        if message.role == .user { conversation.archivedAt = nil }
         if conversation.title == "New conversation", message.role == .user {
             let title = message.text.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
             if !title.isEmpty { conversation.title = String(title.prefix(72)) }
@@ -138,10 +150,76 @@ public actor ConversationStore {
         for file in files where file.pathExtension == "json" {
             guard let data = try? Data(contentsOf: file),
                   let conversation = try? Self.decoder.decode(Conversation.self, from: data),
+                  conversation.archivedAt == nil,
                   let schedule = conversation.schedule, schedule.nextRunAt <= now else { continue }
             due.append((conversation.id, conversation.ownerID, schedule))
         }
         return due
+    }
+
+    // MARK: Archive
+
+    /// Archives the chat (or restores it with `archived: false`). The chat keeps its messages,
+    /// files, and schedule; it only leaves the sidebar until restored or purged.
+    @discardableResult
+    public func setArchived(id: UUID, ownerID: String, archived: Bool, now: Date = Date()) throws -> Conversation {
+        guard var conversation = try get(id: id, ownerID: ownerID) else { throw ConversationError.notFound }
+        if archived {
+            if conversation.archivedAt == nil { conversation.archivedAt = now }
+        } else {
+            conversation.archivedAt = nil
+        }
+        try save(conversation)
+        return conversation
+    }
+
+    private var archiveSettingsFile: URL { workspace.appendingPathComponent("archive-settings.json") }
+
+    private func allArchiveSettings() -> [String: ArchiveSettings] {
+        guard let data = try? Data(contentsOf: archiveSettingsFile),
+              let settings = try? Self.decoder.decode([String: ArchiveSettings].self, from: data) else { return [:] }
+        return settings
+    }
+
+    public func archiveSettings(ownerID: String) -> ArchiveSettings {
+        allArchiveSettings()[ownerID] ?? ArchiveSettings()
+    }
+
+    /// Saves how long the owner keeps archived chats. `nil` keeps them forever; anything else
+    /// must be one of `ArchiveSettings.allowedRetentionDays`.
+    public func saveArchiveSettings(ownerID: String, retentionDays: Int?) throws -> ArchiveSettings {
+        if let retentionDays, !ArchiveSettings.allowedRetentionDays.contains(retentionDays) {
+            throw ConversationError.persistence("Choose how long to keep archived chats: \(ArchiveSettings.allowedRetentionDays.map(String.init).joined(separator: ", ")) days, or never delete.")
+        }
+        var settings = allArchiveSettings()
+        let state = ArchiveSettings(retentionDays: retentionDays, configured: true)
+        settings[ownerID] = state
+        do {
+            try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+            try Self.encoder.encode(settings).write(to: archiveSettingsFile, options: .atomic)
+        } catch {
+            throw ConversationError.persistence("Your archive preference could not be saved.")
+        }
+        return state
+    }
+
+    /// Deletes archived chats older than their owner's retention, with the chat's private
+    /// folder (photos and files Ada wrote in it). Project files and missions are not touched.
+    /// Pass `ownerID` to purge only that owner. Returns the deleted conversation IDs.
+    @discardableResult
+    public func purgeExpiredArchives(ownerID: String? = nil, now: Date = Date()) throws -> [UUID] {
+        let settings = allArchiveSettings()
+        var purged: [UUID] = []
+        for conversation in try all() {
+            guard let archivedAt = conversation.archivedAt,
+                  ownerID == nil || conversation.ownerID == ownerID,
+                  let cutoff = settings[conversation.ownerID]?.cutoff(now: now), archivedAt < cutoff,
+                  !conversation.messages.contains(where: { $0.status == .running }) else { continue }
+            try? FileManager.default.removeItem(at: url(conversation.id))
+            try? FileManager.default.removeItem(at: directory.appendingPathComponent(conversation.id.uuidString, isDirectory: true))
+            purged.append(conversation.id)
+        }
+        return purged
     }
 
     public func guide(ownerID: String) -> GuideState {
