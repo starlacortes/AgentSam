@@ -170,8 +170,13 @@ public struct OpenAICompatClient: Sendable {
             var message: APIMessage
         }
         struct Usage: Decodable {
+            struct Details: Decodable { var cached_tokens: Int? }
             var prompt_tokens: Int?
             var completion_tokens: Int?
+            var prompt_tokens_details: Details?
+            /// DeepSeek's name for the cached part of the prompt.
+            var prompt_cache_hit_tokens: Int?
+            var cached: Int { prompt_tokens_details?.cached_tokens ?? prompt_cache_hit_tokens ?? 0 }
         }
         var choices: [Choice]?
         var usage: Usage?
@@ -265,7 +270,8 @@ public struct OpenAICompatClient: Sendable {
                     message: message,
                     inputTokens: decoded.usage?.prompt_tokens ?? 0,
                     outputTokens: decoded.usage?.completion_tokens ?? 0,
-                    model: model
+                    model: model,
+                    cachedInputTokens: decoded.usage?.cached ?? 0
                 )
             } catch let error as LLMError {
                 throw error
@@ -298,7 +304,7 @@ public struct OpenAICompatClient: Sendable {
         } catch {
             throw StreamFailure(error: LLMError(message: "Network error: \(error.localizedDescription)"), retryable: false)
         }
-        return LLMReply(message: accumulator.message(), inputTokens: accumulator.inputTokens, outputTokens: accumulator.outputTokens, model: model)
+        return LLMReply(message: accumulator.message(), inputTokens: accumulator.inputTokens, outputTokens: accumulator.outputTokens, model: model, cachedInputTokens: accumulator.cachedInputTokens)
     }
 
     static func isContextOverflow(status: Int, body: Data) -> Bool {

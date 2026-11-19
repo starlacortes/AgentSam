@@ -174,7 +174,7 @@ public actor ConversationEngine {
             }
             if decision == nil {
                 let retrySystem = ConversationPrompts.routingSystem(coordinator: coordinator, skills: catalog, context: context, store: promptStore, language: language) + "\nYour previous response was not valid. Return exactly one JSON object matching the contract, with a valid action."
-                let retry = try await complete(coordinator: coordinator, system: retrySystem, messages: Self.chatTurns(from: history.dropLast()) + [.user(userText)], tools: nil)
+                let retry = try await complete(coordinator: coordinator, system: retrySystem, messages: Self.chatTurns(from: history.dropLast()) + [.user(context.userTurn(userText))], tools: nil)
                 decision = ConversationDecision.parse(retry.message.content ?? "")
             }
 
@@ -414,7 +414,7 @@ public actor ConversationEngine {
 
     private func route(userText: String, coordinator: AgentProfile, skills catalog: String, context: ConversationPromptContext, history: [ConversationMessage], language: String) async throws -> ConversationDecision? {
         let system = ConversationPrompts.routingSystem(coordinator: coordinator, skills: catalog, context: context, store: promptStore, language: language)
-        let reply = try await complete(coordinator: coordinator, system: system, messages: Self.chatTurns(from: history.dropLast()) + [.user(userText)], tools: nil)
+        let reply = try await complete(coordinator: coordinator, system: system, messages: Self.chatTurns(from: history.dropLast()) + [.user(context.userTurn(userText))], tools: nil)
         return ConversationDecision.parse(reply.message.content ?? "")
     }
 
@@ -424,14 +424,17 @@ public actor ConversationEngine {
         let extendedTools = access == nil ? [] : ExtendedWorkspaceTools.definitions
         let tools = connectorTools + ChatWorkspaceTools.definitions + extendedTools + missionTools + SkillTools.definitions
         let system = ConversationPrompts.directResponseSystem(coordinator: coordinator, context: context, connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedTools: access != nil, store: promptStore, language: language)
-        let text = userText
+        let text = context.userTurn(userText)
+        // The context now rides in the user turn instead of the system prompt; budget for it on top
+        // of the conversation, as before, so it doesn't crowd out earlier turns.
+        let allowance = ConversationCompactor.estimateTokens(context.turnPreamble)
         var messages = Self.chatTurns(from: history.dropLast(), images: photoInput.history)
         messages.append(.user(text, images: photoInput.current))
         var runs = 0
         for _ in 0..<8 {
             try Task.checkCancellation()
             let stream = streamer(for: ref)
-            let reply = try await completeDirect(coordinator: coordinator, system: system, messages: messages, tools: tools, onDelta: stream?.handler)
+            let reply = try await completeDirect(coordinator: coordinator, system: system, messages: messages, tools: tools, contextAllowance: allowance, onDelta: stream?.handler)
             messages.append(reply.message)
             let calls = reply.message.tool_calls ?? []
             if calls.isEmpty { return reply.message.content ?? "" }
@@ -504,7 +507,7 @@ public actor ConversationEngine {
         messages.append(.user(language == "es"
             ? "Ya no quedan pasos de herramientas para esta respuesta. Responde ahora con lo que ya sabes, sin llamar a herramientas, y di qué falta si no pudiste terminar."
             : "No tool steps are left for this reply. Answer now with what you already have, without calling any tools, and say what is still missing if you could not finish."))
-        let final = try await completeDirect(coordinator: coordinator, system: system, messages: messages, tools: nil, maxTokens: context.spoken ? Self.voiceMaxTokens : nil, onDelta: streamer(for: ref)?.handler)
+        let final = try await completeDirect(coordinator: coordinator, system: system, messages: messages, tools: nil, maxTokens: context.spoken ? Self.voiceMaxTokens : nil, contextAllowance: allowance, onDelta: streamer(for: ref)?.handler)
         let answer = final.message.content ?? ""
         if answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return language == "es"
@@ -544,7 +547,14 @@ public actor ConversationEngine {
     private func consolidate(userText: String, missions: [Mission], coordinator: AgentProfile, context: ConversationPromptContext, history: [ConversationMessage], language: String) async throws -> String {
         let system = ConversationPrompts.consolidationSystem(coordinator: coordinator, context: context, store: promptStore, language: language)
         let prompt = ConversationPrompts.consolidationPrompt(userText: userText, missions: missions, store: promptStore, language: language)
-        let reply = try await complete(coordinator: coordinator, system: system, messages: Self.chatTurns(from: history.dropLast()) + [.user(prompt)], tools: nil, maxTokens: context.spoken ? Self.voiceMaxTokens : nil)
+        var turn = context.turnPreamble + prompt
+        if context.spoken {
+            // The request above asks for evidence, files and caveats; for a spoken reply the voice rules win.
+            turn += language == "es"
+                ? "\n\nEsta respuesta se leerá en voz alta: sigue las reglas de VOICE REPLY del mensaje de sistema por encima del formato anterior."
+                : "\n\nThis reply is read aloud: follow the VOICE REPLY rules in the system prompt over the format above."
+        }
+        let reply = try await complete(coordinator: coordinator, system: system, messages: Self.chatTurns(from: history.dropLast()) + [.user(turn)], tools: nil, maxTokens: context.spoken ? Self.voiceMaxTokens : nil)
         if reply.message.content?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false { return reply.message.content ?? "" }
         return missions.compactMap(\.finalReport).joined(separator: "\n\n")
     }
@@ -666,8 +676,8 @@ public actor ConversationEngine {
         return try await client.complete(provider: provider, key: keyRing.get(provider.keyAccount) ?? "", model: coordinator.model, system: system, messages: messages, tools: tools, temperature: coordinator.temperature, maxTokens: maxTokens, onDelta: onDelta)
     }
 
-    private func completeDirect(coordinator: AgentProfile, system: String, messages: [APIMessage], tools: [APIToolDef]?, maxTokens: Int? = nil, onDelta: TextDeltaHandler? = nil) async throws -> LLMReply {
-        var budget = directContextBudgetTokens
+    private func completeDirect(coordinator: AgentProfile, system: String, messages: [APIMessage], tools: [APIToolDef]?, maxTokens: Int? = nil, contextAllowance: Int = 0, onDelta: TextDeltaHandler? = nil) async throws -> LLMReply {
+        var budget = directContextBudgetTokens + contextAllowance
         var overflowRetries = 0
         var messages = messages
         while true {

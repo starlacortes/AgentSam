@@ -138,10 +138,11 @@ struct AnthropicStreamAccumulator {
     private var blocks: [Int: Block] = [:]
     private(set) var inputTokens = 0
     private(set) var outputTokens = 0
+    private(set) var cachedInputTokens = 0
     private(set) var errorMessage: String?
 
     private struct Envelope: Decodable {
-        struct Usage: Decodable { var input_tokens: Int?; var output_tokens: Int? }
+        struct Usage: Decodable { var input_tokens: Int?; var output_tokens: Int?; var cache_read_input_tokens: Int?; var cache_creation_input_tokens: Int? }
         struct Message: Decodable { var usage: Usage? }
         struct ContentBlock: Decodable { var type: String; var id: String?; var name: String? }
         struct Delta: Decodable { var type: String?; var text: String?; var partial_json: String? }
@@ -160,7 +161,11 @@ struct AnthropicStreamAccumulator {
         guard let envelope = try? JSONDecoder().decode(Envelope.self, from: Data(data.utf8)) else { return nil }
         switch envelope.type {
         case "message_start":
-            inputTokens = envelope.message?.usage?.input_tokens ?? inputTokens
+            if let usage = envelope.message?.usage {
+                // input_tokens leaves out cached tokens; add them back so inputTokens stays the total.
+                cachedInputTokens = usage.cache_read_input_tokens ?? 0
+                inputTokens = (usage.input_tokens ?? 0) + cachedInputTokens + (usage.cache_creation_input_tokens ?? 0)
+            }
             outputTokens = envelope.message?.usage?.output_tokens ?? outputTokens
         case "content_block_start":
             if let index = envelope.index, let block = envelope.content_block {
@@ -210,6 +215,7 @@ struct OpenAIStreamAccumulator {
     private var calls: [Int: Call] = [:]
     private(set) var inputTokens = 0
     private(set) var outputTokens = 0
+    private(set) var cachedInputTokens = 0
     private(set) var errorMessage: String?
 
     private struct Chunk: Decodable {
@@ -226,7 +232,15 @@ struct OpenAIStreamAccumulator {
             }
             var delta: Delta?
         }
-        struct Usage: Decodable { var prompt_tokens: Int?; var completion_tokens: Int? }
+        struct Usage: Decodable {
+            struct Details: Decodable { var cached_tokens: Int? }
+            var prompt_tokens: Int?
+            var completion_tokens: Int?
+            var prompt_tokens_details: Details?
+            /// DeepSeek's name for the cached part of the prompt.
+            var prompt_cache_hit_tokens: Int?
+            var cached: Int? { prompt_tokens_details?.cached_tokens ?? prompt_cache_hit_tokens }
+        }
         struct Failure: Decodable { var message: String? }
         var choices: [Choice]?
         var usage: Usage?
@@ -238,6 +252,7 @@ struct OpenAIStreamAccumulator {
         if let error = chunk.error { errorMessage = error.message ?? "Provider error." }
         inputTokens = chunk.usage?.prompt_tokens ?? inputTokens
         outputTokens = chunk.usage?.completion_tokens ?? outputTokens
+        cachedInputTokens = chunk.usage?.cached ?? cachedInputTokens
         guard let delta = chunk.choices?.first?.delta else { return nil }
         for call in delta.tool_calls ?? [] {
             let index = call.index ?? 0

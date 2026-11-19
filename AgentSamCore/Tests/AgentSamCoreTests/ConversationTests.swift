@@ -659,14 +659,18 @@ final class ConversationTests: XCTestCase {
                 return LLMReply(message: .assistant("## Projects\n- Website"), inputTokens: 0, outputTokens: 0, model: "stub")
             }
             if system.contains("Decide how to handle") {
-                XCTAssertTrue(system.contains("Project: Website"))
-                XCTAssertTrue(system.contains("site/index.html — 12"))
-                XCTAssertTrue(system.contains(missionID.uuidString))
-                XCTAssertTrue(system.contains("Recurring hourly"))
+                // The changing context rides at the start of the newest user turn, not in the system prompt.
+                let turn = messages.last?.content ?? ""
+                XCTAssertTrue(turn.contains("Project: Website"))
+                XCTAssertTrue(turn.contains("site/index.html — 12"))
+                XCTAssertTrue(turn.contains(missionID.uuidString))
+                XCTAssertTrue(turn.contains("Recurring hourly"))
+                XCTAssertTrue(turn.hasSuffix("<user_message>\nRevise the saved page\n</user_message>"))
+                XCTAssertFalse(system.contains("Project: Website"))
+                XCTAssertFalse(system.contains(missionID.uuidString))
                 XCTAssertTrue(ada.systemPrompt.contains("smallest action"))
                 XCTAssertFalse(system.contains("Team-only persona"))
                 XCTAssertFalse(system.contains("Revise the saved page"))
-                XCTAssertEqual(messages.last?.content, "Revise the saved page")
                 return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub")
             }
             return LLMReply(message: .assistant("Updated."), inputTokens: 0, outputTokens: 0, model: "stub")
@@ -691,7 +695,42 @@ final class ConversationTests: XCTestCase {
         prompts.update(id: "ada_direct_system", text: "Custom direct prompt\n{{conversation_context}}")
         let edited = ConversationPrompts.directResponseSystem(coordinator: ada, context: context, connectorTools: [], hasLinkedMissions: false, store: prompts, language: "en")
         XCTAssertTrue(edited.hasPrefix("Custom direct prompt"))
-        XCTAssertTrue(edited.contains("Project: Personal"))
+        XCTAssertTrue(edited.contains("<workspace_data>"), "an edited template still learns where the context is")
+        XCTAssertFalse(edited.contains("Project: Personal"))
+    }
+
+    func testChatSystemPromptsStayIdenticalAcrossTurns() {
+        let prompts = PromptStore(builtins: PromptStore.builtins)
+        let ada = AgentProfile.rosterTemplates[0]
+        let first = ConversationPromptContext(projectName: "Personal", history: [], memory: "Prefers short replies.", workspaceManifest: "a.md — 10", missionReferences: "", missionIDs: [], schedule: nil, scheduled: false, now: Date(timeIntervalSince1970: 0))
+        let second = ConversationPromptContext(
+            projectName: "Personal",
+            history: [ConversationMessage(role: .user, text: "Hi"), ConversationMessage(role: .assistant, text: "Hello")],
+            memory: "Prefers short replies. Lives in Madrid.",
+            workspaceManifest: "a.md — 10\nb.md — 20",
+            missionReferences: "",
+            missionIDs: [],
+            schedule: ConversationSchedule(prompt: "Refresh", intervalMinutes: 60),
+            scheduled: false,
+            now: Date(timeIntervalSince1970: 3_600)
+        )
+        XCTAssertEqual(
+            ConversationPrompts.directResponseSystem(coordinator: ada, context: first, connectorTools: [], hasLinkedMissions: false, store: prompts, language: "en"),
+            ConversationPrompts.directResponseSystem(coordinator: ada, context: second, connectorTools: [], hasLinkedMissions: false, store: prompts, language: "en")
+        )
+        XCTAssertEqual(
+            ConversationPrompts.routingSystem(coordinator: ada, skills: "- research: use when", context: first, store: prompts, language: "en"),
+            ConversationPrompts.routingSystem(coordinator: ada, skills: "- research: use when", context: second, store: prompts, language: "en")
+        )
+        let turn = second.userTurn("What's new?")
+        XCTAssertTrue(turn.hasPrefix("<about_user>\n"))
+        XCTAssertTrue(turn.contains("Lives in Madrid."))
+        XCTAssertTrue(turn.contains("b.md — 20"))
+        XCTAssertTrue(turn.contains("Current time: 1970-01-01T01:00:00Z (UTC)"))
+        XCTAssertTrue(turn.hasSuffix("<user_message>\nWhat's new?\n</user_message>"))
+        // Memory holds the user's own preferences, so it is no longer filed under untrusted data.
+        let about = turn.components(separatedBy: "</about_user>")[0]
+        XCTAssertFalse(about.contains("untrusted"))
     }
 
     func testChatPromptsLeaveHistoryToMessagesButMissionHandoffKeepsIt() {
