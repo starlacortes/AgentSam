@@ -185,6 +185,7 @@ public actor ConversationEngine {
             var activity = [AgentActivity(agentID: coordinator.id, agentName: "Ada", summary: language == "es" ? "Respondiendo directamente" : "Answering directly", state: "working")]
             var quickReplies: [String] = []
             var writtenFiles: [String] = []
+            var toolLog: [String] = []
 
             switch decision?.action {
             case .solo:
@@ -220,7 +221,7 @@ public actor ConversationEngine {
                 let selected = await skillTeams(for: decision, skills: skillList, teams: allTeams, coordinator: coordinator, providers: providers)
                 if selected.isEmpty {
                     await beginStep(writing, in: ref)
-                    responseText = try await directAnswer(userText: directText, photos: photoInput, coordinator: coordinator, context: context, history: history, language: language, ref: ref, conversationID: conversationID, writtenFiles: &writtenFiles)
+                    responseText = try await directAnswer(userText: directText, photos: photoInput, coordinator: coordinator, context: context, history: history, language: language, ref: ref, conversationID: conversationID, writtenFiles: &writtenFiles, toolLog: &toolLog)
                 } else {
                     let rationale = shortSummary(decision?.rationale ?? decision?.message, fallback: language == "es" ? "Coordinando especialistas" : "Coordinating specialists")
                     activity[0].summary = rationale
@@ -266,7 +267,7 @@ public actor ConversationEngine {
                 // Teams are no longer proposed to people; an older stored prompt that still asks to
                 // propose one gets a direct answer instead.
                 await beginStep(writing, in: ref)
-                responseText = try await directAnswer(userText: directText, photos: photoInput, coordinator: coordinator, context: context, history: history, language: language, ref: ref, conversationID: conversationID, writtenFiles: &writtenFiles)
+                responseText = try await directAnswer(userText: directText, photos: photoInput, coordinator: coordinator, context: context, history: history, language: language, ref: ref, conversationID: conversationID, writtenFiles: &writtenFiles, toolLog: &toolLog)
             }
 
             if decision?.action != .clarify {
@@ -296,6 +297,7 @@ public actor ConversationEngine {
                 message.activity = activity
                 message.quickReplies = quickReplies
                 message.fileIDs = fileIDs
+                message.toolLog = toolLog
                 Self.settleSteps(&message.steps, as: "done")
                 message.completedAt = Date()
             }
@@ -389,12 +391,27 @@ public actor ConversationEngine {
     /// Earlier turns as real chat messages, oldest first, ending on an assistant turn so the caller can
     /// append the user's latest message. Consecutive same-role turns are merged because providers
     /// expect alternating roles (a failed reply leaves two user messages in a row).
+    static let maxToolLogEntries = 12
+
+    /// "chat_read_file {"path":"notes.md"} → ok" or "… → failed: reason", short enough to carry in history.
+    static func toolLogLine(call: APIToolCall, outcome: ToolOutcome) -> String {
+        let arguments = call.function.arguments.replacingOccurrences(of: "\n", with: " ")
+        let shortArguments = arguments.count > 120 ? String(arguments.prefix(120)) + "…" : arguments
+        let firstLine = outcome.resultText.split(separator: "\n", maxSplits: 1).first.map(String.init) ?? ""
+        let result = outcome.succeeded ? "ok" : "failed: " + String(firstLine.prefix(120))
+        return "\(call.function.name) \(shortArguments) → \(result)"
+    }
+
     static func chatTurns(from history: [ConversationMessage], limit: Int = 24, characters: Int = 6_000, images: [UUID: [APIImage]] = [:]) -> [APIMessage] {
         var turns: [APIMessage] = []
         for message in history.suffix(limit) {
             let role = message.role == .user ? "user" : "assistant"
             // Raw tool-call markup from an earlier reply teaches the model to write calls as text again.
             var body = String(DSMLToolCalls.strip(message.text).prefix(characters))
+            if message.role != .user, !message.toolLog.isEmpty {
+                // What Ada did with tools in that reply, so she doesn't redo or contradict it.
+                body += "\n\n[Tools used in this reply: " + message.toolLog.joined(separator: "; ") + "]"
+            }
             let attached = images[message.id] ?? []
             if !message.photos.isEmpty && attached.isEmpty {
                 // The photo itself is no longer sent; say it was there so the turn still makes sense.
@@ -422,7 +439,7 @@ public actor ConversationEngine {
     /// Model calls with tools in one direct reply before Ada must answer without them.
     static let maxToolRounds = 8
 
-    private func directAnswer(userText: String, photos photoInput: PhotoInputs = PhotoInputs(), coordinator: AgentProfile, context: ConversationPromptContext, history: [ConversationMessage], language: String, ref: ResponseRef? = nil, conversationID: UUID, writtenFiles: inout [String]) async throws -> String {
+    private func directAnswer(userText: String, photos photoInput: PhotoInputs = PhotoInputs(), coordinator: AgentProfile, context: ConversationPromptContext, history: [ConversationMessage], language: String, ref: ResponseRef? = nil, conversationID: UUID, writtenFiles: inout [String], toolLog: inout [String]) async throws -> String {
         let connectorTools = await connectors?.toolDefs(readOnly: access == nil) ?? []
         // Only tools offered in this request may run, and each runs by the family it was offered from.
         let offeredTools = OfferedTools.direct(connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedAccess: access != nil)
@@ -508,6 +525,7 @@ public actor ConversationEngine {
                     }
                 }
                 messages.append(.tool(id: call.id, content: String(outcome.resultText.prefix(32_000)), isError: !outcome.succeeded))
+                if toolLog.count < Self.maxToolLogEntries { toolLog.append(Self.toolLogLine(call: call, outcome: outcome)) }
             }
             // Warn before the budget runs out, so Ada can wrap up instead of being cut off mid-task.
             let left = Self.maxToolRounds - round - 1

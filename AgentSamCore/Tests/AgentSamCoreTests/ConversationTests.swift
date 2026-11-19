@@ -182,6 +182,41 @@ final class ConversationTests: XCTestCase {
         XCTAssertEqual(basic.family(of: "chat_write_file"), .chat)
     }
 
+    func testToolLogIsKeptWithTheReplyAndSentWithLaterTurns() async throws {
+        let store = MissionStore(root: directory)
+        await store.saveProviders([provider])
+        let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
+        try keys.set("test-key", for: provider.keyAccount)
+        let conversations = ConversationStore(root: directory)
+        let memory = WorkspaceMemoryStore(root: directory)
+        let histories = LockedStrings()
+        let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, missions: MissionEngine(store: store, keyRing: keys), completion: { _, _, _, system, messages, tools in
+            if system.contains("Decide how to handle") { return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub") }
+            guard tools != nil else { return LLMReply(message: .assistant("Done."), inputTokens: 0, outputTokens: 0, model: "stub") }
+            histories.append(contentsOf: [messages.compactMap(\.content).joined(separator: "\n")])
+            if messages.last?.role == "user", messages.last?.content?.contains("Save a note") == true {
+                return LLMReply(message: APIMessage(role: "assistant", tool_calls: [
+                    APIToolCall(id: "w", function: .init(name: "chat_write_file", arguments: #"{"path":"note.md","content":"hi"}"#)),
+                    APIToolCall(id: "r", function: .init(name: "chat_read_file", arguments: #"{"path":"missing.md"}"#)),
+                ]), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
+            return LLMReply(message: .assistant("Saved."), inputTokens: 0, outputTokens: 0, model: "stub")
+        })
+        let conversation = try await conversations.create(ownerID: "owner")
+        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Save a note", launchedBy: "Owner", language: "en")
+        let first = try await finishedConversation(conversations, id: conversation.id)
+        let reply = try XCTUnwrap(first.messages.last)
+        XCTAssertEqual(reply.toolLog.count, 2, reply.toolLog.joined(separator: "\n"))
+        XCTAssertTrue(reply.toolLog[0].hasPrefix(#"chat_write_file {"path":"note.md","content":"hi"} → ok"#), reply.toolLog[0])
+        XCTAssertTrue(reply.toolLog[1].hasPrefix("chat_read_file") && reply.toolLog[1].contains("→ failed: "), reply.toolLog[1])
+
+        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "What did you do?", launchedBy: "Owner", language: "en")
+        _ = try await finishedConversation(conversations, id: conversation.id)
+        let later = try XCTUnwrap(histories.values.last)
+        XCTAssertTrue(later.contains("[Tools used in this reply: chat_write_file"), later)
+        await engine.shutdown()
+    }
+
     func testUnknownToolMessageSuggestsClosestTools() {
         let message = ConversationEngine.unknownToolMessage("chat_read", offered: ["chat_read_file", "chat_write_file", "run_program"])
         XCTAssertTrue(message.contains("Closest available: chat_read_file, chat_write_file."), message)
