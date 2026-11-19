@@ -232,7 +232,7 @@ public enum ChatWorkspaceTools {
                         ("prompt", .object([("type", .string("string")), ("description", .string("The instruction to run each time, written as the user would phrase it, e.g. \"Refresh the list and update the saved file with anything new\""))])),
                         ("intervalMinutes", .object([
                             ("type", .string("integer")),
-                            ("enum", .array([.string("15"), .string("30"), .string("60"), .string("360"), .string("720"), .string("1440")])),
+                            ("enum", .array([.number(15), .number(30), .number(60), .number(360), .number(720), .number(1440)])),
                             ("description", .string("How often to run: 15 or 30 minutes, 60 (hourly), 360 (every 6 hours), 720 (every 12 hours), or 1440 (daily)")),
                         ])),
                     ])),
