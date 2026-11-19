@@ -47,6 +47,10 @@ final class WorkspaceKnowledgeTests: XCTestCase {
         let connections = try XCTUnwrap(first.documents.first { $0.id == .connections }?.markdown)
         XCTAssertTrue(connections.contains("Gmail"))
         XCTAssertTrue(connections.contains("web_fetch"))
+        // Tool descriptions already come with the tool definitions, so the knowledge lists names only.
+        for tool in ChatWorkspaceTools.definitions + ExtendedWorkspaceTools.definitions {
+            XCTAssertFalse(capabilities.contains(tool.function.description), "\(tool.function.name) is described twice")
+        }
         XCTAssertTrue(first.promptSummary.contains("capabilities.md"))
 
         let unchanged = await knowledge.refresh(ownerID: "owner", now: now.addingTimeInterval(30))

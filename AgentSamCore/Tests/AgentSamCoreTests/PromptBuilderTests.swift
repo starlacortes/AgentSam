@@ -43,6 +43,21 @@ final class PromptBuilderTests: XCTestCase {
         XCTAssertTrue(PromptBuilder(store: store).houseRules().contains("Finish tool"))
     }
 
+    func testSoloWorkerAndExtendedAccessPromptsAreVersionedTemplates() {
+        let store = PromptStore(builtins: PromptStore.builtins)
+        let ada = AgentProfile.rosterTemplates[0]
+        XCTAssertTrue(ConversationEngine.soloTeam(coordinator: ada, language: "en", store: store).workers.first?.systemPrompt.contains("working on your own mission") == true)
+        store.update(id: "ada_solo_worker", text: "Edited solo prompt.")
+        XCTAssertEqual(ConversationEngine.soloTeam(coordinator: ada, language: "en", store: store).workers.first?.systemPrompt, "Edited solo prompt.")
+
+        let context = ConversationPromptContext(projectName: "P", history: [], memory: "", workspaceManifest: "", missionReferences: "", missionIDs: [], schedule: nil, scheduled: false)
+        let direct = { ConversationPrompts.directResponseSystem(coordinator: ada, context: context, connectorTools: [], hasLinkedMissions: false, hasExtendedTools: true, store: store, language: "en") }
+        XCTAssertTrue(direct().contains("Additional access, enforced by the server:"))
+        store.update(id: "ada_extended_access", text: "Edited access note.")
+        XCTAssertTrue(direct().contains("Edited access note."))
+        XCTAssertNotNil(store.currentVersions()["ada_extended_access"])
+    }
+
     func testVerifierSystemTreatsDeliverablesAsData() {
         let system = builder().verifierSystem(
             agent: agent("Vera", role: .verifier),
