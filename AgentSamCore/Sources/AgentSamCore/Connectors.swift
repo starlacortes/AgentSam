@@ -22,6 +22,19 @@ public enum ConnectorID: String, Codable, CaseIterable, Hashable, Sendable {
         }
     }
 
+    /// Connectors kept out of the app for now: not listed to users, not described to Ada, and their tools are not offered.
+    /// The code stays in place. Re-enable one by removing it here, or at runtime with
+    /// `AGENTSAM_SHOW_HIDDEN_CONNECTORS=cloudflare` (comma-separated IDs, or `all`).
+    public static let hiddenByDefault: Set<ConnectorID> = [.cloudflare]
+
+    /// The hidden set after applying `AGENTSAM_SHOW_HIDDEN_CONNECTORS`.
+    public static var hidden: Set<ConnectorID> {
+        let raw = ProcessInfo.processInfo.environment["AGENTSAM_SHOW_HIDDEN_CONNECTORS"] ?? ""
+        let shown = raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+        if shown.contains("all") { return [] }
+        return hiddenByDefault.filter { !shown.contains($0.rawValue) }
+    }
+
     public var detail: String {
         switch self {
         case .gmail: "Search, read, draft, and optionally send email through your Gmail account."
@@ -242,6 +255,8 @@ public struct ConnectorHub: Sendable {
     public let keyRing: KeyRing
     public let session: URLSession
     public let google: GoogleOAuth
+    /// Connectors hidden from users and from Ada's tools (see `ConnectorID.hidden`).
+    public let hiddenConnectors: Set<ConnectorID>
 
     public static let providers: [any ConnectorToolProvider] = [
         CloudflareConnector(),
@@ -251,10 +266,11 @@ public struct ConnectorHub: Sendable {
         WebConnector(),
     ]
 
-    public init(store: MissionStore, keyRing: KeyRing, session: URLSession? = nil, google: GoogleOAuth) {
+    public init(store: MissionStore, keyRing: KeyRing, session: URLSession? = nil, google: GoogleOAuth, hiddenConnectors: Set<ConnectorID> = ConnectorID.hidden) {
         self.store = store
         self.keyRing = keyRing
         self.google = google
+        self.hiddenConnectors = hiddenConnectors
         if let session {
             self.session = session
         } else {
@@ -267,6 +283,11 @@ public struct ConnectorHub: Sendable {
 
     public var runtime: ConnectorRuntime {
         ConnectorRuntime(keyRing: keyRing, session: session, google: google)
+    }
+
+    /// The connectors users and Ada can see, in display order.
+    public var visibleConnectorIDs: [ConnectorID] {
+        ConnectorID.allCases.filter { !hiddenConnectors.contains($0) }
     }
 
     public func provider(for id: ConnectorID) -> (any ConnectorToolProvider)? {
@@ -325,7 +346,7 @@ public struct ConnectorHub: Sendable {
 
     public func toolDefs(scope: ToolScope? = nil, readOnly: Bool = false) async -> [APIToolDef] {
         var defs: [APIToolDef] = []
-        for provider in Self.providers {
+        for provider in Self.providers where !hiddenConnectors.contains(provider.id) {
             let config = await config(for: provider.id)
             guard config.enabled, provider.isConfigured(keyRing: keyRing) else { continue }
             if let scope, !scope.connectorIDs.contains(provider.id) { continue }
@@ -348,6 +369,9 @@ public struct ConnectorHub: Sendable {
         }
         if let scope, !scope.connectorIDs.contains(provider.id) {
             return .failure("This team does not have access to \(provider.id.displayName).")
+        }
+        guard !hiddenConnectors.contains(provider.id) else {
+            return .failure("The \(provider.id.displayName) connector is disabled in this version of AgentSam.")
         }
         let config = await config(for: provider.id)
         guard config.enabled else {

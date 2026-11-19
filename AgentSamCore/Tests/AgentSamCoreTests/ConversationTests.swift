@@ -45,7 +45,7 @@ final class ConversationTests: XCTestCase {
         await store.saveConnectorConfigs([ConnectorConfig(id: .cloudflare, enabled: true, permissions: ConnectorPermissions(dnsWrite: true))])
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]
-        let hub = ConnectorHub(store: store, keyRing: keys, session: URLSession(configuration: configuration), google: GoogleOAuth(clientID: "", clientSecret: ""))
+        let hub = ConnectorHub(store: store, keyRing: keys, session: URLSession(configuration: configuration), google: GoogleOAuth(clientID: "", clientSecret: ""), hiddenConnectors: [])
         CapturingURLProtocol.handler = { request in
             XCTFail("An external connector ran before approval: \(request.url?.absoluteString ?? "")")
             return (HTTPURLResponse(url: try! XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!, Data("{}".utf8))
@@ -345,7 +345,7 @@ final class ConversationTests: XCTestCase {
         let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
         try keys.set("token", for: CloudflareConnector.tokenAccount)
         await store.saveConnectorConfigs([ConnectorConfig(id: .cloudflare, enabled: true, permissions: ConnectorPermissions(dnsWrite: true))])
-        let hub = ConnectorHub(store: store, keyRing: keys, google: GoogleOAuth(clientID: "", clientSecret: ""))
+        let hub = ConnectorHub(store: store, keyRing: keys, google: GoogleOAuth(clientID: "", clientSecret: ""), hiddenConnectors: [])
         let readNames = await hub.toolDefs(readOnly: true).map(\.function.name)
         XCTAssertEqual(Set(readNames.filter { $0.hasPrefix("cloudflare_") }), ["cloudflare_zones", "cloudflare_dns_list"])
         XCTAssertTrue(readNames.contains("web_fetch"))
@@ -378,7 +378,7 @@ final class ConversationTests: XCTestCase {
             try keys.set("test-key", for: provider.keyAccount)
             try keys.set("token", for: CloudflareConnector.tokenAccount)
             await store.saveConnectorConfigs([ConnectorConfig(id: .cloudflare, enabled: true, permissions: ConnectorPermissions(dnsWrite: dnsWrite))])
-            let hub = ConnectorHub(store: store, keyRing: keys, google: GoogleOAuth(clientID: "", clientSecret: ""))
+            let hub = ConnectorHub(store: store, keyRing: keys, google: GoogleOAuth(clientID: "", clientSecret: ""), hiddenConnectors: [])
             let conversations = ConversationStore(root: root)
             let memory = WorkspaceMemoryStore(root: root)
             let seen = Seen()
@@ -402,6 +402,18 @@ final class ConversationTests: XCTestCase {
         }
     }
 
+    func testHiddenConnectorsAreNotListedOrOffered() async throws {
+        XCTAssertTrue(ConnectorID.hiddenByDefault.contains(.cloudflare))
+        let store = MissionStore(root: directory)
+        let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
+        try keys.set("token", for: CloudflareConnector.tokenAccount)
+        await store.saveConnectorConfigs([ConnectorConfig(id: .cloudflare, enabled: true, permissions: ConnectorPermissions(dnsWrite: true))])
+        let hub = ConnectorHub(store: store, keyRing: keys, google: GoogleOAuth(clientID: "", clientSecret: ""), hiddenConnectors: [.cloudflare])
+        XCTAssertFalse(hub.visibleConnectorIDs.contains(.cloudflare))
+        let names = await hub.toolDefs().map(\.function.name)
+        XCTAssertFalse(names.contains { $0.hasPrefix("cloudflare_") })
+    }
+
     func testSoloTeamWritesFollowConnectionsToggles() async throws {
         let solo = ConversationEngine.soloTeam(coordinator: agent("Ada", role: .coordinator), language: "en")
         let scope = try XCTUnwrap(solo.toolScope)
@@ -414,7 +426,7 @@ final class ConversationTests: XCTestCase {
             ConnectorConfig(id: .cloudflare, enabled: true, permissions: ConnectorPermissions(dnsWrite: false)),
             ConnectorConfig(id: .github, enabled: true, permissions: ConnectorPermissions(githubWrite: true)),
         ])
-        let hub = ConnectorHub(store: store, keyRing: keys, google: GoogleOAuth(clientID: "", clientSecret: ""))
+        let hub = ConnectorHub(store: store, keyRing: keys, google: GoogleOAuth(clientID: "", clientSecret: ""), hiddenConnectors: [])
         let names = await hub.toolDefs(scope: scope).map(\.function.name)
         XCTAssertFalse(names.contains("cloudflare_dns_create"), "a toggle left off in Connections stays off")
         XCTAssertTrue(names.contains("github_write_file"))
