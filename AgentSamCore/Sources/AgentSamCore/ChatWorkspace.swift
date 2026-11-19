@@ -543,16 +543,10 @@ enum CodeRunner {
             }
         }
 
-        if stdin.isEmpty {
-            try? stdinPipe.fileHandleForWriting.close()
-        } else {
-            let writer = stdinPipe.fileHandleForWriting
-            writer.writeabilityHandler = { handle in
-                handle.writeabilityHandler = nil
-                handle.write(Data(stdin.utf8))
-                try? handle.close()
-            }
-        }
+        // stdin is written from its own thread once the program starts. A writeabilityHandler that
+        // clears itself deadlocks swift-corelibs-foundation on Linux, and the write may block until
+        // the program reads, so it cannot happen here either.
+        let stdinData = Data(stdin.utf8)
 
         do {
             try process.run()
@@ -560,17 +554,39 @@ enum CodeRunner {
             for reader in readers { reader.readabilityHandler = nil }
             throw CodeRunnerError.toolchainMissing(languageHint: plan.arguments.first ?? plan.executable)
         }
+        let writer = stdinPipe.fileHandleForWriting
+        if stdinData.isEmpty {
+            try? writer.close()
+        } else {
+            // A program that exits without reading closes the pipe; ignore SIGPIPE for this write.
+            Thread {
+                signal(SIGPIPE, SIG_IGN)
+                try? writer.write(contentsOf: stdinData)
+                try? writer.close()
+            }.start()
+        }
 
-        let processGroup = setpgid(process.processIdentifier, process.processIdentifier) == 0 ? process.processIdentifier : -1
+        // Foundation may already have put the child in its own group, in which case setpgid fails
+        // after exec; the group still belongs to the child.
+        let pid = process.processIdentifier
+        let processGroup = setpgid(pid, pid) == 0 || getpgid(pid) == pid ? pid : -1
         let timedOut = !waitWithTimeout(process, seconds: timeout)
         if timedOut {
+            // The child can inherit a signal mask that blocks SIGTERM (Swift concurrency's worker
+            // threads block it on Linux), so SIGKILL always follows. Killing bubblewrap's outer
+            // process also ends everything inside the sandbox (--die-with-parent).
             if processGroup > 0 { kill(-processGroup, SIGTERM) } else { process.terminate() }
-            _ = waitForExit(process, seconds: 3)
-            if processGroup > 0, process.isRunning { kill(-processGroup, SIGKILL) }
+            if !waitForExit(process, seconds: 3) {
+                if processGroup > 0 { kill(-processGroup, SIGKILL) }
+                kill(pid, SIGKILL)
+                _ = waitForExit(process, seconds: 3)
+            }
         }
-        group.wait()
+        // A stray grandchild that escaped the group could hold the pipes open forever.
+        if group.wait(timeout: .now() + (timedOut ? 2 : 10)) == .timedOut {
+            for reader in readers { reader.readabilityHandler = nil; try? reader.close() }
+        }
         for reader in readers { reader.readabilityHandler = nil }
-        stdinPipe.fileHandleForWriting.writeabilityHandler = nil
 
         let output = String(data: collected, encoding: .utf8) ?? ""
         let clipped = AgentTools.clip(String(output.prefix(ChatWorkspaceTools.maxOutputCharacters)))

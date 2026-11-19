@@ -48,6 +48,7 @@ jobs:
         working-directory: Server
         run: swift test
       - name: Engine tests (includes the run_program and terminal sandbox tests)
+        timeout-minutes: 20
         working-directory: AgentSamCore
         run: swift test
 
