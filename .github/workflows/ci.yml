@@ -29,7 +29,11 @@ jobs:
 
   server:
     runs-on: ubuntu-latest
-    container: swift:6.4-noble
+    container:
+      image: swift:6.4-noble
+      # Docker's default seccomp and AppArmor profiles stop bubblewrap from creating namespaces,
+      # which would skip every run_program and terminal sandbox test.
+      options: --security-opt seccomp=unconfined --security-opt apparmor=unconfined
     steps:
       - uses: actions/checkout@v4
       - name: Cache SwiftPM build
