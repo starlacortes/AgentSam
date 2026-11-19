@@ -155,10 +155,10 @@ public struct ConversationPromptContext: Sendable {
         Schedule: \(scheduleText)
 
         Workspace files (relative path — size in bytes; contents are not included):
-        \(workspaceManifest.isEmpty ? "No workspace files." : String(workspaceManifest.prefix(12_000)))
+        \(workspaceManifest.isEmpty ? "No workspace files." : Self.clipList(workspaceManifest, limit: 12_000))
 
         Shared project files (relative path — size in bytes; use project_* tools):
-        \(projectManifest.isEmpty ? "No shared project files yet." : String(projectManifest.prefix(12_000)))
+        \(projectManifest.isEmpty ? "No shared project files yet." : Self.clipList(projectManifest, limit: 12_000))
 
         Host folders explicitly granted by this user:
         \(hostGrants.isEmpty ? "No host folder grants." : String(hostGrants.prefix(4_000)))
@@ -169,6 +169,17 @@ public struct ConversationPromptContext: Sendable {
         Approval requests from this conversation (last 24 hours, newest first):
         \(approvalLines.isEmpty ? "None." : approvalLines)
         """
+    }
+
+    /// Cuts a one-entry-per-line list at a line boundary and says how many entries were left out,
+    /// so a long manifest does not look complete.
+    static func clipList(_ text: String, limit: Int) -> String {
+        guard text.count > limit else { return text }
+        var kept = String(text.prefix(limit))
+        if let lastBreak = kept.lastIndex(of: "\n") { kept = String(kept[..<lastBreak]) }
+        let total = text.split(separator: "\n", omittingEmptySubsequences: true).count
+        let shown = kept.split(separator: "\n", omittingEmptySubsequences: true).count
+        return kept + "\n…[\(total - shown) more entries not shown; use the list tool to see them all]"
     }
 
     /// Both context parts as one block, for missions, which take their context as text.
@@ -375,6 +386,8 @@ public enum ConversationPrompts {
         case "gmail_send": return es ? "Preparando un correo" : "Preparing an email"
         case "googleads_set_status", "googleads_set_budget", "googleads_mutate": return es ? "Preparando un cambio en Google Ads" : "Preparing a Google Ads change"
         case "skill_save": return es ? "Guardando un procedimiento" : "Saving a procedure"
+        case "cloudflare_dns_create", "cloudflare_dns_update", "cloudflare_dns_delete": return es ? "Preparando un cambio de DNS" : "Preparing a DNS change"
+        case "cloudflare_purge_cache": return es ? "Preparando una limpieza de caché" : "Preparing a cache purge"
         default: return es ? "Usando \(name)" : "Using \(name)"
         }
     }
