@@ -682,6 +682,52 @@ final class ConversationTests: XCTestCase {
         XCTAssertTrue(edited.contains("Project: Personal"))
     }
 
+    func testChatPromptsLeaveHistoryToMessagesButMissionHandoffKeepsIt() {
+        let prompts = PromptStore(builtins: PromptStore.builtins)
+        let history = [
+            ConversationMessage(role: .user, text: "Plan the alpaca newsletter"),
+            ConversationMessage(role: .assistant, text: "Here is a draft outline."),
+        ]
+        let context = ConversationPromptContext(projectName: "Personal", history: history, memory: "", workspaceManifest: "", missionReferences: "", missionIDs: [], schedule: nil, scheduled: false)
+        let ada = AgentProfile.rosterTemplates[0]
+        // Chat calls already send the history as real messages, so the system prompt must not repeat it.
+        let direct = ConversationPrompts.directResponseSystem(coordinator: ada, context: context, connectorTools: [], hasLinkedMissions: false, store: prompts, language: "en")
+        let routing = ConversationPrompts.routingSystem(coordinator: ada, teams: [], context: context, store: prompts, language: "en")
+        for system in [direct, routing] {
+            XCTAssertFalse(system.contains("Plan the alpaca newsletter"))
+            XCTAssertFalse(system.contains("Recent conversation"))
+        }
+        // Missions get no chat turns, so their handoff carries the recent conversation as text.
+        XCTAssertTrue(context.missionHandoff.contains("User: Plan the alpaca newsletter"))
+        XCTAssertTrue(context.missionHandoff.contains("Ada: Here is a draft outline."))
+    }
+
+    func testSpokenRepliesAreNotAskedToCiteIDs() {
+        let prompts = PromptStore(builtins: PromptStore.builtins)
+        let tools = [APIToolDef(name: "gmail_search", description: "Search Gmail", parameters: .object(["type": .string("object")]))]
+        let ada = AgentProfile.rosterTemplates[0]
+        let typed = ConversationPromptContext(projectName: "Personal", history: [], memory: "", workspaceManifest: "", missionReferences: "", missionIDs: [], schedule: nil, scheduled: false)
+        var spoken = typed
+        spoken.spoken = true
+        let text = ConversationPrompts.directResponseSystem(coordinator: ada, context: typed, connectorTools: tools, hasLinkedMissions: false, store: prompts, language: "en")
+        let voice = ConversationPrompts.directResponseSystem(coordinator: ada, context: spoken, connectorTools: tools, hasLinkedMissions: false, store: prompts, language: "en")
+        XCTAssertTrue(text.contains("Cite relevant message"))
+        XCTAssertFalse(voice.contains("Cite relevant message"))
+        XCTAssertTrue(voice.contains("gmail_search"))
+    }
+
+    func testEveryDirectToolHasAFriendlyStepLabel() {
+        let names = (ChatWorkspaceTools.definitions + ExtendedWorkspaceTools.definitions + ConversationMissionTools.definitions).map(\.function.name)
+            + ConnectorHub.readOnlyToolNames.filter { !$0.hasPrefix("cloudflare_") }
+            + ["gmail_draft", "gmail_send", "github_write_file", "github_comment", "googleads_set_status", "googleads_set_budget", "googleads_mutate"]
+        for name in names {
+            for language in ["en", "es"] {
+                let label = ConversationPrompts.toolStepLabel(name, language: language)
+                XCTAssertFalse(label.contains(name), "\(name) has no \(language) step label")
+            }
+        }
+    }
+
     func testDirectAnswerCompactsLargeExecutedToolPayloads() async throws {
         let store = MissionStore(root: directory)
         await store.saveProviders([provider])
