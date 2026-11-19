@@ -43,6 +43,9 @@ jobs:
       - name: Build and test
         working-directory: Server
         run: swift test
+      - name: Engine tests (includes the run_program and terminal sandbox tests)
+        working-directory: AgentSamCore
+        run: swift test
 
   docker:
     runs-on: ubuntu-latest
