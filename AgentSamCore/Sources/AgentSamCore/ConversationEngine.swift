@@ -187,7 +187,7 @@ public actor ConversationEngine {
 
             switch decision?.action {
             case .solo:
-                var solo = Self.soloTeam(coordinator: coordinator, language: language)
+                var solo = Self.soloTeam(coordinator: coordinator, language: language, store: promptStore)
                 // Persist the singleton so its missions resolve in the mission pages. If a stale
                 // copy exists (older provider config), adopt the current coordinator.
                 if let existing = await store.team(id: Self.soloTeamID) {
@@ -368,12 +368,12 @@ public actor ConversationEngine {
     /// resolve in the UI; it is hidden from the routing roster because SOLO is the way to use it.
     public static let soloTeamID = UUID(uuidString: "AE4DA0A1-5F1D-4C4B-9A5A-DACA0E1E0F1F")!
 
-    static func soloTeam(coordinator: AgentProfile, language: String) -> Team {
+    static func soloTeam(coordinator: AgentProfile, language: String, store: PromptStore = PromptStore(builtins: PromptStore.builtins)) -> Team {
         var worker = coordinator
         worker.id = UUID()
         worker.role = .worker
         worker.title = language == "es" ? "Especialista" : "Solo specialist"
-        worker.systemPrompt = "You are Ada working on your own mission. Plan carefully, produce real deliverables in your workspace, run programs to verify your work, and finish with a clear handoff summary for the coordinator."
+        worker.systemPrompt = store.render("ada_solo_worker")
         return Team(
             id: soloTeamID,
             name: language == "es" ? "Ada (sola)" : "Ada (solo)",

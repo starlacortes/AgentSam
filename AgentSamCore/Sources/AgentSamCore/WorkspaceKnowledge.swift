@@ -261,9 +261,8 @@ public actor WorkspaceKnowledgeStore {
         lines += ["", "## Direct chat tools"]
         var directTools = ChatWorkspaceTools.definitions + SkillTools.definitions
         if includeExtendedTools { directTools += ExtendedWorkspaceTools.definitions }
-        for tool in directTools.sorted(by: { $0.function.name < $1.function.name }) {
-            lines.append("- `\(tool.function.name)`: \(Self.inline(tool.function.description, limit: 360))")
-        }
+        // Names only: Ada already receives each tool's full description with its definition.
+        lines.append(directTools.map(\.function.name).sorted().map { "`\($0)`" }.joined(separator: ", "))
         let skillNames = skills.map { Self.inline($0.name) + ($0.enabled ? "" : " (off)") }
         lines += [
             "",
@@ -305,11 +304,11 @@ public actor WorkspaceKnowledgeStore {
             if tools.isEmpty {
                 lines.append("- Active tools: none. Connect and enable this connector to expose its tools.")
             } else {
-                lines.append("- Active tools:")
-                for tool in tools {
-                    let access = ConnectorHub.readOnlyToolNames.contains(tool.function.name) ? "read-only" : "write, subject to workspace approval rules"
-                    lines.append("  - `\(tool.function.name)` (\(access)): \(Self.inline(tool.function.description, limit: 360))")
-                }
+                // Names and access only: each tool's description already comes with its definition.
+                let reads = tools.map(\.function.name).filter { ConnectorHub.readOnlyToolNames.contains($0) }
+                let writes = tools.map(\.function.name).filter { !ConnectorHub.readOnlyToolNames.contains($0) }
+                if !reads.isEmpty { lines.append("- Read-only tools: " + reads.map { "`\($0)`" }.joined(separator: ", ")) }
+                if !writes.isEmpty { lines.append("- Write tools (each needs the user's approval): " + writes.map { "`\($0)`" }.joined(separator: ", ")) }
             }
             lines.append("")
         }
