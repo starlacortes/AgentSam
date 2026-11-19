@@ -253,8 +253,11 @@ public struct Conversation: Codable, Identifiable, Hashable, Sendable {
     /// When the user archived the chat. Archived chats leave the sidebar, stop their schedule,
     /// and are deleted once they are older than the owner's archive retention.
     public var archivedAt: Date?
+    /// The person's IANA time zone (for example "America/Los_Angeles"), from the last message their
+    /// browser sent. Scheduled runs reuse it. Nil until a client reports one.
+    public var timeZone: String?
 
-    public init(id: UUID = UUID(), ownerID: String, title: String = "New conversation", projectName: String = "Personal", createdAt: Date = Date(), updatedAt: Date = Date(), messages: [ConversationMessage] = [], schedule: ConversationSchedule? = nil, archivedAt: Date? = nil) {
+    public init(id: UUID = UUID(), ownerID: String, title: String = "New conversation", projectName: String = "Personal", createdAt: Date = Date(), updatedAt: Date = Date(), messages: [ConversationMessage] = [], schedule: ConversationSchedule? = nil, archivedAt: Date? = nil, timeZone: String? = nil) {
         self.id = id
         self.ownerID = ownerID
         self.title = title
@@ -264,6 +267,7 @@ public struct Conversation: Codable, Identifiable, Hashable, Sendable {
         self.messages = messages
         self.schedule = schedule
         self.archivedAt = archivedAt
+        self.timeZone = timeZone
     }
 
     public var summary: ConversationSummary {
@@ -271,7 +275,7 @@ public struct Conversation: Codable, Identifiable, Hashable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, ownerID, title, projectName, createdAt, updatedAt, messages, schedule, archivedAt
+        case id, ownerID, title, projectName, createdAt, updatedAt, messages, schedule, archivedAt, timeZone
     }
 
     /// Older conversations on disk predate `schedule` and `archivedAt`.
@@ -286,6 +290,7 @@ public struct Conversation: Codable, Identifiable, Hashable, Sendable {
         messages = try c.decodeIfPresent([ConversationMessage].self, forKey: .messages) ?? []
         schedule = try c.decodeIfPresent(ConversationSchedule.self, forKey: .schedule)
         archivedAt = try c.decodeIfPresent(Date.self, forKey: .archivedAt)
+        timeZone = try c.decodeIfPresent(String.self, forKey: .timeZone)
     }
 }
 

@@ -263,6 +263,7 @@ public enum ChatWorkspaceTools {
         call: APIToolCall,
         workspace: ChatWorkspaceStore,
         conversationID: UUID,
+        timeZone: TimeZone = TimeZone(identifier: "UTC")!,
         schedule: (@Sendable (ConversationSchedule?) async -> ConversationSchedule?)? = nil
     ) async -> ToolOutcome {
         let args = AgentTools.arguments(of: call)
@@ -281,7 +282,7 @@ public enum ChatWorkspaceTools {
             guard let saved = await sink(next), saved == next else {
                 return ToolOutcome(resultText: "The schedule could not be saved.")
             }
-            return ToolOutcome(resultText: "Schedule set: \"\(next.prompt)\" every \(next.intervalLabel). The first run fires at the next interval boundary.")
+            return ToolOutcome(resultText: "Schedule set: \"\(next.prompt)\", \(next.intervalLabel). The first run is at \(ConversationPromptContext.describe(next.nextRunAt, in: timeZone)).")
         case "chat_schedule_cancel":
             guard let sink = schedule else {
                 return ToolOutcome(resultText: "Scheduling is not available in this context.")

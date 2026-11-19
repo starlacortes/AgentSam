@@ -64,7 +64,7 @@ public actor ConversationEngine {
     }
 
     @discardableResult
-    public func send(conversationID: UUID, ownerID: String, text rawText: String, launchedBy: String, language: String, scheduled: Bool = false, photos: [PhotoAttachment] = [], spoken: Bool = false) async throws -> Conversation {
+    public func send(conversationID: UUID, ownerID: String, text rawText: String, launchedBy: String, language: String, scheduled: Bool = false, photos: [PhotoAttachment] = [], spoken: Bool = false, timeZone: String? = nil) async throws -> Conversation {
         let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         let photos = Array(photos.prefix(ConversationPhotoStore.maxPerMessage))
         guard !text.isEmpty || !photos.isEmpty else { throw ConversationError.emptyMessage }
@@ -72,6 +72,7 @@ public actor ConversationEngine {
         guard running[conversationID] == nil else { throw ConversationError.alreadyRunning }
         guard let conversation = try await conversations.get(id: conversationID, ownerID: ownerID) else { throw ConversationError.notFound }
         guard !conversation.messages.contains(where: { $0.status == .running }) else { throw ConversationError.alreadyRunning }
+        if let timeZone { _ = try? await conversations.setTimeZone(id: conversationID, ownerID: ownerID, timeZone: timeZone) }
         let lang = language.lowercased().hasPrefix("es") ? "es" : "en"
         let userMessage = ConversationMessage(role: .user, text: text, scheduled: scheduled, photos: photos, spoken: spoken)
         let choosing = lang == "es" ? "Eligiendo la mejor forma de ayudar" : "Choosing how to help"
@@ -157,7 +158,7 @@ public actor ConversationEngine {
             let workspaceMemory = await memory.state(ownerID: ownerID)
             let memoryText = workspaceMemory.enabled ? workspaceMemory.markdown : ""
             let currentKnowledge = await knowledge?.refresh(ownerID: ownerID)
-            let context = await promptContext(conversation: conversation, history: history, memory: memoryText, knowledge: currentKnowledge?.promptSummary ?? "", scheduled: userMessage.scheduled, spoken: userMessage.spoken)
+            let context = await promptContext(conversation: conversation, history: history, memory: memoryText, knowledge: currentKnowledge?.promptSummary ?? "", scheduled: userMessage.scheduled, spoken: userMessage.spoken, personName: userMessage.scheduled ? nil : launchedBy)
             // Photos: only Ada's direct reply looks at them. Routing, missions, and consolidation get a
             // note that they exist, which is enough to pick DIRECT and keeps those calls cheap.
             let canSee = providers.first(where: { $0.id == coordinator.providerID }).map { VisionSupport.accepts(provider: $0, model: coordinator.model) } ?? true
@@ -458,7 +459,7 @@ public actor ConversationEngine {
                         }
                     } else if call.function.name == "chat_schedule_run" || call.function.name == "chat_schedule_cancel" {
                         let owner = ref?.ownerID
-                        outcome = await ChatWorkspaceTools.run(call: call, workspace: workspace, conversationID: conversationID) { next in
+                        outcome = await ChatWorkspaceTools.run(call: call, workspace: workspace, conversationID: conversationID, timeZone: context.timeZone) { next in
                             guard let owner else { return nil }
                             let saved = try? await self.conversations.setSchedule(id: conversationID, ownerID: owner, schedule: next)
                             return saved?.schedule
@@ -595,7 +596,7 @@ public actor ConversationEngine {
         return mission
     }
 
-    private func promptContext(conversation: Conversation, history: [ConversationMessage], memory: String, knowledge: String, scheduled: Bool, spoken: Bool = false) async -> ConversationPromptContext {
+    private func promptContext(conversation: Conversation, history: [ConversationMessage], memory: String, knowledge: String, scheduled: Bool, spoken: Bool = false, personName: String? = nil) async -> ConversationPromptContext {
         let prior = Array(history.dropLast())
         var seen = Set<UUID>()
         var ids: [UUID] = []
@@ -629,7 +630,9 @@ public actor ConversationEngine {
             projectManifest: projectManifest,
             hostGrants: hostGrants,
             knowledge: knowledge,
-            spoken: spoken
+            spoken: spoken,
+            timeZoneID: conversation.timeZone,
+            personName: personName
         )
     }
 

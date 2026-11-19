@@ -125,6 +125,41 @@ final class ConversationTests: XCTestCase {
         XCTAssertFalse(none.contains("Closest"), none)
     }
 
+    func testContextGivesCurrentTimeInThePersonsTimeZone() throws {
+        let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-11-19T13:10:00Z"))
+        let schedule = ConversationSchedule(prompt: "Refresh", intervalMinutes: 60, nextRunAt: now.addingTimeInterval(3_600))
+        let local = ConversationPromptContext(projectName: "Personal", history: [], memory: "", workspaceManifest: "", missionReferences: "", missionIDs: [], schedule: schedule, scheduled: false, now: now, timeZoneID: "America/Los_Angeles", personName: "star")
+        XCTAssertTrue(local.promptBlock.contains("Current time for the person: Thursday, 19 November 2026, 05:10 (America/Los_Angeles, UTC-08:00); 2026-11-19T13:10:00Z in UTC."), local.promptBlock)
+        XCTAssertTrue(local.promptBlock.contains("Person: star"), local.promptBlock)
+        XCTAssertTrue(local.promptBlock.contains("next run Thursday, 19 November 2026, 06:10 (America/Los_Angeles"), local.promptBlock)
+
+        let unknown = ConversationPromptContext(projectName: "Personal", history: [], memory: "", workspaceManifest: "", missionReferences: "", missionIDs: [], schedule: nil, scheduled: true, now: now)
+        XCTAssertTrue(unknown.promptBlock.contains("13:10 (UTC, UTC+00:00). The person's time zone is unknown"), unknown.promptBlock)
+        XCTAssertTrue(unknown.promptBlock.contains("Person: not given"), unknown.promptBlock)
+    }
+
+    func testTimeZoneIsStoredOnlyWhenValid() async throws {
+        let conversations = ConversationStore(root: directory)
+        let conversation = try await conversations.create(ownerID: "owner")
+        let invalid = try await conversations.setTimeZone(id: conversation.id, ownerID: "owner", timeZone: "Mars/Olympus_Mons")
+        XCTAssertNil(invalid)
+        _ = try await conversations.setTimeZone(id: conversation.id, ownerID: "owner", timeZone: "Europe/Madrid")
+        let stored = try await conversations.get(id: conversation.id, ownerID: "owner")
+        XCTAssertEqual(stored?.timeZone, "Europe/Madrid")
+    }
+
+    func testScheduleToolReportsFirstRunInLocalTime() async throws {
+        let workspace = ChatWorkspaceStore(root: directory)
+        let outcome = await ChatWorkspaceTools.run(
+            call: APIToolCall(id: "s", function: .init(name: "chat_schedule_run", arguments: #"{"prompt":"Refresh","intervalMinutes":60}"#)),
+            workspace: workspace,
+            conversationID: UUID(),
+            timeZone: try XCTUnwrap(TimeZone(identifier: "Asia/Tokyo"))
+        ) { $0 }
+        XCTAssertTrue(outcome.resultText.contains("hourly. The first run is at"), outcome.resultText)
+        XCTAssertTrue(outcome.resultText.contains("(Asia/Tokyo, UTC+09:00)"), outcome.resultText)
+    }
+
     func testScheduleIntervalSchemaUsesIntegerEnum() throws {
         let tool = try XCTUnwrap(ChatWorkspaceTools.definitions.first { $0.function.name == "chat_schedule_run" })
         let interval = tool.function.parameters.objectValue?["properties"]?.objectValue?["intervalMinutes"]?.objectValue
@@ -778,7 +813,7 @@ final class ConversationTests: XCTestCase {
         XCTAssertTrue(turn.hasPrefix("<about_user>\n"))
         XCTAssertTrue(turn.contains("Lives in Madrid."))
         XCTAssertTrue(turn.contains("b.md — 20"))
-        XCTAssertTrue(turn.contains("Current time: 1970-01-01T01:00:00Z (UTC)"))
+        XCTAssertTrue(turn.contains("Current time: Thursday, 1 January 1970, 01:00 (UTC, UTC+00:00)"), turn)
         XCTAssertTrue(turn.hasSuffix("<user_message>\nWhat's new?\n</user_message>"))
         // Memory holds the user's own preferences, so it is no longer filed under untrusted data.
         let about = turn.components(separatedBy: "</about_user>")[0]

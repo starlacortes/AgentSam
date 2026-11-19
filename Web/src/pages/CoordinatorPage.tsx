@@ -15,7 +15,7 @@ import { VoiceMode, type VoicePartial, type VoiceReply } from '../components/coo
 import { WorkspacePanel } from '../components/coordinator/WorkspacePanels'
 import { ErrorBanner, Spinner } from '../components/ui'
 import { useI18n } from '../i18n'
-import { canvasForFinishedFiles, connectorLabel, pollDelay, shouldPoll, workspaceFileSource, wroteFreshFiles } from '../lib/coordinator'
+import { canvasForFinishedFiles, connectorLabel, pollDelay, shouldPoll, workspaceFileSource, wroteFreshFiles, browserTimeZone } from '../lib/coordinator'
 import { pickEntry } from '../lib/preview'
 import { isPhotoFile, MAX_PHOTOS, preparePhoto, type PendingPhoto } from '../lib/photos'
 import { transcribeConversation } from '../lib/voice'
@@ -356,7 +356,7 @@ export function CoordinatorPage() {
       const current = await ensureConversation()
       const photoIDs: string[] = []
       for (const photo of attached) photoIDs.push((await uploadPhoto(current.id, photo.blob)).id)
-      const body = { text, language: lang, ...(photoIDs.length ? { photoIDs } : {}), ...(waitForCompletion ? { spoken: true } : {}) }
+      const body = { text, language: lang, timeZone: browserTimeZone(), ...(photoIDs.length ? { photoIDs } : {}), ...(waitForCompletion ? { spoken: true } : {}) }
       const result = await api<Conversation>(`conversations/${current.id}/messages`, { method: 'POST', body })
       if (!mounted.current) return null
       replaceConversation(result)
