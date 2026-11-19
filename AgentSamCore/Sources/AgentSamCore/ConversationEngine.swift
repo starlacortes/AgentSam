@@ -424,12 +424,10 @@ public actor ConversationEngine {
 
     private func directAnswer(userText: String, photos photoInput: PhotoInputs = PhotoInputs(), coordinator: AgentProfile, context: ConversationPromptContext, history: [ConversationMessage], language: String, ref: ResponseRef? = nil, conversationID: UUID, writtenFiles: inout [String]) async throws -> String {
         let connectorTools = await connectors?.toolDefs(readOnly: access == nil) ?? []
-        let missionTools = context.missionIDs.isEmpty ? [] : ConversationMissionTools.definitions
-        let extendedTools = access == nil ? [] : ExtendedWorkspaceTools.definitions
-        let tools = connectorTools + ChatWorkspaceTools.definitions + extendedTools + missionTools + SkillTools.definitions
-        // Only tools offered in this request may run. Without this check a made-up name (or a tool
-        // from another context) fell through to the connector branch and became an approval card.
-        let offered = Set(tools.map(\.function.name))
+        // Only tools offered in this request may run, and each runs by the family it was offered from.
+        let offeredTools = OfferedTools.direct(connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedAccess: access != nil)
+        let tools = offeredTools.definitions
+        let offered = offeredTools.names
         let system = ConversationPrompts.directResponseSystem(coordinator: coordinator, context: context, connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedTools: access != nil, store: promptStore, language: language)
         let text = context.userTurn(userText)
         // The context now rides in the user turn instead of the system prompt; budget for it on top
@@ -450,9 +448,10 @@ public actor ConversationEngine {
             for call in calls {
                 await beginStep(ConversationPrompts.toolStepLabel(call.function.name, language: language), in: ref)
                 let outcome: ToolOutcome
-                if !offered.contains(call.function.name) {
+                switch offeredTools.family(of: call.function.name) {
+                case nil:
                     outcome = .failure(Self.unknownToolMessage(call.function.name, offered: offered))
-                } else if ChatWorkspaceTools.owns(call.function.name) {
+                case .chat:
                     if call.function.name == "run_program" {
                         runs += 1
                         if runs > ChatWorkspaceTools.maxRunsPerTurn {
@@ -474,7 +473,8 @@ public actor ConversationEngine {
                         writtenFiles.append(contentsOf: outcome.wroteFiles)
                         if let ref { await access?.audit.record(ownerID: ref.ownerID, action: "conversation.write", detail: outcome.wroteFiles.joined(separator: ", ")) }
                     }
-                } else if ExtendedWorkspaceTools.owns(call.function.name), let access {
+                case .extended:
+                    guard let access else { outcome = .failure("Workspace access is not available here."); break }
                     let isTerminal = call.function.name == "run_terminal" || call.function.name == "project_terminal"
                     if isTerminal { runs += 1 }
                     if isTerminal && runs > ChatWorkspaceTools.maxRunsPerTurn {
@@ -484,11 +484,12 @@ public actor ConversationEngine {
                         outcome = await ExtendedWorkspaceTools.run(call: call, workspace: workspace, conversationID: conversationID, project: project, terminal: access.terminal, hosts: access.hosts, actions: access.actions, audit: access.audit)
                     }
                     if !outcome.wroteFiles.isEmpty { writtenFiles.append(contentsOf: outcome.wroteFiles) }
-                } else if SkillTools.owns(call.function.name) {
+                case .skill:
                     outcome = await SkillTools.run(call: call, skills: skills)
-                } else if ConversationMissionTools.owns(call.function.name) {
+                case .mission:
                     outcome = await ConversationMissionTools.run(call: call, store: store, allowedMissionIDs: Set(context.missionIDs))
-                } else if let connectors {
+                case .connector:
+                    guard let connectors else { outcome = .failure("No connector is available for this tool."); break }
                     if ConnectorHub.readOnlyToolNames.contains(call.function.name) {
                         outcome = await connectors.run(call: call, readOnly: true)
                     } else if let ref {
@@ -505,8 +506,6 @@ public actor ConversationEngine {
                     } else {
                         outcome = .failure("A user-owned conversation is required to approve connector writes.")
                     }
-                } else {
-                    outcome = .failure("No connector is available for this tool.")
                 }
                 messages.append(.tool(id: call.id, content: String(outcome.resultText.prefix(32_000)), isError: !outcome.succeeded))
             }

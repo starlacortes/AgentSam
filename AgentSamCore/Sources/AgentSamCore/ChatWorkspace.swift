@@ -250,11 +250,6 @@ public enum ChatWorkspaceTools {
         ]
     }
 
-    /// True when `call` is one of Ada's workspace tools.
-    public static func owns(_ name: String) -> Bool {
-        name == "chat_write_file" || name == "chat_read_file" || name == "chat_list_files" || name == "run_program"
-            || name == "chat_schedule_run" || name == "chat_schedule_cancel"
-    }
 
     /// Runs one workspace tool call against `workspace`. Files written are reported back so the
     /// engine can show them in the reply. `schedule` receives schedule changes from the
@@ -379,9 +374,6 @@ public enum ConversationMissionTools {
         ]
     }
 
-    public static func owns(_ name: String) -> Bool {
-        name == "mission_list_files" || name == "mission_read_file"
-    }
 
     public static func run(call: APIToolCall, store: MissionStore, allowedMissionIDs: Set<UUID>) async -> ToolOutcome {
         let args = AgentTools.arguments(of: call)
