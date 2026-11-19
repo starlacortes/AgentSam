@@ -495,7 +495,7 @@ public actor ConversationEngine {
                             toolName: call.function.name, arguments: .object([("raw", .string(call.function.arguments))])
                         )
                         if let saved = await access?.actions.request(action) {
-                            outcome = ToolOutcome(resultText: "Approval requested (\(saved.id.uuidString)). Do not retry this write. Tell the user to review the approval card; the external action has not happened.")
+                            outcome = ToolOutcome(resultText: "Approval requested (\(saved.id.uuidString)). Do not retry this write. Tell the user to review the approval card; the external action has not happened. The outcome will appear under approval requests in your context on a later turn.")
                         } else {
                             outcome = .failure("Connector approvals are not available. No external write was performed.")
                         }
@@ -618,6 +618,7 @@ public actor ConversationEngine {
         let scope = ProjectScope(ownerID: conversation.ownerID, projectName: conversation.projectName)
         let projectManifest = access == nil ? "" : await workspace.projectManifest(scope)
         let hostGrants = await access?.hosts.summary(ownerID: conversation.ownerID) ?? ""
+        let approvals = await access?.actions.list(ownerID: conversation.ownerID, conversationID: conversation.id) ?? []
         return ConversationPromptContext(
             projectName: conversation.projectName,
             history: prior,
@@ -632,7 +633,8 @@ public actor ConversationEngine {
             knowledge: knowledge,
             spoken: spoken,
             timeZoneID: conversation.timeZone,
-            personName: personName
+            personName: personName,
+            approvals: approvals
         )
     }
 

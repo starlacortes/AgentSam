@@ -129,6 +129,62 @@ final class ConversationTests: XCTestCase {
         XCTAssertFalse(none.contains("Closest"), none)
     }
 
+    func testContextListsRecentApprovalOutcomes() throws {
+        let now = Date()
+        func action(_ tool: String, _ status: AgentActionRequest.Status, result: String? = nil, age: TimeInterval = 60) -> AgentActionRequest {
+            var action = AgentActionRequest(ownerID: "owner", conversationID: UUID(), kind: .connectorWrite, title: "Approve", detail: "", toolName: tool, arguments: .object([("raw", .string(#"{"to":"a@example.test"}"#))]))
+            action.status = status
+            action.result = result
+            action.createdAt = now.addingTimeInterval(-age)
+            return action
+        }
+        let approvals = [
+            action("gmail_send", .completed, result: "Sent message 123."),
+            action("cloudflare_dns_create", .denied),
+            action("github_create_issue", .expired),
+            action("old_write", .completed, age: 2 * 24 * 3600),
+        ]
+        let context = ConversationPromptContext(projectName: "Personal", history: [], memory: "", workspaceManifest: "", missionReferences: "", missionIDs: [], schedule: nil, scheduled: false, now: now, approvals: approvals)
+        let data = context.workspaceData
+        XCTAssertTrue(data.contains("gmail_send"), data)
+        XCTAssertTrue(data.contains("approved and done; result: Sent message 123."), data)
+        XCTAssertTrue(data.contains("cloudflare_dns_create"), data)
+        XCTAssertTrue(data.contains("denied by the person; nothing was done"), data)
+        XCTAssertTrue(data.contains("expired without a decision"), data)
+        XCTAssertFalse(data.contains("old_write"), "Approvals older than a day are left out")
+
+        let none = ConversationPromptContext(projectName: "Personal", history: [], memory: "", workspaceManifest: "", missionReferences: "", missionIDs: [], schedule: nil, scheduled: false)
+        XCTAssertTrue(none.workspaceData.contains("Approval requests from this conversation (last 24 hours, newest first):\nNone."), none.workspaceData)
+    }
+
+    func testDecidedApprovalReachesTheNextTurn() async throws {
+        let store = MissionStore(root: directory)
+        await store.saveProviders([provider])
+        let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
+        try keys.set("test-key", for: provider.keyAccount)
+        let conversations = ConversationStore(root: directory)
+        let memory = WorkspaceMemoryStore(root: directory)
+        let access = ConversationAccess(root: directory)
+        let turns = LockedStrings()
+        let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, missions: MissionEngine(store: store, keyRing: keys), access: access, completion: { _, _, _, system, messages, _ in
+            if system.contains("Decide how to handle") { return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub") }
+            turns.append(contentsOf: [messages.last(where: { $0.role == "user" })?.content ?? ""])
+            return LLMReply(message: .assistant("Noted."), inputTokens: 0, outputTokens: 0, model: "stub")
+        })
+        let conversation = try await conversations.create(ownerID: "owner")
+        let request = AgentActionRequest(ownerID: "owner", conversationID: conversation.id, kind: .fileDelete, title: "Delete?", detail: "", toolName: "chat_delete_file", arguments: .object([("path", .string("old.md"))]))
+        let saved = await access.actions.request(request)
+        _ = await access.actions.resolve(ownerID: "owner", id: saved.id, approve: false)
+
+        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Did the delete happen?", launchedBy: "Owner", language: "en")
+        _ = try await finishedConversation(conversations, id: conversation.id)
+        // Other calls (such as memory compaction) also pass through the stub; pick the chat turn.
+        let turn = try XCTUnwrap(turns.values.first { $0.contains("<workspace_data>") }, turns.values.joined(separator: "\n---\n"))
+        XCTAssertTrue(turn.contains(#"chat_delete_file {"path":"old.md"}"#), turn)
+        XCTAssertTrue(turn.contains("denied by the person"), turn)
+        await engine.shutdown()
+    }
+
     func testContextGivesCurrentTimeInThePersonsTimeZone() throws {
         let now = try XCTUnwrap(ISO8601DateFormatter().date(from: "2026-11-19T13:10:00Z"))
         let schedule = ConversationSchedule(prompt: "Refresh", intervalMinutes: 60, nextRunAt: now.addingTimeInterval(3_600))

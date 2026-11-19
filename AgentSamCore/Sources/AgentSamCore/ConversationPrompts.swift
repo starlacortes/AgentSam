@@ -20,6 +20,9 @@ public struct ConversationPromptContext: Sendable {
     public var timeZoneID: String?
     /// The display name of the person who sent the message (nil for scheduled runs).
     public var personName: String?
+    /// Approval requests from this conversation, newest first, so Ada knows how earlier
+    /// connector writes and file deletions turned out.
+    public var approvals: [AgentActionRequest]
 
     public init(
         projectName: String,
@@ -36,7 +39,8 @@ public struct ConversationPromptContext: Sendable {
         spoken: Bool = false,
         now: Date = Date(),
         timeZoneID: String? = nil,
-        personName: String? = nil
+        personName: String? = nil,
+        approvals: [AgentActionRequest] = []
     ) {
         self.projectName = projectName
         self.history = history
@@ -53,6 +57,36 @@ public struct ConversationPromptContext: Sendable {
         self.now = now
         self.timeZoneID = timeZoneID
         self.personName = personName
+        self.approvals = approvals
+    }
+
+    /// How many recent approvals Ada sees, and how far back they go.
+    static let approvalLimit = 10
+    static let approvalWindow: TimeInterval = 24 * 3600
+
+    /// One line per recent approval: what was asked, how it was decided and what happened.
+    var approvalLines: String {
+        approvals
+            .filter { now.timeIntervalSince($0.createdAt) <= Self.approvalWindow }
+            .prefix(Self.approvalLimit)
+            .map { action in
+                let encoder = JSONEncoder()
+                encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+                let arguments = (try? encoder.encode(action.arguments)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+                let outcome: String
+                switch action.status {
+                case .pending: outcome = "waiting for the person to approve or deny"
+                case .approved: outcome = "approved, about to run"
+                case .executing: outcome = "approved and running"
+                case .completed: outcome = "approved and done"
+                case .denied: outcome = "denied by the person; nothing was done"
+                case .expired: outcome = "expired without a decision; nothing was done"
+                case .failed: outcome = "approved, but it failed"
+                }
+                let result = action.result.map { "; result: " + String($0.replacingOccurrences(of: "\n", with: " ").prefix(500)) } ?? ""
+                return "- \(action.toolName) \(String(arguments.prefix(200))), requested \(Self.describe(action.createdAt, in: timeZone)): \(outcome)\(result)"
+            }
+            .joined(separator: "\n")
     }
 
     /// The person's time zone, or UTC when none is known.
@@ -131,6 +165,9 @@ public struct ConversationPromptContext: Sendable {
 
         Missions linked to this conversation:
         \(missionReferences.isEmpty ? "No linked missions." : String(missionReferences.prefix(12_000)))
+
+        Approval requests from this conversation (last 24 hours, newest first):
+        \(approvalLines.isEmpty ? "None." : approvalLines)
         """
     }
 
