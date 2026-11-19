@@ -230,7 +230,7 @@ public actor WorkspaceKnowledgeStore {
         let providers = await store.loadProviders()
         let chats = try await conversations.list(ownerID: ownerID)
         var statuses: [ConnectorStatus] = []
-        for id in ConnectorID.allCases {
+        for id in connectors.visibleConnectorIDs {
             statuses.append(await connectors.status(for: id))
         }
         let activeTools = await connectors.toolDefs()

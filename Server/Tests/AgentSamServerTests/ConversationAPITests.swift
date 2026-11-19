@@ -68,6 +68,88 @@ final class ConversationAPITests: XCTestCase {
         })
     }
 
+    func testArchiveHidesRestoresAndPurgesPastRetention() async throws {
+        let kept = try await createConversation()
+        let archived = try await createConversation()
+        let id = archived.id.uuidString
+
+        // Nothing configured yet: the web app asks the first time.
+        try await app.test(.GET, "api/workspace/archive", beforeRequest: authorize, afterResponse: { res async throws in
+            let settings = try res.content.decode(ArchiveSettings.self)
+            XCTAssertFalse(settings.configured)
+            XCTAssertNil(settings.retentionDays)
+        })
+        try await app.test(.POST, "api/conversations/\(id)/archive", beforeRequest: authorize, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok, res.body.string)
+            XCTAssertNotNil(try res.content.decode(Conversation.self).archivedAt)
+        })
+        try await app.test(.GET, "api/conversations", beforeRequest: authorize, afterResponse: { res async throws in
+            XCTAssertEqual(try res.content.decode([ConversationSummary].self).map(\.id), [kept.id])
+        })
+        try await app.test(.GET, "api/conversations?archived=1", beforeRequest: authorize, afterResponse: { res async throws in
+            XCTAssertEqual(try res.content.decode([ConversationSummary].self).map(\.id), [archived.id])
+        })
+
+        // Restore puts it back in the sidebar list.
+        try await app.test(.DELETE, "api/conversations/\(id)/archive", beforeRequest: authorize, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok, res.body.string)
+            XCTAssertNil(try res.content.decode(Conversation.self).archivedAt)
+        })
+        try await app.test(.GET, "api/conversations?archived=true", beforeRequest: authorize, afterResponse: { res async throws in
+            XCTAssertEqual(try res.content.decode([ConversationSummary].self), [])
+        })
+
+        // Retention must be one of the offered choices.
+        try await app.test(.PUT, "api/workspace/archive", beforeRequest: { req in
+            self.authorize(&req)
+            try req.content.encode(ArchiveSettingsBody(retentionDays: 12), as: .json)
+        }, afterResponse: { res async in
+            XCTAssertEqual(res.status, .badRequest)
+        })
+        // "Never delete" keeps even an old archive.
+        let store = ConversationStore(root: directory)
+        try await store.setArchived(id: archived.id, ownerID: "shared-server-token", archived: true, now: Date().addingTimeInterval(-40 * 86_400))
+        try await app.test(.PUT, "api/workspace/archive", beforeRequest: { req in
+            self.authorize(&req)
+            try req.content.encode(ArchiveSettingsBody(retentionDays: nil), as: .json)
+        }, afterResponse: { res async throws in
+            let settings = try res.content.decode(ArchiveSettings.self)
+            XCTAssertTrue(settings.configured)
+            XCTAssertNil(settings.retentionDays)
+        })
+        try await app.test(.GET, "api/conversations?archived=1", beforeRequest: authorize, afterResponse: { res async throws in
+            XCTAssertEqual(try res.content.decode([ConversationSummary].self).map(\.id), [archived.id])
+        })
+
+        // 30 days: the 40-day-old archive is deleted, with its folder; the live chat stays.
+        let folder = directory.appendingPathComponent("conversations/\(id)/files", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try await app.test(.PUT, "api/workspace/archive", beforeRequest: { req in
+            self.authorize(&req)
+            try req.content.encode(ArchiveSettingsBody(retentionDays: 30), as: .json)
+        }, afterResponse: { res async throws in
+            XCTAssertEqual(try res.content.decode(ArchiveSettings.self).retentionDays, 30)
+        })
+        try await app.test(.GET, "api/conversations?archived=1", beforeRequest: authorize, afterResponse: { res async throws in
+            XCTAssertEqual(try res.content.decode([ConversationSummary].self), [])
+        })
+        try await app.test(.GET, "api/conversations/\(id)", beforeRequest: authorize, afterResponse: { res async in
+            XCTAssertEqual(res.status, .notFound)
+        })
+        XCTAssertFalse(FileManager.default.fileExists(atPath: folder.deletingLastPathComponent().path))
+        try await app.test(.GET, "api/conversations", beforeRequest: authorize, afterResponse: { res async throws in
+            XCTAssertEqual(try res.content.decode([ConversationSummary].self).map(\.id), [kept.id])
+        })
+    }
+
+    func testWritingInAnArchivedChatRestoresIt() async throws {
+        let conversation = try await createConversation()
+        let store = ConversationStore(root: directory)
+        try await store.setArchived(id: conversation.id, ownerID: "shared-server-token", archived: true)
+        let updated = try await store.append(id: conversation.id, ownerID: "shared-server-token", message: ConversationMessage(role: .user, text: "Back to this"))
+        XCTAssertNil(updated.archivedAt)
+    }
+
     func testChatWorkspaceFilesAreServedOnlyToTheirConversation() async throws {
         let conversation = try await createConversation()
         let workspace = ChatWorkspaceStore(root: URL(fileURLWithPath: directory.path))

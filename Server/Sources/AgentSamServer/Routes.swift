@@ -262,7 +262,7 @@ func routes(_ app: Application, ctx: ServerContext) {
 
     api.get("connectors") { req async throws -> Response in
         var statuses: [ConnectorStatus] = []
-        for connectorID in ConnectorID.allCases {
+        for connectorID in ctx.connectors.visibleConnectorIDs {
             statuses.append(await ctx.connectors.status(for: connectorID))
         }
         return try req.json(statuses)

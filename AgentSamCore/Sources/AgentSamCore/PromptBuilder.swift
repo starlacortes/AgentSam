@@ -36,10 +36,17 @@ public struct PromptBuilder: Sendable {
 
     public func houseRules(for mission: Mission? = nil, canFinish: Bool = true) -> String {
         let rules = store.render("house_rules")
-        guard canFinish else {
-            return rules.replacingOccurrences(of: CoreL10n.t("prompt.finishRule", lang: "en"), with: "")
-        }
+        guard canFinish else { return Self.withoutFinishRule(rules) }
         return localized(rules, mission: mission)
+    }
+
+    /// Drops the rule about calling the finish tool, for agents that have no finish tool. Matches
+    /// any line that mentions the finish tool rather than the exact builtin wording, so it still
+    /// works after an operator edits `house_rules` in prompts.json.
+    static func withoutFinishRule(_ rules: String) -> String {
+        rules.components(separatedBy: "\n")
+            .filter { $0.range(of: "finish tool", options: .caseInsensitive) == nil }
+            .joined(separator: "\n")
     }
 
     public func coordinatorSystem(agent: AgentProfile, team: Team, mission: Mission? = nil) -> String {

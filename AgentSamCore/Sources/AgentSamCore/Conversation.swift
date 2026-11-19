@@ -250,8 +250,11 @@ public struct Conversation: Codable, Identifiable, Hashable, Sendable {
     public var updatedAt: Date
     public var messages: [ConversationMessage]
     public var schedule: ConversationSchedule?
+    /// When the user archived the chat. Archived chats leave the sidebar, stop their schedule,
+    /// and are deleted once they are older than the owner's archive retention.
+    public var archivedAt: Date?
 
-    public init(id: UUID = UUID(), ownerID: String, title: String = "New conversation", projectName: String = "Personal", createdAt: Date = Date(), updatedAt: Date = Date(), messages: [ConversationMessage] = [], schedule: ConversationSchedule? = nil) {
+    public init(id: UUID = UUID(), ownerID: String, title: String = "New conversation", projectName: String = "Personal", createdAt: Date = Date(), updatedAt: Date = Date(), messages: [ConversationMessage] = [], schedule: ConversationSchedule? = nil, archivedAt: Date? = nil) {
         self.id = id
         self.ownerID = ownerID
         self.title = title
@@ -260,17 +263,18 @@ public struct Conversation: Codable, Identifiable, Hashable, Sendable {
         self.updatedAt = updatedAt
         self.messages = messages
         self.schedule = schedule
+        self.archivedAt = archivedAt
     }
 
     public var summary: ConversationSummary {
-        ConversationSummary(id: id, title: title, projectName: projectName, updatedAt: updatedAt, running: messages.contains { $0.status == .running })
+        ConversationSummary(id: id, title: title, projectName: projectName, updatedAt: updatedAt, running: messages.contains { $0.status == .running }, archivedAt: archivedAt)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, ownerID, title, projectName, createdAt, updatedAt, messages, schedule
+        case id, ownerID, title, projectName, createdAt, updatedAt, messages, schedule, archivedAt
     }
 
-    /// Older conversations on disk predate `schedule`.
+    /// Older conversations on disk predate `schedule` and `archivedAt`.
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
@@ -281,6 +285,7 @@ public struct Conversation: Codable, Identifiable, Hashable, Sendable {
         updatedAt = try c.decode(Date.self, forKey: .updatedAt)
         messages = try c.decodeIfPresent([ConversationMessage].self, forKey: .messages) ?? []
         schedule = try c.decodeIfPresent(ConversationSchedule.self, forKey: .schedule)
+        archivedAt = try c.decodeIfPresent(Date.self, forKey: .archivedAt)
     }
 }
 
@@ -290,13 +295,36 @@ public struct ConversationSummary: Codable, Identifiable, Hashable, Sendable {
     public var projectName: String
     public var updatedAt: Date
     public var running: Bool
+    public var archivedAt: Date?
 
-    public init(id: UUID, title: String, projectName: String, updatedAt: Date, running: Bool) {
+    public init(id: UUID, title: String, projectName: String, updatedAt: Date, running: Bool, archivedAt: Date? = nil) {
         self.id = id
         self.title = title
         self.projectName = projectName
         self.updatedAt = updatedAt
         self.running = running
+        self.archivedAt = archivedAt
+    }
+}
+
+/// How long one owner keeps archived chats. `retentionDays == nil` means never delete them.
+/// `configured` stays false until the owner answers the first-archive question, so the web
+/// app knows to ask once.
+public struct ArchiveSettings: Codable, Hashable, Sendable {
+    public static let allowedRetentionDays = [7, 30, 90, 365]
+
+    public var retentionDays: Int?
+    public var configured: Bool
+
+    public init(retentionDays: Int? = nil, configured: Bool = false) {
+        self.retentionDays = retentionDays
+        self.configured = configured
+    }
+
+    /// The moment before which an archive is expired, or nil when archives are kept forever.
+    public func cutoff(now: Date = Date()) -> Date? {
+        guard let retentionDays else { return nil }
+        return now.addingTimeInterval(-TimeInterval(retentionDays) * 86_400)
     }
 }
 

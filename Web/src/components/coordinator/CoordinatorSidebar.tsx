@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type TouchEvent } from 'react'
 import { Link } from 'react-router-dom'
 import type { ConversationSummary } from '../../api/types'
 import { useAuth } from '../../auth/AuthContext'
@@ -17,9 +17,17 @@ interface Props {
   onNew: (projectName?: string) => void
   onPanel: (panel: PanelName) => void
   memoryEnabled: boolean
+  onArchive: (id: string) => void
+  onShowArchived: () => void
+  /** The chat just archived, offered for a quick undo. */
+  archivedNotice?: { id: string; title: string } | null
+  onUndoArchive?: () => void
 }
 
-export function CoordinatorSidebar({ conversations, selectedID, open, onClose, onSelect, onNew, onPanel, memoryEnabled }: Props) {
+/** Swipe left at least this far (px) on a phone to reveal a chat's archive button. */
+const SWIPE_REVEAL = 36
+
+export function CoordinatorSidebar({ conversations, selectedID, open, onClose, onSelect, onNew, onPanel, memoryEnabled, onArchive, onShowArchived, archivedNotice, onUndoArchive }: Props) {
   const { t } = useI18n()
   const { me } = useAuth()
   const [query, setQuery] = useState('')
@@ -31,6 +39,25 @@ export function CoordinatorSidebar({ conversations, selectedID, open, onClose, o
   const select = (id: string) => { onSelect(id); onClose() }
   const [workspaceOpen, setWorkspaceOpen] = useState(readWorkspaceOpen)
   const toggleWorkspace = () => { writeWorkspaceOpen(!workspaceOpen); setWorkspaceOpen(!workspaceOpen) }
+  // Touch screens have no hover: a left swipe on a chat reveals its archive button instead.
+  const [revealed, setRevealed] = useState<string | null>(null)
+  const swipe = useRef<{ id: string; x: number; y: number } | null>(null)
+  useEffect(() => { if (!open) setRevealed(null) }, [open])
+  const touchStart = (id: string, event: TouchEvent) => {
+    const touch = event.touches[0]
+    swipe.current = touch ? { id, x: touch.clientX, y: touch.clientY } : null
+  }
+  const touchMove = (event: TouchEvent) => {
+    const start = swipe.current
+    const touch = event.touches[0]
+    if (!start || !touch) return
+    const dx = touch.clientX - start.x
+    const dy = Math.abs(touch.clientY - start.y)
+    if (dy > 24) { swipe.current = null; return }
+    if (dx < -SWIPE_REVEAL) { setRevealed(start.id); swipe.current = null }
+    else if (dx > SWIPE_REVEAL) { setRevealed(null); swipe.current = null }
+  }
+  const archive = (id: string) => { setRevealed(null); onArchive(id) }
 
   return <>
     {open ? <div className="co-nav-scrim" onClick={onClose} /> : null}
@@ -48,11 +75,16 @@ export function CoordinatorSidebar({ conversations, selectedID, open, onClose, o
           }}><Icon name="plus" size={14} /></button></div>
           {groups.map(([project, chats]) => <div className="co-project" key={project}>
             <div className="co-project-row"><Icon name="folder" size={14} /><span>{project === 'Personal' ? t('Personal') : project}</span><span className="co-count">{chats.length}</span></div>
-            <div className="co-project-chats">{chats.map((chat) => <button key={chat.id} className={`co-chat-link ${selectedID === chat.id ? 'active' : ''}`} onClick={() => select(chat.id)} title={chat.title}>
-              {chat.running ? <span className="co-live-dot" /> : null}{chat.title}
-            </button>)}</div>
+            <div className="co-project-chats">{chats.map((chat) => <div key={chat.id} className={`co-chat-row ${selectedID === chat.id ? 'active' : ''} ${revealed === chat.id ? 'revealed' : ''}`} onTouchStart={(event) => touchStart(chat.id, event)} onTouchMove={touchMove}>
+              <button className={`co-chat-link ${selectedID === chat.id ? 'active' : ''}`} onClick={() => revealed === chat.id ? setRevealed(null) : select(chat.id)} title={chat.title}>
+                {chat.running ? <span className="co-live-dot" /> : null}{chat.title}
+              </button>
+              <button className="co-chat-archive" aria-label={t('Archive {title}', { title: chat.title })} title={t('Archive chat')} onClick={() => archive(chat.id)}><Icon name="close" size={13} /></button>
+            </div>)}</div>
           </div>)}
           {groups.length === 0 ? <p className="co-side-empty">{t('No conversations found.')}</p> : null}
+          {archivedNotice ? <div className="co-archive-toast" role="status"><span>{t('Chat archived')}</span>{onUndoArchive ? <button onClick={onUndoArchive}>{t('Undo')}</button> : null}</div> : null}
+          <button className="co-side-item co-archived-link" onClick={() => { onShowArchived(); onClose() }}><Icon name="archive" size={14} /><span>{t('Archived chats')}</span></button>
         </section>
       </div>
       <div className="co-sidebar-foot">

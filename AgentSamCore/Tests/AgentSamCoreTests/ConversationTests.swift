@@ -45,7 +45,7 @@ final class ConversationTests: XCTestCase {
         await store.saveConnectorConfigs([ConnectorConfig(id: .cloudflare, enabled: true, permissions: ConnectorPermissions(dnsWrite: true))])
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [CapturingURLProtocol.self]
-        let hub = ConnectorHub(store: store, keyRing: keys, session: URLSession(configuration: configuration), google: GoogleOAuth(clientID: "", clientSecret: ""))
+        let hub = ConnectorHub(store: store, keyRing: keys, session: URLSession(configuration: configuration), google: GoogleOAuth(clientID: "", clientSecret: ""), hiddenConnectors: [])
         CapturingURLProtocol.handler = { request in
             XCTFail("An external connector ran before approval: \(request.url?.absoluteString ?? "")")
             return (HTTPURLResponse(url: try! XCTUnwrap(request.url), statusCode: 200, httpVersion: nil, headerFields: nil)!, Data("{}".utf8))
@@ -345,7 +345,7 @@ final class ConversationTests: XCTestCase {
         let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
         try keys.set("token", for: CloudflareConnector.tokenAccount)
         await store.saveConnectorConfigs([ConnectorConfig(id: .cloudflare, enabled: true, permissions: ConnectorPermissions(dnsWrite: true))])
-        let hub = ConnectorHub(store: store, keyRing: keys, google: GoogleOAuth(clientID: "", clientSecret: ""))
+        let hub = ConnectorHub(store: store, keyRing: keys, google: GoogleOAuth(clientID: "", clientSecret: ""), hiddenConnectors: [])
         let readNames = await hub.toolDefs(readOnly: true).map(\.function.name)
         XCTAssertEqual(Set(readNames.filter { $0.hasPrefix("cloudflare_") }), ["cloudflare_zones", "cloudflare_dns_list"])
         XCTAssertTrue(readNames.contains("web_fetch"))
@@ -378,7 +378,7 @@ final class ConversationTests: XCTestCase {
             try keys.set("test-key", for: provider.keyAccount)
             try keys.set("token", for: CloudflareConnector.tokenAccount)
             await store.saveConnectorConfigs([ConnectorConfig(id: .cloudflare, enabled: true, permissions: ConnectorPermissions(dnsWrite: dnsWrite))])
-            let hub = ConnectorHub(store: store, keyRing: keys, google: GoogleOAuth(clientID: "", clientSecret: ""))
+            let hub = ConnectorHub(store: store, keyRing: keys, google: GoogleOAuth(clientID: "", clientSecret: ""), hiddenConnectors: [])
             let conversations = ConversationStore(root: root)
             let memory = WorkspaceMemoryStore(root: root)
             let seen = Seen()
@@ -402,6 +402,18 @@ final class ConversationTests: XCTestCase {
         }
     }
 
+    func testHiddenConnectorsAreNotListedOrOffered() async throws {
+        XCTAssertTrue(ConnectorID.hiddenByDefault.contains(.cloudflare))
+        let store = MissionStore(root: directory)
+        let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
+        try keys.set("token", for: CloudflareConnector.tokenAccount)
+        await store.saveConnectorConfigs([ConnectorConfig(id: .cloudflare, enabled: true, permissions: ConnectorPermissions(dnsWrite: true))])
+        let hub = ConnectorHub(store: store, keyRing: keys, google: GoogleOAuth(clientID: "", clientSecret: ""), hiddenConnectors: [.cloudflare])
+        XCTAssertFalse(hub.visibleConnectorIDs.contains(.cloudflare))
+        let names = await hub.toolDefs().map(\.function.name)
+        XCTAssertFalse(names.contains { $0.hasPrefix("cloudflare_") })
+    }
+
     func testSoloTeamWritesFollowConnectionsToggles() async throws {
         let solo = ConversationEngine.soloTeam(coordinator: agent("Ada", role: .coordinator), language: "en")
         let scope = try XCTUnwrap(solo.toolScope)
@@ -414,7 +426,7 @@ final class ConversationTests: XCTestCase {
             ConnectorConfig(id: .cloudflare, enabled: true, permissions: ConnectorPermissions(dnsWrite: false)),
             ConnectorConfig(id: .github, enabled: true, permissions: ConnectorPermissions(githubWrite: true)),
         ])
-        let hub = ConnectorHub(store: store, keyRing: keys, google: GoogleOAuth(clientID: "", clientSecret: ""))
+        let hub = ConnectorHub(store: store, keyRing: keys, google: GoogleOAuth(clientID: "", clientSecret: ""), hiddenConnectors: [])
         let names = await hub.toolDefs(scope: scope).map(\.function.name)
         XCTAssertFalse(names.contains("cloudflare_dns_create"), "a toggle left off in Connections stays off")
         XCTAssertTrue(names.contains("github_write_file"))
@@ -680,6 +692,52 @@ final class ConversationTests: XCTestCase {
         let edited = ConversationPrompts.directResponseSystem(coordinator: ada, context: context, connectorTools: [], hasLinkedMissions: false, store: prompts, language: "en")
         XCTAssertTrue(edited.hasPrefix("Custom direct prompt"))
         XCTAssertTrue(edited.contains("Project: Personal"))
+    }
+
+    func testChatPromptsLeaveHistoryToMessagesButMissionHandoffKeepsIt() {
+        let prompts = PromptStore(builtins: PromptStore.builtins)
+        let history = [
+            ConversationMessage(role: .user, text: "Plan the alpaca newsletter"),
+            ConversationMessage(role: .assistant, text: "Here is a draft outline."),
+        ]
+        let context = ConversationPromptContext(projectName: "Personal", history: history, memory: "", workspaceManifest: "", missionReferences: "", missionIDs: [], schedule: nil, scheduled: false)
+        let ada = AgentProfile.rosterTemplates[0]
+        // Chat calls already send the history as real messages, so the system prompt must not repeat it.
+        let direct = ConversationPrompts.directResponseSystem(coordinator: ada, context: context, connectorTools: [], hasLinkedMissions: false, store: prompts, language: "en")
+        let routing = ConversationPrompts.routingSystem(coordinator: ada, skills: "", context: context, store: prompts, language: "en")
+        for system in [direct, routing] {
+            XCTAssertFalse(system.contains("Plan the alpaca newsletter"))
+            XCTAssertFalse(system.contains("Recent conversation"))
+        }
+        // Missions get no chat turns, so their handoff carries the recent conversation as text.
+        XCTAssertTrue(context.missionHandoff.contains("User: Plan the alpaca newsletter"))
+        XCTAssertTrue(context.missionHandoff.contains("Ada: Here is a draft outline."))
+    }
+
+    func testSpokenRepliesAreNotAskedToCiteIDs() {
+        let prompts = PromptStore(builtins: PromptStore.builtins)
+        let tools = [APIToolDef(name: "gmail_search", description: "Search Gmail", parameters: .object(["type": .string("object")]))]
+        let ada = AgentProfile.rosterTemplates[0]
+        let typed = ConversationPromptContext(projectName: "Personal", history: [], memory: "", workspaceManifest: "", missionReferences: "", missionIDs: [], schedule: nil, scheduled: false)
+        var spoken = typed
+        spoken.spoken = true
+        let text = ConversationPrompts.directResponseSystem(coordinator: ada, context: typed, connectorTools: tools, hasLinkedMissions: false, store: prompts, language: "en")
+        let voice = ConversationPrompts.directResponseSystem(coordinator: ada, context: spoken, connectorTools: tools, hasLinkedMissions: false, store: prompts, language: "en")
+        XCTAssertTrue(text.contains("Cite relevant message"))
+        XCTAssertFalse(voice.contains("Cite relevant message"))
+        XCTAssertTrue(voice.contains("gmail_search"))
+    }
+
+    func testEveryDirectToolHasAFriendlyStepLabel() {
+        let names = (ChatWorkspaceTools.definitions + ExtendedWorkspaceTools.definitions + ConversationMissionTools.definitions).map(\.function.name)
+            + ConnectorHub.readOnlyToolNames.filter { !$0.hasPrefix("cloudflare_") }
+            + ["gmail_draft", "gmail_send", "github_write_file", "github_comment", "googleads_set_status", "googleads_set_budget", "googleads_mutate"]
+        for name in names {
+            for language in ["en", "es"] {
+                let label = ConversationPrompts.toolStepLabel(name, language: language)
+                XCTAssertFalse(label.contains(name), "\(name) has no \(language) step label")
+            }
+        }
     }
 
     func testDirectAnswerCompactsLargeExecutedToolPayloads() async throws {

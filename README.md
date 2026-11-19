@@ -54,6 +54,7 @@ Every turn, tool call, deliverable, finding, and cost is a `RunEvent`, appended 
   conversations/
     <uuid>.json           chat history (the web app's conversations, with any recurring schedule)
     <uuid>/files/         files Ada wrote directly in chat (see below)
+  workspace/archive-settings.json  each owner's archive retention (null = never delete)
   projects/<owner>/<project>/ files shared by that owner's chats and missions in a project
   host-grants.json         owner-scoped, admin-managed server folder grants
   access-audit.jsonl       project, host, terminal, and approval activity
@@ -82,6 +83,8 @@ When a task is Ada's to do herself but is a real job — several steps, delivera
 Connector reads remain available directly. Connector write tools (sending or drafting mail, committing to GitHub, DNS changes, pausing campaigns) follow the toggles on the Connectors page and require an approval card showing the exact operation and arguments, in direct chat and linked missions as well as for skill runs; nothing runs before approval. The same auto-open applies to a finished SOLO or skill run: if the run produced an HTML page, the preview opens on it when the run completes.
 
 **Photos.** The camera button in the composer attaches up to 4 photos to a message: on a phone it offers *Take a photo* or *Photo library*; on a computer it opens the file picker, and pasted or dropped images attach too. The browser shrinks each photo to 1568 px on the long edge as a JPEG (which also strips metadata such as GPS location) and shows a removable preview before sending. Photos upload to `POST /api/conversations/:id/photos`, are stored beside the conversation under `conversations/<uuid>/photos/` (never inside the conversation JSON or the chat workspace), and the message refers to them by id. Only Ada's direct reply looks at photos: they go to the model as Anthropic `image` blocks or OpenAI-style `image_url` parts, along with photos from the last few turns (at most 4) so follow-up questions still work. Routing, SOLO and skill missions, and consolidation get a note that photos were attached. When Ada's model is known to be text-only (for example DeepSeek, Llama 3, or gpt-oss), or the provider rejects the images, Ada answers without them and says in one sentence that a vision model can be chosen in Settings.
+
+**Archiving chats.** Hover a chat in the sidebar and press its × to archive it (the title fades out under the button); on a phone, the open chat shows its ×, and swiping left on any other chat reveals one. The first archive asks how long to keep archived chats: 7, 30, or 90 days, a year, or never delete. Archived chats leave the sidebar and stop their schedule; **Archived chats** under the project list shows them with their deletion date, opens or restores them, and changes the retention. Sending a message in an archived chat restores it. Once an archive is older than the retention, the scheduler deletes the chat with its private folder (photos and chat files); project files and missions are kept.
 
 **Voice replies.** Messages sent from voice mode are flagged `spoken`, and every reply prompt for them (direct, consolidation, and the clarify question) gets a voice style: lead with the answer, two to four short sentences, no Markdown, lists, links, or file paths. A short spoken question (25 words or fewer, no photo, no work words like *build*, *send*, or *schedule*, and not an answer to a question Ada just asked) skips the routing call and goes straight to Ada's direct reply, so speech starts sooner. Anything else is routed as usual. Typed replies follow the direct prompt's length rules: answer first, as short as the request allows, structure only when it helps.
 
@@ -112,6 +115,7 @@ GreenPT works as an OpenAI-compatible provider with base URL `https://api.greenp
 | `AGENTSAM_REQUIRE_TOKEN` | Set to `1` to refuse startup without `AGENTSAM_TOKEN` | enabled in the container |
 | `AGENTSAM_DATA` | Data directory (teams, missions, ledger, keys.json) | `./data`; `/data` in the container |
 | `AGENTSAM_PORT` / `PORT` | Listen port / Railway-provided fallback | Vapor default (8080) |
+| `AGENTSAM_SHOW_HIDDEN_CONNECTORS` | Comma-separated connector IDs to bring back (or `all`). Cloudflare is hidden by default | unset |
 | `AGENTSAM_BIND_ALL` / `AGENTSAM_HOST` | Bind 0.0.0.0 / custom host | loopback; bind all in the container |
 | `AGENTSAM_KEY_<PROVIDER>` | e.g. `AGENTSAM_KEY_PROVIDER_ANTHROPIC` — used when no file-backed key is saved for the provider | — |
 | `AGENTSAM_MALOON_URL` / `AGENTSAM_MALOON_TOKEN` | Optional Indigo snapshot URL and service token | disabled |
@@ -179,6 +183,9 @@ POST   /api/workspace/knowledge/refresh         (force a workspace knowledge ref
 GET    /api/workspace/knowledge/:id/export      (capabilities, connections, or projects Markdown)
 PUT    /api/conversations/:id/schedule          (set a recurring schedule)
 DELETE /api/conversations/:id/schedule          (cancel it)
+GET    /api/conversations?archived=1            (archived chats, newest archive first)
+POST   /api/conversations/:id/archive           DELETE /api/conversations/:id/archive (restore)
+GET    /api/workspace/archive                   PUT /api/workspace/archive { retentionDays: 7|30|90|365|null }
 WS     /api/missions/:id/live       (live RunEvent stream; closes on missionEnd)
 ```
 

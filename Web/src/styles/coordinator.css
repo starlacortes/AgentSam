@@ -700,3 +700,51 @@
   .co-message-photos { width: min(280px, 88%); }
   .co-photo-thumb { width: 58px; height: 58px; }
 }
+
+/* Chat archiving: a hover-revealed × on each sidebar chat, with the title fading out under it */
+.co-chat-row { position: relative; border-radius: 7px; transition: background .15s; }
+.co-chat-row:hover, .co-chat-row.revealed { background: rgba(148,190,156,.055); }
+.co-chat-row.active { background: rgba(74,217,158,.09); }
+.co-chat-row .co-chat-link, .co-chat-row .co-chat-link:hover, .co-chat-row .co-chat-link.active { background: transparent; }
+.co-chat-row:hover .co-chat-link, .co-chat-row:focus-within .co-chat-link, .co-chat-row.revealed .co-chat-link {
+  text-overflow: clip;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 52px), transparent calc(100% - 26px));
+  mask-image: linear-gradient(to right, #000 calc(100% - 52px), transparent calc(100% - 26px));
+}
+.co-chat-archive { position: absolute; top: 50%; right: 4px; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--dim); opacity: 0; pointer-events: none; transform: translateY(-50%); transition: opacity .12s, color .12s, background .12s; }
+.co-chat-row:hover .co-chat-archive, .co-chat-row:focus-within .co-chat-archive, .co-chat-row.revealed .co-chat-archive { opacity: 1; pointer-events: auto; }
+.co-chat-archive:hover, .co-chat-archive:focus-visible { color: var(--ink); background: rgba(148,190,156,.12); }
+.co-archived-link { margin-top: 6px; color: var(--dim); font-size: 11px; }
+.co-archive-toast { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0 2px; padding: 7px 9px; border: 1px solid rgba(74,217,158,.22); border-radius: 8px; background: rgba(74,217,158,.07); color: var(--ink2); font-size: 11px; animation: co-toast-in .15s ease; }
+@keyframes co-toast-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+.co-archive-toast button { padding: 2px 6px; border: 0; border-radius: 5px; background: transparent; color: var(--em2); font-size: 11px; font-weight: 650; }
+.co-archive-toast button:hover { background: rgba(74,217,158,.12); }
+/* No hover on touch screens: the open chat always shows its ×, and a left swipe reveals any other. */
+@media (hover: none) {
+  .co-chat-row .co-chat-link { padding-top: 10px; padding-bottom: 10px; }
+  .co-chat-archive { width: 32px; height: 32px; right: 2px; }
+  .co-chat-row.active .co-chat-link, .co-chat-row.revealed .co-chat-link {
+    text-overflow: clip;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 60px), transparent calc(100% - 32px));
+    mask-image: linear-gradient(to right, #000 calc(100% - 60px), transparent calc(100% - 32px));
+  }
+  .co-chat-row.active .co-chat-archive, .co-chat-row.revealed .co-chat-archive { opacity: 1; pointer-events: auto; }
+  .co-chat-row.revealed .co-chat-archive { color: var(--ink); background: rgba(232,110,98,.16); }
+}
+.co-archive-modal .co-drawer-head > svg { color: var(--em); flex: none; margin-top: 2px; }
+.co-archive-list { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.co-archive-list li { display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel2); }
+.co-archive-open { flex: 1; min-width: 0; padding: 0; border: 0; background: transparent; text-align: left; }
+.co-archive-open b, .co-archive-open small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.co-archive-open b { color: var(--ink); font-size: 12.5px; font-weight: 600; }
+.co-archive-open small { margin-top: 3px; color: var(--dim); font-size: 10.5px; }
+.co-archive-open:hover b { color: var(--em2); }
+.co-archive-list .co-secondary-button { flex: none; }
+.co-archive-empty { color: var(--dim); font-size: 11.5px; line-height: 1.5; }
+@media (prefers-reduced-motion: reduce) {
+  .co-chat-archive, .co-chat-row { transition: none; }
+}
+.co-archived-pill { display: inline-flex; align-items: center; gap: 6px; flex: none; padding: 6px 10px; border: 1px solid rgba(201,169,106,.35); border-radius: 999px; background: rgba(201,169,106,.08); color: var(--gold2); font-size: 11px; }
+.co-archived-pill b { color: var(--ink); font-weight: 650; }
+.co-archived-pill:hover { background: rgba(201,169,106,.15); }
+@media (max-width: 760px) { .co-archived-pill > span { display: none; } }
