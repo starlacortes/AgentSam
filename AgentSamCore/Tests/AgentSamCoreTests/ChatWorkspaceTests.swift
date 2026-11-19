@@ -160,6 +160,25 @@ final class ChatWorkspaceTests: XCTestCase {
             conversationID: conversationID
         )
         XCTAssertTrue(outcome.resultText.contains("45"), outcome.resultText)
+        XCTAssertTrue(outcome.succeeded)
+    }
+
+    func testFailuresAreReportedAsFailures() async throws {
+        let workspace = ChatWorkspaceStore(root: directory)
+        let missing = await ChatWorkspaceTools.run(call: call("chat_read_file", "{}"), workspace: workspace, conversationID: UUID())
+        XCTAssertFalse(missing.succeeded, missing.resultText)
+        let listed = await ChatWorkspaceTools.run(call: call("chat_list_files", "{}"), workspace: workspace, conversationID: UUID())
+        XCTAssertTrue(listed.succeeded, listed.resultText)
+
+        try XCTSkipIf(Shell.which("python3") == nil, "python3 is not installed")
+        try requireSandbox()
+        let crashed = await ChatWorkspaceTools.run(
+            call: call("run_program", #"{"language":"python","source":"raise SystemExit(3)"}"#),
+            workspace: workspace,
+            conversationID: UUID()
+        )
+        XCTAssertFalse(crashed.succeeded, crashed.resultText)
+        XCTAssertTrue(crashed.resultText.contains("exit code 3"), crashed.resultText)
     }
 
     func testRunProgramRejectsUnsupportedLanguageAndBadFilenames() async throws {
@@ -423,6 +442,37 @@ final class ChatWorkspaceTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: target.path))
         let deletion = await terminal.run(command: "rm -rf nested", root: root, key: "test", requestedDirectory: nil)
         XCTAssertTrue(deletion.resultText.contains("not available"))
+        XCTAssertFalse(deletion.succeeded)
+    }
+
+    func testWorkerFileLimitsAndCharacterBoundaries() throws {
+        // A 3-byte character straddles the read limit; the read stops before it instead of calling the file binary.
+        let text = String(repeating: "a", count: AgentTools.maxFileBytes - 1) + "€" + "tail"
+        try Data(text.utf8).write(to: directory.appendingPathComponent("big.md"))
+        let read = AgentTools.run(call: call("read_file", #"{"path":"big.md"}"#), workspace: directory)
+        XCTAssertTrue(read.succeeded, read.resultText)
+        XCTAssertFalse(read.resultText.contains("binary"), String(read.resultText.suffix(200)))
+        XCTAssertNil(AgentTools.utf8Prefix(Data([0xff, 0xfe, 0x00]), maxBytes: 10))
+
+        let tooBig = String(repeating: "b", count: AgentTools.maxFileBytes + 1)
+        let write = AgentTools.run(call: call("write_file", "{\"path\":\"out.md\",\"content\":\"\(tooBig)\"}"), workspace: directory)
+        XCTAssertFalse(write.succeeded, write.resultText)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("out.md").path))
+    }
+
+    func testTerminalReportsTheCommandsExitStatus() async throws {
+        let terminal = WorkspaceTerminal()
+        let root = directory.appendingPathComponent("terminal")
+        let ok = await terminal.run(command: "printf ready", root: root, key: "status", requestedDirectory: nil)
+        if ok.resultText.contains("terminal is unavailable") {
+            throw XCTSkip("The OS sandbox is unavailable: \(ok.resultText)")
+        }
+        XCTAssertTrue(ok.succeeded, ok.resultText)
+        let failed = await terminal.run(command: "mkdir -p sub && cd sub && ls missing-file", root: root, key: "status", requestedDirectory: nil)
+        XCTAssertFalse(failed.succeeded, failed.resultText)
+        XCTAssertTrue(failed.resultText.contains("exit code"), failed.resultText)
+        // The directory change still carries over after a failing command.
+        XCTAssertTrue(failed.resultText.hasSuffix("Working directory: sub"), failed.resultText)
     }
 
     func testDeniedActionCannotBeConsumed() async throws {

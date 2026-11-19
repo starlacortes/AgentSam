@@ -271,21 +271,21 @@ public enum ChatWorkspaceTools {
         case "chat_schedule_run":
             guard let prompt = args["prompt"]?.stringValue,
                   let rawInterval = args["intervalMinutes"]?.numberValue.map({ Int($0) }) ?? args["intervalMinutes"]?.stringValue.flatMap(Int.init) else {
-                return ToolOutcome(resultText: "chat_schedule_run requires prompt and intervalMinutes.")
+                return .failure("chat_schedule_run requires prompt and intervalMinutes.")
             }
             guard let next = ConversationSchedule.validate(prompt: prompt, intervalMinutes: rawInterval) else {
-                return ToolOutcome(resultText: "Invalid schedule. The prompt must be non-empty (under 4,000 characters) and intervalMinutes must be one of \(ConversationSchedule.allowedIntervals.map(String.init).joined(separator: ", ")).")
+                return .failure("Invalid schedule. The prompt must be non-empty (under 4,000 characters) and intervalMinutes must be one of \(ConversationSchedule.allowedIntervals.map(String.init).joined(separator: ", ")).")
             }
             guard let sink = schedule else {
-                return ToolOutcome(resultText: "Scheduling is not available in this context.")
+                return .failure("Scheduling is not available in this context.")
             }
             guard let saved = await sink(next), saved == next else {
-                return ToolOutcome(resultText: "The schedule could not be saved.")
+                return .failure("The schedule could not be saved.")
             }
             return ToolOutcome(resultText: "Schedule set: \"\(next.prompt)\", \(next.intervalLabel). The first run is at \(ConversationPromptContext.describe(next.nextRunAt, in: timeZone)).")
         case "chat_schedule_cancel":
             guard let sink = schedule else {
-                return ToolOutcome(resultText: "Scheduling is not available in this context.")
+                return .failure("Scheduling is not available in this context.")
             }
             let cleared = await sink(nil)
             return ToolOutcome(resultText: cleared == nil
@@ -297,32 +297,32 @@ public enum ChatWorkspaceTools {
 
         case "chat_read_file":
             guard let rawPath = args["path"]?.stringValue else {
-                return ToolOutcome(resultText: "chat_read_file requires a path.")
+                return .failure("chat_read_file requires a path.")
             }
             let startLine = args["start_line"]?.numberValue.map(Int.init) ?? 1
             guard startLine >= 1,
                   let text = await workspace.read(conversationID: conversationID, name: rawPath, startLine: startLine) else {
-                return ToolOutcome(resultText: "File not found, invalid start_line, or not a readable text file: \(rawPath)")
+                return .failure("File not found, invalid start_line, or not a readable text file: \(rawPath)")
             }
             return ToolOutcome(resultText: AgentTools.clip(text, startLine: startLine))
 
         case "chat_write_file":
             guard let rawPath = args["path"]?.stringValue,
                   let content = args["content"]?.stringValue else {
-                return ToolOutcome(resultText: "chat_write_file requires path and content.")
+                return .failure("chat_write_file requires path and content.")
             }
             guard content.utf8.count <= AgentTools.maxFileBytes else {
-                return ToolOutcome(resultText: "That file is too large to write (over 200 KB).")
+                return .failure("That file is too large to write (over 200 KB).")
             }
             guard let written = await workspace.write(conversationID: conversationID, name: rawPath, content: content) else {
-                return ToolOutcome(resultText: "Invalid path: \(rawPath). Use a simple relative path with no .. or absolute paths.")
+                return .failure("Invalid path: \(rawPath). Use a simple relative path with no .. or absolute paths.")
             }
             return ToolOutcome(resultText: "Wrote \(written) (\(content.utf8.count) bytes).", wroteFiles: [written])
 
         case "run_program":
             guard let language = args["language"]?.stringValue?.lowercased(),
                   let source = args["source"]?.stringValue else {
-                return ToolOutcome(resultText: "run_program requires language and source.")
+                return .failure("run_program requires language and source.")
             }
             let stdin = args["stdin"]?.stringValue ?? ""
             let filename = args["filename"]?.stringValue
@@ -336,11 +336,11 @@ public enum ChatWorkspaceTools {
                 protecting: workspace.root
             )
             #else
-            return ToolOutcome(resultText: "Running programs is not supported on this device.")
+            return .failure("Running programs is not supported on this device.")
             #endif
 
         default:
-            return ToolOutcome(resultText: "Unknown tool: \(call.function.name).")
+            return .failure("Unknown tool: \(call.function.name).")
         }
     }
 }
@@ -388,7 +388,7 @@ public enum ConversationMissionTools {
         guard let rawID = args["mission_id"]?.stringValue,
               let missionID = UUID(uuidString: rawID),
               allowedMissionIDs.contains(missionID) else {
-            return ToolOutcome(resultText: "Mission not found in this conversation's linked mission references.")
+            return .failure("Mission not found in this conversation's linked mission references.")
         }
         switch call.function.name {
         case "mission_list_files":
@@ -396,20 +396,20 @@ public enum ConversationMissionTools {
             return ToolOutcome(resultText: files.isEmpty ? "The mission workspace is empty." : files.joined(separator: "\n"))
         case "mission_read_file":
             guard let path = args["path"]?.stringValue else {
-                return ToolOutcome(resultText: "mission_read_file requires a path.")
+                return .failure("mission_read_file requires a path.")
             }
             let startLine = args["start_line"]?.numberValue.map(Int.init) ?? 1
             guard startLine >= 1, let text = await store.deliverable(missionID: missionID, name: path) else {
-                return ToolOutcome(resultText: "File not found (or not a readable text file): \(path)")
+                return .failure("File not found (or not a readable text file): \(path)")
             }
             let lines = text.components(separatedBy: "\n")
             guard startLine <= lines.count else {
-                return ToolOutcome(resultText: "start_line \(startLine) is beyond the end of \(path).")
+                return .failure("start_line \(startLine) is beyond the end of \(path).")
             }
             let slice = lines[(startLine - 1)...].joined(separator: "\n")
             return ToolOutcome(resultText: AgentTools.clip(slice, startLine: startLine))
         default:
-            return ToolOutcome(resultText: "Unknown tool: \(call.function.name).")
+            return .failure("Unknown tool: \(call.function.name).")
         }
     }
 }
@@ -464,19 +464,19 @@ enum CodeRunner {
     static func run(language rawLanguage: String, source: String, stdin: String, filename: String?, sandbox baseURL: URL, protecting: URL? = nil) -> ToolOutcome {
         let language = rawLanguage.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard let makePlan = plans[language] else {
-            return ToolOutcome(resultText: "Unsupported language: \(language). Available: js, python, c.")
+            return .failure("Unsupported language: \(language). Available: js, python, c.")
         }
         guard source.count <= ChatWorkspaceTools.maxSourceBytes else {
-            return ToolOutcome(resultText: "The program is too long (over 60,000 characters).")
+            return .failure("The program is too long (over 60,000 characters).")
         }
         guard stdin.count <= ChatWorkspaceTools.maxStdinBytes else {
-            return ToolOutcome(resultText: "The standard input is too long (over 10,000 characters).")
+            return .failure("The standard input is too long (over 10,000 characters).")
         }
         let rawName = (filename ?? defaultFilenames[language] ?? "program.txt")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard let resolved = AgentTools.resolve(rawName, in: baseURL),
               resolved.deletingLastPathComponent().path.hasPrefix(baseURL.path) else {
-            return ToolOutcome(resultText: "Invalid filename: \(rawName).")
+            return .failure("Invalid filename: \(rawName).")
         }
         let sourceName = resolved.lastPathComponent
         let plan = makePlan(sourceName)
@@ -494,7 +494,7 @@ enum CodeRunner {
             }
             return try execute(sandboxed, in: sandbox, stdin: stdin, environment: environment(sandbox: sandbox))
         } catch {
-            return ToolOutcome(resultText: "Could not run the program: \(error.localizedDescription)")
+            return .failure("Could not run the program: \(error.localizedDescription)")
         }
     }
 
@@ -598,14 +598,14 @@ enum CodeRunner {
         let clipped = AgentTools.clip(String(output.prefix(ChatWorkspaceTools.maxOutputCharacters)))
         let seconds = Int(timeout.rounded())
         if timedOut {
-            return ToolOutcome(resultText: "Timed out after \(seconds)s and was stopped. Partial output:\n\(clipped)")
+            return .failure("Timed out after \(seconds)s and was stopped. Partial output:\n\(clipped)")
         }
         let status = process.terminationStatus
         if status == 0 {
             return ToolOutcome(resultText: "Exit code 0. Output:\n\(clipped.isEmpty ? "(no output)" : clipped)")
         }
         let reason = process.terminationReason == .uncaughtSignal ? "the program was stopped" : "exit code \(status)"
-        return ToolOutcome(resultText: "Failed (\(reason)). Output:\n\(clipped.isEmpty ? "(no output)" : clipped)")
+        return .failure("Failed (\(reason)). Output:\n\(clipped.isEmpty ? "(no output)" : clipped)")
     }
 }
 

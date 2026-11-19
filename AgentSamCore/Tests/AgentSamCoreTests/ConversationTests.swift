@@ -94,6 +94,7 @@ final class ConversationTests: XCTestCase {
         let memory = WorkspaceMemoryStore(root: directory)
         let access = ConversationAccess(root: directory)
         let toolResults = LockedStrings()
+        let flagged = LockedStrings()
         let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, connectors: hub, missions: MissionEngine(store: store, keyRing: keys), access: access, completion: { _, _, _, system, messages, _ in
             if system.contains("Decide how to handle") { return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub") }
             if messages.allSatisfy({ $0.role != "tool" }) {
@@ -103,6 +104,7 @@ final class ConversationTests: XCTestCase {
                 ]), inputTokens: 0, outputTokens: 0, model: "stub")
             }
             toolResults.append(contentsOf: messages.filter { $0.role == "tool" }.compactMap(\.content))
+            flagged.append(contentsOf: messages.filter { $0.role == "tool" && $0.is_error == true }.compactMap(\.tool_call_id))
             return LLMReply(message: .assistant("That tool is not available."), inputTokens: 0, outputTokens: 0, model: "stub")
         })
         let conversation = try await conversations.create(ownerID: "owner")
@@ -114,6 +116,8 @@ final class ConversationTests: XCTestCase {
         XCTAssertEqual(results.count, 2)
         XCTAssertTrue(results.allSatisfy { $0.hasPrefix("Unknown tool:") }, results.joined(separator: "\n"))
         XCTAssertTrue(results[0].contains("web_browse"))
+        // The model is told these calls failed, not just given text.
+        XCTAssertEqual(flagged.values, ["made-up", "mission"])
         await engine.shutdown()
     }
 

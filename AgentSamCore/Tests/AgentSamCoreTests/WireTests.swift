@@ -170,11 +170,34 @@ final class WireTests: XCTestCase {
         XCTAssertEqual(input.objectValue?["path"]?.stringValue, "n.md")
 
         let resultBlocks = wire[2].content
-        guard resultBlocks.count == 1, case .toolResult(let resultID, let content)? = resultBlocks.first else {
+        guard resultBlocks.count == 1, case .toolResult(let resultID, let content, let isError)? = resultBlocks.first else {
             return XCTFail("expected one tool_result block")
         }
         XCTAssertEqual(resultID, "call-1")
         XCTAssertEqual(content, "Wrote n.md.")
+        XCTAssertFalse(isError)
+    }
+
+    func testFailedToolResultsAreFlaggedForEachProvider() throws {
+        let messages: [APIMessage] = [
+            .user("go"),
+            APIMessage(role: "assistant", tool_calls: [
+                APIToolCall(id: "ok", function: .init(name: "chat_list_files", arguments: "{}")),
+                APIToolCall(id: "bad", function: .init(name: "chat_read_file", arguments: "{}")),
+            ]),
+            .tool(id: "ok", content: "a.md"),
+            .tool(id: "bad", content: "chat_read_file requires a path.", isError: true),
+        ]
+        // Anthropic gets is_error on the failed block only.
+        let wire = AnthropicClient.translate(messages: messages)
+        let encoded = String(decoding: try JSONEncoder().encode(wire[2].content), as: UTF8.self)
+        XCTAssertEqual(encoded.components(separatedBy: "\"is_error\":true").count - 1, 1, encoded)
+        // OpenAI-style providers have no flag, so the text says it.
+        XCTAssertEqual(LLMClient.wireContent(messages[2]), "a.md")
+        XCTAssertEqual(LLMClient.wireContent(messages[3]), "ERROR: chat_read_file requires a path.")
+        // A successful result keeps the old JSON shape.
+        let okJSON = String(decoding: try JSONEncoder().encode(messages[2]), as: UTF8.self)
+        XCTAssertFalse(okJSON.contains("is_error"), okJSON)
     }
 
     // MARK: - Stub responses

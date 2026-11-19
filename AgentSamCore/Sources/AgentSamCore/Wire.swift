@@ -184,21 +184,25 @@ public struct APIMessage: Codable, Hashable, Sendable {
     public var tool_call_id: String?
     /// Photos for a user turn. Each provider client turns them into its own image blocks.
     public var images: [APIImage]?
+    /// A tool result that reports a failure. Anthropic receives it as `is_error`; OpenAI-style
+    /// providers have no such field, so their clients mark the text instead. Nil means success.
+    public var is_error: Bool?
 
-    public init(role: String, content: String? = nil, tool_calls: [APIToolCall]? = nil, tool_call_id: String? = nil, images: [APIImage]? = nil) {
+    public init(role: String, content: String? = nil, tool_calls: [APIToolCall]? = nil, tool_call_id: String? = nil, images: [APIImage]? = nil, is_error: Bool? = nil) {
         self.role = role
         self.content = content
         self.tool_calls = tool_calls
         self.tool_call_id = tool_call_id
         self.images = images
+        self.is_error = is_error
     }
 
     public static func system(_ text: String) -> APIMessage { .init(role: "system", content: text) }
     public static func user(_ text: String) -> APIMessage { .init(role: "user", content: text) }
     public static func user(_ text: String, images: [APIImage]) -> APIMessage { .init(role: "user", content: text, images: images.isEmpty ? nil : images) }
     public static func assistant(_ text: String) -> APIMessage { .init(role: "assistant", content: text) }
-    public static func tool(id: String, content: String) -> APIMessage {
-        .init(role: "tool", content: content, tool_call_id: id)
+    public static func tool(id: String, content: String, isError: Bool = false) -> APIMessage {
+        .init(role: "tool", content: content, tool_call_id: id, is_error: isError ? true : nil)
     }
 }
 
