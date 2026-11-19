@@ -121,6 +121,48 @@ final class ConversationTests: XCTestCase {
         await engine.shutdown()
     }
 
+    func testToolResultsWarnWhenRoundsRunLow() async throws {
+        let store = MissionStore(root: directory)
+        await store.saveProviders([provider])
+        let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
+        try keys.set("test-key", for: provider.keyAccount)
+        let conversations = ConversationStore(root: directory)
+        let memory = WorkspaceMemoryStore(root: directory)
+        let toolTexts = LockedStrings()
+        let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, missions: MissionEngine(store: store, keyRing: keys), completion: { _, _, _, system, messages, tools in
+            if system.contains("Decide how to handle") { return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub") }
+            guard tools != nil else { return LLMReply(message: .assistant("Done."), inputTokens: 0, outputTokens: 0, model: "stub") }
+            if let last = messages.last, last.role == "tool" { toolTexts.append(contentsOf: [last.content ?? ""]) }
+            let round = messages.filter { $0.role == "tool" }.count
+            return LLMReply(message: APIMessage(role: "assistant", tool_calls: [APIToolCall(id: "r\(round)", function: .init(name: "chat_list_files", arguments: "{}"))]), inputTokens: 0, outputTokens: 0, model: "stub")
+        })
+        let conversation = try await conversations.create(ownerID: "owner")
+        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Keep listing", launchedBy: "Owner", language: "en")
+        _ = try await finishedConversation(conversations, id: conversation.id)
+        let texts = toolTexts.values
+        XCTAssertEqual(texts.filter { $0.contains("tool round") }.count, 2, texts.joined(separator: "\n---\n"))
+        XCTAssertTrue(texts.contains { $0.hasSuffix("[2 tool rounds left in this reply; finish or say what is still missing.]") })
+        XCTAssertTrue(texts.contains { $0.hasSuffix("[1 tool round left in this reply; finish or say what is still missing.]") })
+        await engine.shutdown()
+    }
+
+    func testLongListsAndOutputSayWhatWasLeftOut() {
+        let list = (1...100).map { "file\($0).md — 10" }.joined(separator: "\n")
+        let clipped = ConversationPromptContext.clipList(list, limit: 200)
+        XCTAssertTrue(clipped.hasSuffix("more entries not shown; use the list tool to see them all]"), clipped)
+        XCTAssertFalse(clipped.contains("file100"))
+        let shown = clipped.components(separatedBy: "\n").count - 1
+        XCTAssertTrue(clipped.contains("[\(100 - shown) more entries"), clipped)
+        XCTAssertEqual(ConversationPromptContext.clipList("a\nb", limit: 200), "a\nb")
+
+        let output = (1...2_000).map { "line \($0)" }.joined(separator: "\n") + "\nTraceback: boom"
+        let kept = CodeRunner.headAndTail(output, limit: 3_000)
+        XCTAssertTrue(kept.hasPrefix("line 1\n"))
+        XCTAssertTrue(kept.hasSuffix("Traceback: boom"), "The end of the output, where errors are, must survive")
+        XCTAssertTrue(kept.contains("omitted from the middle of the output"))
+        XCTAssertLessThan(kept.count, 3_200)
+    }
+
     func testUnknownToolMessageSuggestsClosestTools() {
         let message = ConversationEngine.unknownToolMessage("chat_read", offered: ["chat_read_file", "chat_write_file", "run_program"])
         XCTAssertTrue(message.contains("Closest available: chat_read_file, chat_write_file."), message)

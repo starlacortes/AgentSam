@@ -595,7 +595,7 @@ enum CodeRunner {
         for reader in readers { reader.readabilityHandler = nil }
 
         let output = String(data: collected, encoding: .utf8) ?? ""
-        let clipped = AgentTools.clip(String(output.prefix(ChatWorkspaceTools.maxOutputCharacters)))
+        let clipped = headAndTail(output, limit: ChatWorkspaceTools.maxOutputCharacters)
         let seconds = Int(timeout.rounded())
         if timedOut {
             return .failure("Timed out after \(seconds)s and was stopped. Partial output:\n\(clipped)")
@@ -606,6 +606,22 @@ enum CodeRunner {
         }
         let reason = process.terminationReason == .uncaughtSignal ? "the program was stopped" : "exit code \(status)"
         return .failure("Failed (\(reason)). Output:\n\(clipped.isEmpty ? "(no output)" : clipped)")
+    }
+}
+
+extension CodeRunner {
+    /// Keeps the start and the end of long output, where errors and final results usually are,
+    /// and says how much was dropped from the middle. The terminal's working-directory marker is
+    /// the last line, so it survives too.
+    static func headAndTail(_ text: String, limit: Int) -> String {
+        guard text.count > limit else { return text }
+        let headCount = limit / 3
+        let tailCount = limit - headCount
+        let head = text.prefix(headCount)
+        let tail = text.suffix(tailCount)
+        let dropped = text.dropFirst(headCount).dropLast(tailCount)
+        let lines = dropped.reduce(into: 0) { count, character in if character == "\n" { count += 1 } }
+        return head + "\n…[\(dropped.count) characters (\(lines) lines) omitted from the middle of the output]…\n" + tail
     }
 }
 

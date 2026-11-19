@@ -419,6 +419,9 @@ public actor ConversationEngine {
         return ConversationDecision.parse(reply.message.content ?? "")
     }
 
+    /// Model calls with tools in one direct reply before Ada must answer without them.
+    static let maxToolRounds = 8
+
     private func directAnswer(userText: String, photos photoInput: PhotoInputs = PhotoInputs(), coordinator: AgentProfile, context: ConversationPromptContext, history: [ConversationMessage], language: String, ref: ResponseRef? = nil, conversationID: UUID, writtenFiles: inout [String]) async throws -> String {
         let connectorTools = await connectors?.toolDefs(readOnly: access == nil) ?? []
         let missionTools = context.missionIDs.isEmpty ? [] : ConversationMissionTools.definitions
@@ -435,7 +438,7 @@ public actor ConversationEngine {
         var messages = Self.chatTurns(from: history.dropLast(), images: photoInput.history)
         messages.append(.user(text, images: photoInput.current))
         var runs = 0
-        for _ in 0..<8 {
+        for round in 0..<Self.maxToolRounds {
             try Task.checkCancellation()
             let stream = streamer(for: ref)
             let reply = try await completeDirect(coordinator: coordinator, system: system, messages: messages, tools: tools, contextAllowance: allowance, onDelta: stream?.handler)
@@ -506,6 +509,11 @@ public actor ConversationEngine {
                     outcome = .failure("No connector is available for this tool.")
                 }
                 messages.append(.tool(id: call.id, content: String(outcome.resultText.prefix(32_000)), isError: !outcome.succeeded))
+            }
+            // Warn before the budget runs out, so Ada can wrap up instead of being cut off mid-task.
+            let left = Self.maxToolRounds - round - 1
+            if left > 0, left <= 2, let last = messages.indices.last, messages[last].role == "tool" {
+                messages[last].content = (messages[last].content ?? "") + "\n\n[\(left) tool round\(left == 1 ? "" : "s") left in this reply; finish or say what is still missing.]"
             }
             await beginStep(language == "es" ? "Redactando la respuesta" : "Writing the answer", in: ref)
         }
