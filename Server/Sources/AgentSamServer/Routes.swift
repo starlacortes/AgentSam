@@ -31,6 +31,13 @@ public func configure(_ app: Application) async throws {
 
     let dataPath = ctx.dataDir.path
     app.logger.info("AgentSam server running. Data directory: \(dataPath)")
+    // run_program and the terminal need bubblewrap to create namespaces, which some hosts block.
+    // Say so at startup, so a host that cannot sandbox shows up in its logs, not only in a chat.
+    if let reason = ProgramSandbox.unavailableReason {
+        app.logger.warning("Programs and the terminal are off: the OS sandbox is unavailable (\(reason)).")
+    } else {
+        app.logger.info("OS sandbox ready: programs and the terminal can run.")
+    }
 }
 
 struct ServerContextKey: StorageKey {

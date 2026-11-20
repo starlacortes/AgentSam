@@ -133,4 +133,10 @@ enum OSSandbox {
     }
     #endif
 }
+
+/// Whether programs and the terminal can run on this machine, for the server's startup log.
+public enum ProgramSandbox {
+    /// Why `run_program` and the terminal will refuse to run, or nil when the OS sandbox works.
+    public static var unavailableReason: String? { OSSandbox.unavailableReason }
+}
 #endif
