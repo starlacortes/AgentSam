@@ -10,3 +10,8 @@ secrets/
 Server/secrets/
 *service-account*.json
 ageless-valor-*.json
+
+# Xcode and SwiftPM local state (the Mac and iPhone apps are retired; nothing here is built)
+xcuserdata/
+.swiftpm/
+*.xcodeproj/
