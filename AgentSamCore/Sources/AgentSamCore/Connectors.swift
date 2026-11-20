@@ -371,7 +371,7 @@ public struct ConnectorHub: Sendable {
             return .failure("This team does not have access to \(provider.id.displayName).")
         }
         guard !hiddenConnectors.contains(provider.id) else {
-            return .failure("The \(provider.id.displayName) connector is disabled in this version of AgentSam.")
+            return .failure("The \(provider.id.displayName) connector is disabled in this version of Ada.")
         }
         let config = await config(for: provider.id)
         guard config.enabled else {

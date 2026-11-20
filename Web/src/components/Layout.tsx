@@ -61,7 +61,7 @@ export function Layout() {
   return (
     <>
       <header className="topbar">
-        <NavLink to="/" className="logo" aria-label={t('AgentSam home')}>
+        <NavLink to="/" className="logo" aria-label={t('Ada home')}>
           <Logo />
         </NavLink>
         <nav className="nav" aria-label={t('Main')}>

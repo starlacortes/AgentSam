@@ -544,7 +544,7 @@ func connectorRedirectURI(for req: Request, connector: ConnectorID) throws -> St
 
 func oauthResultPage(title: String, message: String) -> Response {
     let html = """
-    <!doctype html><html><head><meta charset="utf-8"><title>AgentSam</title>
+    <!doctype html><html><head><meta charset="utf-8"><title>Ada</title>
     <style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#0A100D;color:#F2F7F2;display:flex;align-items:center;justify-content:center;height:100vh;margin:0}main{text-align:center;padding:32px;max-width:420px}h1{color:#4AD99E;font-size:24px;margin:0 0 12px}p{color:#93A89A;font-size:14px;line-height:1.5;margin:0}</style>
     </head><body><main><h1>\(title)</h1><p>\(message)</p></main></body></html>
     """

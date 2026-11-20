@@ -1,7 +1,7 @@
 {
-  "name": "AgentSam",
-  "short_name": "AgentSam",
-  "description": "Hire a team of AI agents with your own API keys.",
+  "name": "Ada",
+  "short_name": "Ada",
+  "description": "One assistant who brings in specialists when the work needs them. Your own API keys.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

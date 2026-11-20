@@ -219,7 +219,7 @@ export function ProvisioningPage() {
       const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
       const anchor = document.createElement('a')
       anchor.href = url
-      anchor.download = `agentsam-provisioning-${detail.batch.id}.csv`
+      anchor.download = `ada-provisioning-${detail.batch.id}.csv`
       document.body.appendChild(anchor)
       anchor.click()
       anchor.remove()

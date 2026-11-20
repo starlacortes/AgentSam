@@ -7,7 +7,7 @@
 "srv.oauthNoCode" = "Google no devolvió un código de autorización.";
 "srv.oauthNoRefreshToken" = "Google no devolvió un token de actualización. Vuelve a conectar y aprueba la pantalla de consentimiento.";
 "srv.connectorConnectedTitle" = "%@ conectado";
-"srv.connectorConnectedMessage" = "AgentSam ya puede usar %@ en las misiones. Puedes cerrar esta ventana.";
+"srv.connectorConnectedMessage" = "Ada ya puede usar %@ en las misiones. Puedes cerrar esta ventana.";
 "srv.badTeamID" = "ID de equipo no válido";
 "srv.teamNotFound" = "Equipo no encontrado";
 "srv.missingProviderID" = "Falta el ID del proveedor";
@@ -36,7 +36,7 @@
 "srv.objectiveLimit" = "El objetivo de la misión debe tener 20.000 caracteres o menos.";
 "srv.interrupted" = "Misión interrumpida por un reinicio del servidor. Revisa el trabajo guardado e inicia una nueva misión cuando quieras.";
 "srv.maloonRosterIncomplete" = "El equipo de propietario de Maloon necesita una plantilla completa y una clave de API configurada para su proveedor.";
-"srv.maloonProviderMissing" = "Configura una clave de API y un modelo por defecto de un proveedor en el servidor AgentSam antes de lanzar un flujo de Maloon.";
+"srv.maloonProviderMissing" = "Configura una clave de API y un modelo por defecto de un proveedor en el servidor de Ada antes de lanzar un flujo de Maloon.";
 "srv.maloonTeamName" = "Equipo de propietario Maloon";
 "srv.maloonTeamGoal" = "Convierte las instantáneas empresariales nuevas de Indigo en información operativa de solo lectura y borradores revisados por el propietario.";
 "srv.maloonTestOK" = "Conectado con Indigo y se ha recibido una instantánea válida de Maloon.";
