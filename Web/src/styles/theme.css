@@ -346,11 +346,15 @@ main.page { width: 100%; max-width: 1160px; margin: 0 auto; padding: 28px 20px 8
   }
   .tab {
     border: none; background: transparent; color: var(--mut); cursor: pointer;
-    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase;
+    font-family: var(--mono); font-size: 10.5px; line-height: 1.4; letter-spacing: 0.12em; text-transform: uppercase;
     padding: 12px 4px; border-radius: 10px; text-align: center;
   }
   .tab:hover { text-decoration: none; color: var(--ink); }
   .tab.active { color: var(--em); background: rgba(74, 217, 158, 0.08); }
+  /* Status filters stay on one swipeable line instead of wrapping one pill onto its own row. */
+  .filter-pills { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; scrollbar-width: none; }
+  .filter-pills::-webkit-scrollbar { display: none; }
+  .filter-pills .pill { flex: none; }
   .sheet-backdrop { display: block; position: fixed; inset: 0; z-index: 55; background: rgba(0, 0, 0, 0.45); }
   .sheet {
     display: flex; flex-direction: column; gap: 2px;

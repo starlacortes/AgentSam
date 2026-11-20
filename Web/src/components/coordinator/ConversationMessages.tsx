@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, errorMessage } from '../../api/client'
 import type { AgentActionRequest, Conversation, ConversationMessage, MissionDetail } from '../../api/types'
-import { useI18n } from '../../i18n'
+import { dateLocale, useI18n } from '../../i18n'
 import { cappedSpeech, voiceTranscript } from '../../lib/coordinator'
 import { Speaker } from '../../lib/voice'
 import { isHTML, isPreviewableLanguage, pickEntry } from '../../lib/preview'
@@ -39,7 +39,7 @@ export function ActionApprovalCard({ action, onResolved }: { action: AgentAction
     <p className="co-proposal-rationale">{action.detail}</p>
     <pre className="co-action-arguments">{formatActionArguments(action)}</pre>
     {action.result ? <pre className="co-action-result">{action.result}</pre> : null}
-    {pending ? <p className="co-proposal-warning">{expired ? t('This request has expired. No action was performed.') : `${t('Approval runs this action once. It expires')} ${new Date(action.expiresAt).toLocaleString()}.`}</p> : null}
+    {pending ? <p className="co-proposal-warning">{expired ? t('This request has expired. No action was performed.') : t('Approval runs this action once. It expires {time}.', { time: new Date(action.expiresAt).toLocaleString(dateLocale()) })}</p> : null}
     {pending && !expired ? <div className="co-proposal-actions"><button className="co-primary-button" disabled={busy} onClick={() => void decide(true)}><Icon name="check" size={14} />{t('Approve once')}</button><button className="co-secondary-button" disabled={busy} onClick={() => void decide(false)}>{t('Deny')}</button></div> : null}
     <ErrorBanner message={error} />
   </section>
