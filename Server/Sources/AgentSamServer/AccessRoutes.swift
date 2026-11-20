@@ -83,7 +83,7 @@ func accessRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
         guard principal.isAdmin else { throw Abort(.forbidden, reason: "Only admins can grant host folders.") }
         let body = try req.decodeJSON(HostGrantBody.self)
         guard let grant = await ctx.access.hosts.grant(ownerID: principal.conversationOwnerID, path: body.path, canWrite: body.canWrite) else {
-            throw Abort(.badRequest, reason: "Choose an existing, specific absolute folder on the server. The filesystem root, your home folder, and the AgentSam data folder cannot be granted.")
+            throw Abort(.badRequest, reason: "Choose an existing, specific absolute folder on the server. The filesystem root, your home folder, and Ada's data folder cannot be granted.")
         }
         await ctx.access.audit.record(ownerID: principal.conversationOwnerID, action: "host.grant", detail: "\(grant.path); write=\(grant.canWrite)")
         return try req.json(grant, status: .created)

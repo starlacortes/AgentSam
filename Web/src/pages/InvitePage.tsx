@@ -69,7 +69,7 @@ export function InvitePage() {
           <>
             <div>
               <div className="kicker">{t('You’re invited')}</div>
-              <h1>{t('Join AgentSam')}</h1>
+              <h1>{t('Join Ada')}</h1>
               <p className="lede">{t('Creating an account for {email} as {role}.', { email: preview.email, role: preview.role === 'admin' ? t('an admin') : t('a member') })}</p>
             </div>
             <ErrorBanner message={error} />

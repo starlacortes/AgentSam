@@ -62,7 +62,7 @@ export function CoordinatorSidebar({ conversations, selectedID, open, onClose, o
   return <>
     {open ? <div className="co-nav-scrim" onClick={onClose} /> : null}
     <aside className={`co-sidebar ${open ? 'open' : ''}`} aria-label={t('Workspace sidebar')}>
-      <Link to="/" className="co-brand" aria-label={t('AgentSam home')}><span className="co-brand-mark">A</span><span>AgentSam</span><span className="co-brand-badge">ADA</span></Link>
+      <Link to="/" className="co-brand" aria-label={t('Ada home')}><span className="co-brand-mark">A</span><span>Ada</span></Link>
       <div className="co-sidebar-top">
         <button className="co-new-chat" onClick={() => { onNew(); onClose() }}><Icon name="plus" size={15} />{t('New chat')}</button>
         <label className="co-search"><Icon name="search" size={14} /><input value={query} id="co-chat-search" aria-label={t('Search chats')} placeholder={t('Search chats')} onChange={(event) => setQuery(event.target.value)} /><span>⌘K</span></label>

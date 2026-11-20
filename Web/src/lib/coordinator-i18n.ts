@@ -196,7 +196,7 @@ export const coordinatorSpanish: Record<string, string> = {
   'A quick guide, whenever you need it': 'Una guía rápida, siempre que la necesites',
   'Three short steps explain chat, teams, and connections. Restarting changes only the guide—not your chats, teams, providers, connections, or memory.': 'Tres pasos breves explican el chat, los equipos y las conexiones. Reiniciar solo cambia la guía, no tus chats, equipos, proveedores, conexiones ni memoria.',
   'Restart the guide': 'Reiniciar la guía',
-  'A quick guide to AgentSam': 'Una guía rápida de AgentSam',
+  'A quick guide to Ada': 'Una guía rápida de Ada',
   'Close guide': 'Cerrar guía',
   'Step {number} of 3': 'Paso {number} de 3',
   'One conversation. One clear answer.': 'Una conversación. Una respuesta clara.',
