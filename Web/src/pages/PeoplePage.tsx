@@ -65,7 +65,7 @@ export function PeoplePage() {
         <div>
           <div className="kicker">{t('People')}</div>
           <h1>{t('Who can use this server')}</h1>
-          <p className="lede">{t('Everyone shares the same teams and missions. Admins also manage people and provider keys.')}</p>
+          <p className="lede">{t('Everyone shares the same missions. Admins also manage people and provider keys.')}</p>
         </div>
         <Link className="btn ghost" to="/provisioning">{t('Provision accounts in bulk →')}</Link>
       </div>

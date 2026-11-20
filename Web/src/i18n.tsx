@@ -228,8 +228,8 @@ const es: Record<string, string> = {
 
   // People page
   'Who can use this server': 'Quién puede usar este servidor',
-  'Everyone shares the same teams and missions. Admins also manage people and provider keys.':
-    'Todos comparten los mismos equipos y misiones. Los administradores también gestionan personas y claves de proveedor.',
+  'Everyone shares the same missions. Admins also manage people and provider keys.':
+    'Todos comparten las mismas misiones. Los administradores también gestionan personas y claves de proveedor.',
   'Invite someone': 'Invitar a alguien',
   'Email to invite': 'Correo a invitar',
   'Create invite link': 'Crear enlace de invitación',
@@ -249,7 +249,7 @@ const es: Record<string, string> = {
   // Login page
   'Welcome back': 'Bienvenido de nuevo',
   'Sign in': 'Iniciar sesión',
-  'Your agent team is waiting.': 'Tu equipo de agentes te espera.',
+  'Ada is ready when you are.': 'Ada está lista cuando quieras.',
   'Signing in…': 'Iniciando sesión…',
   'No account? Ask an admin for an invite link.': '¿Sin cuenta? Pide a un administrador un enlace de invitación.',
 

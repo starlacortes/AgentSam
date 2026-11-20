@@ -33,7 +33,7 @@ export function LoginPage() {
         <div>
           <div className="kicker">{t('Welcome back')}</div>
           <h1>{t('Sign in')}</h1>
-          <p className="lede">{t('Your agent team is waiting.')}</p>
+          <p className="lede">{t('Ada is ready when you are.')}</p>
         </div>
         <ErrorBanner message={error} />
         <Field label={t('Email')} type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} />
