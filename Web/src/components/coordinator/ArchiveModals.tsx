@@ -135,7 +135,7 @@ export function ArchivedChats({ settings, onSettings, onOpen, onRestored, onClos
           <RetentionChoices value={retention} disabled={busy !== null} onChoose={(days) => void changeRetention(days)} />
         </div>
         <ErrorBanner message={error} />
-        {chats === null ? <div className="co-loading"><Spinner /></div> : chats.length === 0 ? <p className="co-archive-empty">{t('No archived chats. Hover a chat in the sidebar and press × to archive it.')}</p> : <ul className="co-archive-list">
+        {chats === null ? <div className="co-loading"><Spinner /></div> : chats.length === 0 ? <p className="co-archive-empty">{t('No archived chats. To archive one, press × beside it in the sidebar, or swipe it left on a phone.')}</p> : <ul className="co-archive-list">
           {chats.map((chat) => {
             const days = chat.archivedAt ? daysUntilPurge(chat.archivedAt, retention) : null
             return <li key={chat.id}>

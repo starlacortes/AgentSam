@@ -721,6 +721,8 @@
 .co-archive-toast button:hover { background: rgba(74,217,158,.12); }
 /* No hover on touch screens: the open chat always shows its ×, and a left swipe reveals any other. */
 @media (hover: none) {
+  /* No keyboard shortcut hint on touch screens. */
+  .co-search > span { display: none; }
   .co-chat-row .co-chat-link { padding-top: 10px; padding-bottom: 10px; }
   .co-chat-archive { width: 32px; height: 32px; right: 2px; }
   .co-chat-row.active .co-chat-link, .co-chat-row.revealed .co-chat-link {

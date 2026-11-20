@@ -4,7 +4,7 @@ import { api, errorMessage } from '../../api/client'
 import type { AccessAuditEntry, ConnectorPermissions, ConnectorStatus, HostFolderGrant, WorkspaceKnowledge, WorkspaceKnowledgeDocumentID, WorkspaceMemory } from '../../api/types'
 import type { VoiceInfo } from '../../api/chatTypes'
 import { useAuth } from '../../auth/AuthContext'
-import { useI18n } from '../../i18n'
+import { dateLocale, useI18n } from '../../i18n'
 import { LanguageToggle } from '../Layout'
 import { VoiceSettingsPanel } from '../VoiceSettingsPanel'
 import { ErrorBanner } from '../ui'
@@ -89,7 +89,7 @@ function KnowledgePanel({ knowledge, onChange }: { knowledge: WorkspaceKnowledge
     setBusy(true); setError(null)
     try { onChange(await api<WorkspaceKnowledge>('workspace/knowledge/refresh', { method: 'POST' })) } catch (err) { setError(errorMessage(err)) } finally { setBusy(false) }
   }
-  return <section><div className="co-setting-card"><div className="co-knowledge-toolbar"><div><b>{t('Workspace knowledge')}</b><div className="co-memory-meta">{knowledge?.updatedAt ? `${t('{count} refreshes', { count: knowledge.refreshCount })} · ${new Date(knowledge.updatedAt).toLocaleString()}` : t('Discovering your workspace…')}</div></div><button className="co-secondary-button" disabled={busy} onClick={() => void refresh()}><Icon name="refresh" size={14} />{busy ? t('Refreshing…') : t('Refresh now')}</button></div>
+  return <section><div className="co-setting-card"><div className="co-knowledge-toolbar"><div><b>{t('Workspace knowledge')}</b><div className="co-memory-meta">{knowledge?.updatedAt ? `${t('{count} refreshes', { count: knowledge.refreshCount })} · ${new Date(knowledge.updatedAt).toLocaleString(dateLocale())}` : t('Discovering your workspace…')}</div></div><button className="co-secondary-button" disabled={busy} onClick={() => void refresh()}><Icon name="refresh" size={14} />{busy ? t('Refreshing…') : t('Refresh now')}</button></div>
     <p className="co-panel-note">{t('Built from live skills, providers, tools, connections, and projects. Refreshed on first launch, when changes are detected, and at least daily. No credentials or connected content are included.')}</p>
     <div className="co-knowledge-tabs" aria-label={t('Knowledge documents')}>{knowledge?.documents.map((item) => <button key={item.id} className={document?.id === item.id ? 'active' : ''} aria-pressed={document?.id === item.id} onClick={() => setSelected(item.id)}>{item.id === 'capabilities' ? t('Capabilities') : item.id === 'connections' ? t('Connections') : t('Projects')}</button>)}</div>
     <pre className="co-memory-doc">{document?.markdown ?? t('Discovering your workspace…')}</pre>
@@ -145,7 +145,7 @@ function HostAccessPanel() {
       <button className="co-secondary-button" disabled={busy || !path.trim()}><Icon name="folder" size={13} />{t('Grant folder access')}</button>
     </form>
     {grants.map((item) => <div className="co-permission-row" key={item.id}><div><b>{item.path}</b><small>{item.canWrite ? t('Read/write') : t('Read only')}</small></div><button className="co-text-button danger" disabled={busy} onClick={() => void revoke(item.id)}>{t('Revoke')}</button></div>)}
-    {audit.length ? <details className="co-access-audit"><summary>{t('Recent access activity')}</summary><ul>{audit.slice(0, 8).map((entry) => <li key={entry.id}><code>{entry.action}</code><span>{entry.detail}</span><time>{new Date(entry.timestamp).toLocaleString()}</time></li>)}</ul></details> : null}
+    {audit.length ? <details className="co-access-audit"><summary>{t('Recent access activity')}</summary><ul>{audit.slice(0, 8).map((entry) => <li key={entry.id}><code>{entry.action}</code><span>{entry.detail}</span><time>{new Date(entry.timestamp).toLocaleString(dateLocale())}</time></li>)}</ul></details> : null}
     <ErrorBanner message={error} />
   </div>
 }
