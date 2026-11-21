@@ -1022,6 +1022,23 @@ final class ConversationTests: XCTestCase {
         }
     }
 
+    func testEveryToolHasOneCatalogEntryWithTheRightAccess() {
+        let everything = ConnectorPermissions(sendEmail: true, createDraft: true, dnsWrite: true, githubWrite: true, adsWrite: true)
+        let connectorNames = Set(ConnectorHub.providers.flatMap { $0.toolDefs(permissions: everything) }.map(\.function.name))
+        let workspaceNames = Set((ChatWorkspaceTools.definitions + ExtendedWorkspaceTools.definitions + ConversationMissionTools.definitions + SkillTools.definitions).map(\.function.name))
+        let catalogNames = ToolCatalog.specs.map(\.name)
+        XCTAssertEqual(catalogNames.count, Set(catalogNames).count, "a tool is listed twice in the catalog")
+        XCTAssertEqual(Set(catalogNames), connectorNames.union(workspaceNames), "the catalog and the tool definitions disagree")
+        let connectorReads = Set(connectorNames.filter { ToolCatalog.spec($0)?.access == .read })
+        XCTAssertEqual(connectorReads, ConnectorHub.readOnlyToolNames)
+        for name in connectorNames.subtracting(ConnectorHub.readOnlyToolNames) {
+            XCTAssertEqual(ToolCatalog.spec(name)?.access, .approval, "\(name) writes outside the workspace without an approval")
+        }
+        XCTAssertEqual(ToolCatalog.spec("chat_delete_file")?.access, .approval)
+        XCTAssertEqual(ConversationPrompts.toolStepLabel("gmail_send", language: "es"), "Preparando un correo")
+        XCTAssertEqual(ConversationPrompts.toolStepLabel("unknown_tool", language: "en"), "Using unknown_tool")
+    }
+
     func testDirectAnswerCompactsLargeExecutedToolPayloads() async throws {
         let store = MissionStore(root: directory)
         await store.saveProviders([provider])
