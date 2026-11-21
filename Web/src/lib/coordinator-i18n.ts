@@ -1,4 +1,15 @@
 export const coordinatorSpanish: Record<string, string> = {
+  // Simplified layout: one Settings place, quieter chat header
+  Settings: 'Ajustes',
+  'More chat options': 'Más opciones del chat',
+  'Add photos or files': 'Añadir fotos o archivos',
+  'Memory & knowledge': 'Memoria y conocimiento',
+  'Voice & language': 'Voz e idioma',
+  'Folder access': 'Acceso a carpetas',
+  'Folders on the server that Ada may read, and optionally write.': 'Carpetas del servidor que Ada puede leer y, si quieres, escribir.',
+  '{name} is connected.': '{name} está conectado.',
+  Dismiss: 'Descartar',
+  'What Ada remembers across your chats, and what she knows about your workspace.': 'Lo que Ada recuerda entre tus chats y lo que sabe de tu espacio de trabajo.',
   'Archive': 'Archivar',
   'Archive chat': 'Archivar chat',
   'Archive {title}': 'Archivar {title}',

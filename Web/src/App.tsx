@@ -2,14 +2,11 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { useAuth } from './auth/AuthContext'
 import { Layout } from './components/Layout'
 import { Spinner } from './components/ui'
-import { AccountPage } from './pages/AccountPage'
-import { ConnectorsPage } from './pages/ConnectorsPage'
 import { CoordinatorPage } from './pages/CoordinatorPage'
 import { MissionPage } from './pages/MissionPage'
 import { MissionsPage } from './pages/MissionsPage'
 import { InvitePage } from './pages/InvitePage'
 import { LoginPage } from './pages/LoginPage'
-import { PeoplePage } from './pages/PeoplePage'
 import { ProvisioningPage } from './pages/ProvisioningPage'
 import { SettingsPage } from './pages/SettingsPage'
 import { SetupPage } from './pages/SetupPage'
@@ -45,15 +42,23 @@ export function App() {
             <Route path="missions/:id" element={<MissionPage />} />
             <Route path="teams/*" element={<Navigate to="/" replace />} />
             <Route path="templates" element={<Navigate to="/" replace />} />
-            <Route path="account" element={<AccountPage />} />
+            {/* Every setting lives under /settings. Old addresses (and Google's sign-in return) still work. */}
+            <Route path="settings" element={<Navigate to="/settings/connections" replace />} />
+            <Route path="settings/:section" element={<SettingsPage />} />
+            <Route path="connectors" element={<KeepQuery to="/settings/connections" />} />
+            <Route path="account" element={<Navigate to="/settings/account" replace />} />
+            <Route path="people" element={<Navigate to="/settings/people" replace />} />
             <Route path="welcome" element={<Navigate to="/?guide=1" replace />} />
-            {isAdmin ? <Route path="people" element={<PeoplePage />} /> : null}
             {isAdmin ? <Route path="provisioning" element={<ProvisioningPage />} /> : null}
-            {isAdmin ? <Route path="settings" element={<SettingsPage />} /> : null}
-            {isAdmin ? <Route path="connectors" element={<ConnectorsPage />} /> : null}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
       )
   }
+}
+
+/** Redirects while keeping the query string, e.g. `?connected=gmail` after Google sign-in. */
+function KeepQuery({ to }: { to: string }) {
+  const { search } = useLocation()
+  return <Navigate to={`${to}${search}`} replace />
 }

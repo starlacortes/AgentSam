@@ -240,7 +240,7 @@ export function ProvisioningPage() {
           <h1>{t('Bulk account provisioning')}</h1>
           <p className="lede">{t('Create identity-separated accounts with independent credentials, domains, names, and jittered creation times.')}</p>
         </div>
-        <Link className="btn ghost" to="/people">
+        <Link className="btn ghost" to="/settings/people">
           {t('Back to people')}
         </Link>
       </div>

@@ -81,7 +81,7 @@ export function MissionsPage() {
       {needsKeys ? (
         <div className="notice row" style={{ marginBottom: 16 }}>
           <span style={{ flex: 1 }}>{t('No provider has an API key yet, so missions can’t run.')}</span>
-          <Link className="btn small" to="/settings">
+          <Link className="btn small" to="/settings/providers">
             {t('Set up providers')}
           </Link>
         </div>

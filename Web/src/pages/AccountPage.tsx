@@ -10,7 +10,7 @@ import { useI18n } from '../i18n'
 export function AccountPage() {
   const { t } = useI18n()
   useDocumentTitle(t('Account'))
-  const { me, signOut } = useAuth()
+  const { me } = useAuth()
   const [form, setForm] = useState({ currentPassword: '', newPassword: '', confirm: '' })
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -49,9 +49,6 @@ export function AccountPage() {
             {me?.user?.email ?? t('Signed in with the server token')} · {me?.role ? t(me.role) : ''}
           </p>
         </div>
-        <button className="btn ghost" onClick={() => void signOut()}>
-          {t('Sign out')}
-        </button>
       </div>
 
       {me?.via === 'session' ? (
