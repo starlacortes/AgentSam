@@ -52,3 +52,98 @@ public struct OfferedTools: Sendable {
         ])
     }
 }
+
+/// What a tool call does to the world, which decides how carefully it runs.
+public enum ToolAccess: Sendable, Equatable {
+    /// Only reads. Safe to run at once, also in read-only contexts.
+    case read
+    /// Changes the conversation's or project's own files, programs or schedules, inside the sandbox.
+    case write
+    /// Changes something the user owns or that leaves the workspace. It only creates an approval request.
+    case approval
+}
+
+/// One entry in the tool catalog: what a tool does and how its live step is labelled.
+public struct ToolSpec: Sendable, Equatable {
+    public let name: String
+    public let access: ToolAccess
+    public let labelEN: String
+    public let labelES: String
+
+    public init(_ name: String, _ access: ToolAccess, en: String, es: String) {
+        self.name = name
+        self.access = access
+        self.labelEN = en
+        self.labelES = es
+    }
+
+    public func label(language: String) -> String { language == "es" ? labelES : labelEN }
+}
+
+/// Every tool Ada can be offered, with its access and step label, in one table.
+///
+/// Tool definitions stay with the code that runs them; this table holds what the engine and the
+/// app need to know about each name. A test checks that every defined tool has an entry here.
+public enum ToolCatalog {
+    public static let specs: [ToolSpec] = [
+        ToolSpec("gmail_search", .read, en: "Searching Gmail", es: "Buscando en Gmail"),
+        ToolSpec("gmail_read", .read, en: "Reading an email", es: "Leyendo un correo"),
+        ToolSpec("googleads_accounts", .read, en: "Checking Google Ads accounts", es: "Revisando cuentas de Google Ads"),
+        ToolSpec("googleads_campaigns", .read, en: "Reviewing campaigns", es: "Revisando campañas"),
+        ToolSpec("googleads_query", .read, en: "Querying Google Ads", es: "Consultando Google Ads"),
+        ToolSpec("googleads_validate", .read, en: "Checking Google Ads changes", es: "Validando cambios en Google Ads"),
+        ToolSpec("cloudflare_zones", .read, en: "Reading Cloudflare zones", es: "Leyendo zonas de Cloudflare"),
+        ToolSpec("cloudflare_dns_list", .read, en: "Reading DNS records", es: "Leyendo registros DNS"),
+        ToolSpec("web_search", .read, en: "Searching the web", es: "Buscando en la web"),
+        ToolSpec("web_fetch", .read, en: "Reading a web page", es: "Leyendo una página web"),
+        ToolSpec("chat_write_file", .write, en: "Writing a file", es: "Escribiendo un archivo"),
+        ToolSpec("chat_read_file", .read, en: "Reading a workspace file", es: "Leyendo un archivo del espacio"),
+        ToolSpec("chat_list_files", .read, en: "Listing workspace files", es: "Revisando los archivos del espacio"),
+        ToolSpec("mission_list_files", .read, en: "Listing mission files", es: "Revisando archivos de la misión"),
+        ToolSpec("mission_read_file", .read, en: "Reading a mission file", es: "Leyendo un archivo de la misión"),
+        ToolSpec("run_program", .write, en: "Running the program", es: "Ejecutando el programa"),
+        ToolSpec("chat_schedule_run", .write, en: "Scheduling recurring work", es: "Programando el trabajo recurrente"),
+        ToolSpec("chat_schedule_cancel", .write, en: "Cancelling the schedule", es: "Cancelando la programación"),
+        ToolSpec("chat_patch_file", .write, en: "Editing a file", es: "Editando un archivo"),
+        ToolSpec("project_patch_file", .write, en: "Editing a file", es: "Editando un archivo"),
+        ToolSpec("chat_move_file", .write, en: "Moving a file", es: "Moviendo un archivo"),
+        ToolSpec("project_move_file", .write, en: "Moving a file", es: "Moviendo un archivo"),
+        ToolSpec("chat_delete_file", .approval, en: "Asking to delete a file", es: "Pidiendo borrar un archivo"),
+        ToolSpec("project_delete_file", .approval, en: "Asking to delete a file", es: "Pidiendo borrar un archivo"),
+        ToolSpec("project_list_files", .read, en: "Listing project files", es: "Revisando los archivos del proyecto"),
+        ToolSpec("project_read_file", .read, en: "Reading a project file", es: "Leyendo un archivo del proyecto"),
+        ToolSpec("project_write_file", .write, en: "Writing a project file", es: "Escribiendo un archivo del proyecto"),
+        ToolSpec("run_terminal", .write, en: "Running a command", es: "Ejecutando un comando"),
+        ToolSpec("project_terminal", .write, en: "Running a command", es: "Ejecutando un comando"),
+        ToolSpec("host_list_grants", .read, en: "Checking shared folders", es: "Revisando las carpetas compartidas"),
+        ToolSpec("host_list_files", .read, en: "Listing a shared folder", es: "Revisando una carpeta compartida"),
+        ToolSpec("host_read_file", .read, en: "Reading a file on your computer", es: "Leyendo un archivo de tu equipo"),
+        ToolSpec("host_write_file", .write, en: "Writing a file on your computer", es: "Escribiendo un archivo en tu equipo"),
+        ToolSpec("github_repos", .read, en: "Checking GitHub repositories", es: "Revisando repositorios de GitHub"),
+        ToolSpec("github_read", .read, en: "Reading a GitHub file", es: "Leyendo un archivo de GitHub"),
+        ToolSpec("github_search", .read, en: "Searching GitHub", es: "Buscando en GitHub"),
+        ToolSpec("github_issues", .read, en: "Checking GitHub issues", es: "Revisando incidencias de GitHub"),
+        ToolSpec("github_issue", .read, en: "Reading a GitHub issue", es: "Leyendo una incidencia de GitHub"),
+        ToolSpec("github_write_file", .approval, en: "Preparing a GitHub change", es: "Preparando un cambio en GitHub"),
+        ToolSpec("github_comment", .approval, en: "Preparing a GitHub comment", es: "Preparando un comentario en GitHub"),
+        ToolSpec("gmail_draft", .approval, en: "Preparing a draft", es: "Preparando un borrador"),
+        ToolSpec("gmail_send", .approval, en: "Preparing an email", es: "Preparando un correo"),
+        ToolSpec("googleads_set_status", .approval, en: "Preparing a Google Ads change", es: "Preparando un cambio en Google Ads"),
+        ToolSpec("googleads_set_budget", .approval, en: "Preparing a Google Ads change", es: "Preparando un cambio en Google Ads"),
+        ToolSpec("googleads_mutate", .approval, en: "Preparing a Google Ads change", es: "Preparando un cambio en Google Ads"),
+        ToolSpec("skill_save", .write, en: "Saving a procedure", es: "Guardando un procedimiento"),
+        ToolSpec("cloudflare_dns_create", .approval, en: "Preparing a DNS change", es: "Preparando un cambio de DNS"),
+        ToolSpec("cloudflare_dns_update", .approval, en: "Preparing a DNS change", es: "Preparando un cambio de DNS"),
+        ToolSpec("cloudflare_dns_delete", .approval, en: "Preparing a DNS change", es: "Preparando un cambio de DNS"),
+        ToolSpec("cloudflare_purge_cache", .approval, en: "Preparing a cache purge", es: "Preparando una limpieza de caché"),
+    ]
+
+    private static let byName: [String: ToolSpec] = Dictionary(specs.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
+
+    public static func spec(_ name: String) -> ToolSpec? { byName[name] }
+
+    /// The live step label for a call, or a generic one for a tool without an entry.
+    public static func label(_ name: String, language: String) -> String {
+        spec(name)?.label(language: language) ?? (language == "es" ? "Usando \(name)" : "Using \(name)")
+    }
+}
