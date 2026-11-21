@@ -295,47 +295,6 @@
 .co-voice-head small { color: var(--dim); font-size: 10px; margin-top: 2px; }
 .co-voice-stage { flex: 1; min-height: 0; overflow-y: auto; display: flex; align-items: center; flex-direction: column; justify-content: center; padding: 24px; text-align: center; }
 .co-voice-stage h1 { margin-top: -3px; font-size: 25px; font-weight: 570; letter-spacing: -.03em; }
-.co-voice-orb { position: relative; isolation: isolate; width: 210px; height: 210px; display: grid; place-items: center; flex: none; margin: 30px 0 28px; border: 1px solid rgba(74,217,158,.4); border-radius: 50%; background: radial-gradient(circle at 38% 28%,rgba(127,224,180,.2),transparent 42%),radial-gradient(circle at 60% 80%,rgba(74,217,158,.11),transparent 65%),#10251a; color: var(--em2); box-shadow: 0 0 85px rgba(74,217,158,.09),inset 0 0 50px rgba(74,217,158,.09); transition: .3s; }
-.co-voice-orb > span { position: relative; z-index: 3; font-family: var(--display); font-size: 50px; font-weight: 500; text-shadow: 0 0 30px rgba(74,217,158,.22); }
-.co-voice-orb::before, .co-voice-orb::after { content: ''; position: absolute; inset: -17px; z-index: -1; border: 1px solid rgba(74,217,158,.18); border-radius: 47% 53% 56% 44% / 49% 43% 57% 51%; animation: co-orbit 13s linear infinite; }
-.co-voice-orb::after { inset: -34px; border-color: rgba(74,217,158,.07); border-radius: 53% 47% 42% 58% / 45% 56% 44% 55%; animation-direction: reverse; animation-duration: 18s; }
-.co-voice-orb > i { position: absolute; inset: 18px; z-index: 1; border: 1px solid rgba(74,217,158,.15); border-radius: 45% 55% 51% 49%; animation: co-orbit 8s linear infinite reverse; }
-.co-voice-orb > i:nth-child(3) { inset: 35px; animation-duration: 6s; animation-direction: normal; }
-.co-voice-orb > i:nth-child(4) { inset: 55px; animation-duration: 9s; }
-.co-voice-orb { transition: border-color .35s, box-shadow .35s, background .35s, color .35s, opacity .35s, scale .12s linear; }
-.co-voice-orb > span { transition: scale .1s linear; }
-/* Thinking: a bright arc sweeps around the orb. Hidden in other states. */
-.co-orb-arc { position: absolute; inset: -9px; z-index: 2; border-radius: 50%; background: conic-gradient(from 0deg,transparent 0 62%,rgba(74,217,158,.15) 72%,rgba(127,224,180,.95) 96%,transparent 100%); -webkit-mask: radial-gradient(farthest-side,transparent calc(100% - 2px),#000 calc(100% - 2px)); mask: radial-gradient(farthest-side,transparent calc(100% - 2px),#000 calc(100% - 2px)); opacity: 0; transition: opacity .4s; pointer-events: none; }
-/* Listening and speaking: rings ripple outward from the orb. */
-.co-orb-ripple { position: absolute; inset: 0; z-index: -1; border: 1px solid rgba(74,217,158,.55); border-radius: 50%; opacity: 0; pointer-events: none; }
-/* Idle: a slow breath, so Ada feels present without asking for attention. */
-.co-voice-orb.idle { animation: co-orb-idle 6s ease-in-out infinite; }
-.co-voice-orb.idle:hover:not(:disabled) { border-color: rgba(74,217,158,.65); box-shadow: 0 0 100px rgba(74,217,158,.15),inset 0 0 50px rgba(74,217,158,.12); }
-/* Listening: the orb, its letter and its halo swell with the microphone level. */
-.co-voice-orb.listening { border-color: rgba(74,217,158,.75); box-shadow: 0 0 calc(90px + var(--level) * 90px) rgba(74,217,158,calc(.14 + var(--level) * .2)),inset 0 0 50px rgba(74,217,158,.14); scale: calc(1 + var(--level) * .05); }
-.co-voice-orb.listening > span { scale: calc(1 + var(--level) * .22); }
-.co-voice-orb.listening::before { scale: calc(1 + var(--level) * .16); border-color: rgba(74,217,158,calc(.22 + var(--level) * .5)); transition: scale .1s linear; }
-.co-voice-orb.listening::after { scale: calc(1 + var(--level) * .1); }
-.co-voice-orb.listening > .co-orb-ripple { animation: co-orb-ripple 2.2s cubic-bezier(.2,.6,.3,1) infinite; }
-/* Thinking/working: rings speed up, the letter pulses, and the arc sweeps. */
-.co-voice-orb.thinking { border-color: rgba(74,217,158,.5); box-shadow: 0 0 95px rgba(74,217,158,.13),inset 0 0 60px rgba(74,217,158,.12); }
-.co-voice-orb.thinking::before { animation-duration: 3s; }
-.co-voice-orb.thinking::after { animation-duration: 5s; }
-.co-voice-orb.thinking > i { animation-duration: 2.6s; border-color: rgba(74,217,158,.28); }
-.co-voice-orb.thinking > i:nth-child(3) { animation-duration: 2s; }
-.co-voice-orb.thinking > i:nth-child(4) { animation-duration: 3.2s; }
-.co-voice-orb.thinking > span { animation: co-orb-think 1.6s ease-in-out infinite; }
-.co-voice-orb.thinking > .co-orb-arc { opacity: 1; animation: co-orbit 1.3s linear infinite; }
-/* Speaking: gold, swelling with Ada's voice. Without a level meter, a steady talking pulse. */
-.co-voice-orb.speaking { color: var(--gold2); border-color: rgba(201,169,106,calc(.45 + var(--level) * .45)); background: radial-gradient(circle at 38% 28%,rgba(201,169,106,.22),transparent 45%),#211d13; box-shadow: 0 0 calc(90px + var(--level) * 110px) rgba(201,169,106,calc(.12 + var(--level) * .22)),inset 0 0 50px rgba(201,169,106,.1); scale: calc(1 + var(--level) * .045); }
-.co-voice-orb.speaking::before, .co-voice-orb.speaking::after, .co-voice-orb.speaking > i { border-color: rgba(201,169,106,.22); }
-.co-voice-orb.speaking::before { scale: calc(1 + var(--level) * .14); transition: scale .1s linear; }
-.co-voice-orb.speaking > span { scale: calc(1 + var(--level) * .2); text-shadow: 0 0 30px rgba(201,169,106,.3); }
-.co-voice-orb.speaking:not([data-metered]) > span { animation: co-orb-talk 1.1s ease-in-out infinite; }
-.co-voice-orb.speaking > .co-orb-ripple { border-color: rgba(201,169,106,.5); animation: co-orb-ripple 1.6s cubic-bezier(.2,.6,.3,1) infinite; }
-/* Error: a short shake, then a still, muted red orb until the next try. */
-.co-voice-orb.error { color: #efa79f; border-color: rgba(239,167,159,.5); background: radial-gradient(circle at 38% 28%,rgba(239,167,159,.14),transparent 45%),#241615; box-shadow: 0 0 70px rgba(239,167,159,.08); animation: co-orb-shake .45s ease-in-out 1; }
-.co-voice-orb.error::before, .co-voice-orb.error::after, .co-voice-orb.error > i { border-color: rgba(239,167,159,.16); animation-play-state: paused; }
 /* What Ada is doing right now. The row keeps its height so nothing jumps when it appears. */
 .co-voice-status { min-height: 30px; margin: 8px 0 6px; display: flex; align-items: center; justify-content: center; }
 .co-voice-status.on { gap: 8px; max-width: min(340px, 86vw); padding: 6px 13px 6px 11px; border: 1px solid rgba(74,217,158,.45); border-radius: 999px; background: rgba(74,217,158,.12); color: var(--em2); font-size: 12px; font-weight: 500; box-shadow: 0 0 24px rgba(74,217,158,.1); animation: co-fade-in .25s ease-out; }
@@ -364,11 +323,6 @@
 @keyframes co-slide-in { from { transform: translateX(30px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
 @keyframes co-orbit { to { transform: rotate(360deg); } }
 @keyframes co-breathe { 0%,100% { transform: scale(1); } 50% { transform: scale(1.025); } }
-@keyframes co-orb-idle { 0%,100% { transform: scale(1); box-shadow: 0 0 85px rgba(74,217,158,.09),inset 0 0 50px rgba(74,217,158,.09); } 50% { transform: scale(1.02); box-shadow: 0 0 105px rgba(74,217,158,.14),inset 0 0 56px rgba(74,217,158,.12); } }
-@keyframes co-orb-think { 0%,100% { opacity: 1; transform: scale(1); } 50% { opacity: .65; transform: scale(.94); } }
-@keyframes co-orb-talk { 0%,100% { transform: scale(1); } 25% { transform: scale(1.09); } 45% { transform: scale(1.02); } 70% { transform: scale(1.12); } }
-@keyframes co-orb-ripple { from { transform: scale(1); opacity: .55; } to { transform: scale(1.55); opacity: 0; } }
-@keyframes co-orb-shake { 0%,100% { transform: translateX(0); } 20% { transform: translateX(-7px); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(2px); } }
 
 @media (min-width: 1500px) {
   .co-app { grid-template-columns: 286px minmax(0,1fr); }
@@ -466,10 +420,6 @@
   .co-guide-foot .co-secondary-button, .co-guide-foot .co-primary-button { font-size: 10px; }
   .co-voice-head { min-height: 57px; padding: 0 15px; }
   .co-voice-stage { padding: 20px; justify-content: center; }
-  .co-voice-orb { width: 160px; height: 160px; margin: 25px 0; }
-  .co-voice-orb > span { font-size: 39px; }
-  .co-voice-orb::before { inset: -13px; }
-  .co-voice-orb::after { inset: -25px; }
   .co-voice-stage h1 { font-size: 23px; }
   .co-voice-response { max-height: 140px; }
   .co-voice-controls { padding: 12px 15px calc(15px + env(safe-area-inset-bottom)); }
@@ -479,17 +429,12 @@
   .co-workroom { min-height: 170px; }
   .co-agent-thought { -webkit-line-clamp: 2; min-height: 0; }
   .co-agent-graph { padding-top: 10px; padding-bottom: 12px; }
-  .co-voice-orb { width: 155px; height: 155px; margin: 23px 0; }
   .co-voice-stage { padding-top: 15px; padding-bottom: 15px; }
   .co-voice-controls { padding-top: 8px; padding-bottom: 12px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .co-app *, .co-app *::before, .co-app *::after, .co-voice *, .co-voice *::before, .co-voice *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
-  /* States stay distinct by color and glow; nothing grows, ripples or sweeps. */
-  .co-voice-orb, .co-voice-orb > *, .co-voice-orb::before, .co-voice-orb::after { scale: none !important; }
-  .co-orb-ripple { display: none; }
-  .co-voice-orb.thinking > .co-orb-arc { animation: none; }
 }
 
 /* Provider-backed voice settings */
@@ -498,7 +443,6 @@
 .voice-summary { margin-top: 4px; line-height: 1.5; }
 .voice-fields { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
 .voice-fields .select { padding: 8px 10px; width: 100%; }
-.co-voice-orb { --level: 0; }
 
 /* Interactive chat tools: side panel, thinking, code blocks, quick replies */
 .co-app.with-canvas { grid-template-columns: 264px minmax(0,1fr) var(--co-canvas-width, 520px); }
@@ -580,7 +524,6 @@
 .co-work-summary summary::-webkit-details-marker { display: none; }
 .co-work-summary summary:hover { background: rgba(148,190,156,.05); color: var(--mut); }
 .co-work-summary[open] summary { margin-bottom: 7px; }
-.co-ada-avatar.working { animation: co-glow 1.8s ease-in-out infinite; }
 .co-message-time { margin-left: auto; color: var(--dim); font-family: var(--mono); font-size: 8.5px; font-weight: 400; opacity: 0; transition: opacity .15s; }
 .co-ada-message:hover .co-message-time { opacity: 1; }
 
@@ -617,7 +560,6 @@
 @keyframes co-pulse { 0%,100% { transform: scale(.7); opacity: .35; } 50% { transform: scale(1); opacity: .75; } }
 @keyframes co-shimmer { from { background-position: 120% 0; } to { background-position: -120% 0; } }
 @keyframes co-fade-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
-@keyframes co-glow { 0%,100% { box-shadow: 0 0 0 0 rgba(74,217,158,0); } 50% { box-shadow: 0 0 0 4px rgba(74,217,158,.12); } }
 
 @media (min-width: 1500px) {
   .co-app.with-canvas { grid-template-columns: 286px minmax(0,1fr) var(--co-canvas-width, 520px); }

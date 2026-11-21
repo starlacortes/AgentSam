@@ -48,7 +48,9 @@ export type RecorderState = 'idle' | 'starting' | 'recording'
  */
 export function useRecorder(onDone: (audio: Blob, durationMs: number) => void, onError: (message: string) => void) {
   const [state, setState] = useState<RecorderState>('idle')
-  const [level, setLevel] = useState(0)
+  // The mic level changes every frame, so it lives in a ref the orb reads, not in state:
+  // state would re-render the whole voice screen sixty times a second.
+  const level = useRef(0)
   const recorder = useRef<MediaRecorder | null>(null)
   const stream = useRef<MediaStream | null>(null)
   const startedAt = useRef(0)
@@ -67,7 +69,7 @@ export function useRecorder(onDone: (audio: Blob, durationMs: number) => void, o
       void meter.current.ctx.close().catch(() => undefined)
       meter.current = null
     }
-    setLevel(0)
+    level.current = 0
   }, [])
 
   useEffect(() => () => {
@@ -131,10 +133,10 @@ export function useRecorder(onDone: (audio: Blob, durationMs: number) => void, o
         analyser.getByteTimeDomainData(samples)
         let peak = 0
         for (const s of samples) peak = Math.max(peak, Math.abs(s - 128))
-        const level = Math.min(1, peak / 64)
-        setLevel(level)
+        const current = Math.min(1, peak / 64)
+        level.current = current
         // Hands-free: end the recording once they stop talking, which sends it for transcription.
-        if (finishedTalking(level, performance.now()) && recorder.current?.state === 'recording') {
+        if (finishedTalking(current, performance.now()) && recorder.current?.state === 'recording') {
           recorder.current.stop()
           return
         }
@@ -146,7 +148,10 @@ export function useRecorder(onDone: (audio: Blob, durationMs: number) => void, o
     }
   }
 
-  return { state, level, start, stop }
+  /** How loud the microphone is right now, 0–1. */
+  const readLevel = useCallback(() => level.current, [])
+
+  return { state, readLevel, start, stop }
 }
 
 /**

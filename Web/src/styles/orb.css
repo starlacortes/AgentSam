@@ -1,0 +1,133 @@
+/*
+ * The Ada orb: the full-screen voice orb, plus the small orbs in chat.
+ *
+ * Every animation here moves only `transform`, `scale` and `opacity`, so the browser can run it on
+ * the compositor without repainting: smooth on phones, cheap on battery. Glows are their own layers
+ * that fade and grow, never animated box-shadows. Colors live in registered custom properties so a
+ * state change (green → gold → red) crossfades instead of snapping.
+ */
+@property --orb { syntax: '<color>'; inherits: true; initial-value: #4ad99e; }
+@property --orb-ink { syntax: '<color>'; inherits: true; initial-value: #7fe0b4; }
+@property --orb-base { syntax: '<color>'; inherits: true; initial-value: #10251a; }
+
+/* Full-screen voice orb */
+.co-voice-orb {
+  --level: 0;
+  --size: 210px;
+  --orb: var(--em);
+  --orb-ink: var(--em2);
+  --orb-base: #10251a;
+  position: relative;
+  isolation: isolate;
+  width: var(--size);
+  height: var(--size);
+  display: grid;
+  place-items: center;
+  flex: none;
+  margin: 30px 0 28px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--orb) 42%, transparent);
+  border-radius: 50%;
+  background: radial-gradient(circle at 38% 28%, color-mix(in srgb, var(--orb-ink) 20%, transparent), transparent 42%), radial-gradient(circle at 60% 80%, color-mix(in srgb, var(--orb) 11%, transparent), transparent 65%), var(--orb-base);
+  color: var(--orb-ink);
+  box-shadow: inset 0 0 50px color-mix(in srgb, var(--orb) 10%, transparent);
+  scale: calc(1 + var(--level) * .045);
+  transition: --orb .6s ease, --orb-ink .6s ease, --orb-base .6s ease, border-color .4s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+/* The orb is disabled while Ada works or speaks, but it should stay bright, not look greyed out. */
+.co-app .co-voice-orb:disabled { opacity: 1; cursor: default; }
+.co-voice-orb:focus-visible { outline: 2px solid color-mix(in srgb, var(--orb) 70%, transparent); outline-offset: 10px; }
+
+/* The letter */
+.co-voice-orb > span { position: relative; z-index: 3; font-family: var(--display); font-size: calc(var(--size) * .24); font-weight: 500; line-height: 1; text-shadow: 0 0 30px color-mix(in srgb, var(--orb) 28%, transparent); scale: calc(1 + var(--level) * .18); }
+
+/* Soft halo around the orb. It sits on top of the orb's fill, so it stays clear in the middle. */
+.co-orb-glow { position: absolute; inset: calc(var(--size) * -.36); z-index: -2; border-radius: 50%; background: radial-gradient(closest-side, transparent 54%, color-mix(in srgb, var(--orb) 22%, transparent) 61%, color-mix(in srgb, var(--orb) 7%, transparent) 78%, transparent); opacity: calc(.6 + var(--level) * .4); scale: calc(.94 + var(--level) * .22); pointer-events: none; transition: opacity .4s ease; }
+
+/* A slow sheen turning inside the orb, so it looks alive and lit from within. */
+.co-orb-core { position: absolute; inset: 0; z-index: 0; overflow: hidden; border-radius: 50%; pointer-events: none; }
+.co-orb-core::before { content: ''; position: absolute; inset: -30%; background: conic-gradient(from 0deg, transparent 0 18%, color-mix(in srgb, var(--orb-ink) 13%, transparent) 30%, transparent 44% 66%, color-mix(in srgb, var(--orb) 10%, transparent) 80%, transparent 92%); animation: co-orbit 18s linear infinite; }
+
+/* Drifting rings: two outside the orb, three inside, each a slightly uneven circle. */
+.co-voice-orb::before, .co-voice-orb::after { content: ''; position: absolute; inset: calc(var(--size) * -.08); z-index: -1; border: 1px solid color-mix(in srgb, var(--orb) 20%, transparent); border-radius: 47% 53% 56% 44% / 49% 43% 57% 51%; animation: co-orbit 13s linear infinite; pointer-events: none; }
+.co-voice-orb::before { scale: calc(1 + var(--level) * .16); }
+.co-voice-orb::after { inset: calc(var(--size) * -.16); border-color: color-mix(in srgb, var(--orb) 8%, transparent); border-radius: 53% 47% 42% 58% / 45% 56% 44% 55%; animation-direction: reverse; animation-duration: 19s; scale: calc(1 + var(--level) * .1); }
+.co-voice-orb > i { position: absolute; inset: calc(var(--size) * .086); z-index: 1; border: 1px solid color-mix(in srgb, var(--orb) 15%, transparent); border-radius: 45% 55% 51% 49%; animation: co-orbit 8s linear infinite reverse; pointer-events: none; }
+.co-voice-orb > i:nth-of-type(2) { inset: calc(var(--size) * .167); animation-duration: 6s; animation-direction: normal; }
+.co-voice-orb > i:nth-of-type(3) { inset: calc(var(--size) * .262); animation-duration: 9s; }
+
+/* A bright arc that sweeps around the orb while Ada works. */
+.co-orb-arc { position: absolute; inset: calc(var(--size) * -.043); z-index: 2; border-radius: 50%; background: conic-gradient(from 0deg, transparent 0 60%, color-mix(in srgb, var(--orb) 15%, transparent) 72%, color-mix(in srgb, var(--orb-ink) 95%, transparent) 96%, transparent 100%); -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px)); mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px)); opacity: 0; transition: opacity .4s ease; pointer-events: none; }
+
+/* Rings that ripple outward while Ada listens or speaks. Two, half a beat apart. */
+.co-orb-ripple { position: absolute; inset: 0; z-index: -1; border: 1px solid color-mix(in srgb, var(--orb) 55%, transparent); border-radius: 50%; opacity: 0; pointer-events: none; }
+
+/* Idle: a slow breath, so Ada feels present without asking for attention. */
+.co-voice-orb.idle { animation: co-orb-breathe 6s ease-in-out infinite; }
+.co-voice-orb.idle > .co-orb-glow { animation: co-orb-glow 6s ease-in-out infinite; }
+.co-voice-orb.idle:hover:not(:disabled) { border-color: color-mix(in srgb, var(--orb) 65%, transparent); }
+.co-voice-orb.idle:hover:not(:disabled) > span { scale: 1.05; transition: scale .3s ease; }
+
+/* Listening: brighter, and everything swells with the microphone level. */
+.co-voice-orb.listening { border-color: color-mix(in srgb, var(--orb) 75%, transparent); }
+.co-voice-orb.listening::before { border-color: color-mix(in srgb, var(--orb) 40%, transparent); }
+.co-voice-orb.listening > .co-orb-ripple { animation: co-orb-ripple 2.4s cubic-bezier(.2, .6, .3, 1) infinite; }
+.co-voice-orb.listening > .co-orb-ripple.late { animation-delay: -1.2s; }
+
+/* Thinking/working: rings speed up, the sheen turns faster, the letter pulses, the arc sweeps. */
+.co-voice-orb.thinking { border-color: color-mix(in srgb, var(--orb) 52%, transparent); }
+.co-voice-orb.thinking::before { animation-duration: 3s; }
+.co-voice-orb.thinking::after { animation-duration: 5s; }
+.co-voice-orb.thinking > i { animation-duration: 2.6s; border-color: color-mix(in srgb, var(--orb) 28%, transparent); }
+.co-voice-orb.thinking > i:nth-of-type(2) { animation-duration: 2s; }
+.co-voice-orb.thinking > i:nth-of-type(3) { animation-duration: 3.2s; }
+.co-voice-orb.thinking > .co-orb-core::before { animation-duration: 4s; }
+.co-voice-orb.thinking > .co-orb-glow { animation: co-orb-glow 2s ease-in-out infinite; }
+.co-voice-orb.thinking > span { animation: co-orb-think 1.6s ease-in-out infinite; }
+.co-voice-orb.thinking > .co-orb-arc { opacity: 1; animation: co-orbit 1.3s linear infinite; }
+
+/* Speaking: gold, swelling with Ada's voice. Without a level meter, a steady talking pulse. */
+.co-voice-orb.speaking { --orb: var(--gold); --orb-ink: var(--gold2); --orb-base: #211d13; border-color: color-mix(in srgb, var(--orb) calc(45% + var(--level) * 45%), transparent); }
+.co-voice-orb.speaking > .co-orb-core::before { animation-duration: 9s; }
+.co-voice-orb.speaking:not([data-metered]) > span { animation: co-orb-talk 1.1s ease-in-out infinite; }
+.co-voice-orb.speaking:not([data-metered]) > .co-orb-glow { animation: co-orb-glow 1.1s ease-in-out infinite; }
+.co-voice-orb.speaking > .co-orb-ripple { animation: co-orb-ripple 1.8s cubic-bezier(.2, .6, .3, 1) infinite; }
+.co-voice-orb.speaking > .co-orb-ripple.late { animation-delay: -.9s; }
+
+/* Error: a short shake, then a still, muted red orb until the next try. */
+.co-voice-orb.error { --orb: #efa79f; --orb-ink: #efa79f; --orb-base: #241615; animation: co-orb-shake .45s ease-in-out 1; }
+.co-voice-orb.error::before, .co-voice-orb.error::after, .co-voice-orb.error > i, .co-voice-orb.error > .co-orb-core::before { animation-play-state: paused; }
+.co-voice-orb.error > .co-orb-glow { opacity: .4; }
+
+@media (max-width: 760px) {
+  .co-voice-orb { --size: 160px; margin: 25px 0; }
+}
+@media (max-height: 700px) and (min-width: 761px) {
+  .co-voice-orb { --size: 155px; margin: 23px 0; }
+}
+
+/* Empty chat orb: breathes, with one ring drifting around it. */
+.co-empty-orb { position: relative; isolation: isolate; animation: co-orb-breathe 6s ease-in-out infinite; }
+.co-empty-orb::before { content: ''; position: absolute; inset: -7px; z-index: -1; border: 1px solid rgba(74,217,158,.2); border-radius: 47% 53% 56% 44% / 49% 43% 57% 51%; animation: co-orbit 14s linear infinite; pointer-events: none; }
+.co-empty-orb::after { content: ''; position: absolute; inset: -26px; z-index: -2; border-radius: 50%; background: radial-gradient(closest-side, transparent 48%, rgba(74,217,158,.18) 56%, transparent); animation: co-orb-glow 6s ease-in-out infinite; pointer-events: none; }
+
+/* Ada's avatar beside a reply she's still working on: a ring ripples out from it. */
+.co-ada-avatar { position: relative; }
+.co-ada-avatar.working::after { content: ''; position: absolute; inset: -1px; border: 1px solid rgba(74,217,158,.55); border-radius: 50%; animation: co-avatar-ripple 1.8s cubic-bezier(.2, .6, .3, 1) infinite; pointer-events: none; }
+
+@keyframes co-orb-breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.02); } }
+@keyframes co-orb-glow { 0%, 100% { opacity: .55; transform: scale(.96); } 50% { opacity: 1; transform: scale(1.04); } }
+@keyframes co-orb-think { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .65; transform: scale(.94); } }
+@keyframes co-orb-talk { 0%, 100% { transform: scale(1); } 25% { transform: scale(1.09); } 45% { transform: scale(1.02); } 70% { transform: scale(1.12); } }
+@keyframes co-orb-ripple { from { transform: scale(1); opacity: .5; } to { transform: scale(1.6); opacity: 0; } }
+@keyframes co-avatar-ripple { from { transform: scale(1); opacity: .6; } to { transform: scale(1.45); opacity: 0; } }
+@keyframes co-orb-shake { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-7px); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(2px); } }
+
+/* Reduced motion: states stay distinct by color, glow and the still arc; nothing grows, turns or ripples. */
+@media (prefers-reduced-motion: reduce) {
+  .co-voice-orb, .co-voice-orb *, .co-voice-orb::before, .co-voice-orb::after, .co-voice-orb *::before, .co-empty-orb, .co-empty-orb::before, .co-empty-orb::after, .co-ada-avatar::after { animation: none !important; }
+  .co-voice-orb, .co-voice-orb > *, .co-voice-orb::before, .co-voice-orb::after { scale: none !important; }
+  .co-orb-ripple { display: none; }
+  .co-ada-avatar.working::after { opacity: .5; }
+}
