@@ -57,6 +57,9 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
     /// on screen only. Nil when the whole reply may be spoken.
     public var speech: String?
     public var completedAt: Date?
+    /// For Ada's replies: one short line per tool call she made, so later turns know what she
+    /// already looked at, changed or asked approval for. Not shown in the chat.
+    public var toolLog: [String]
 
     public init(
         id: UUID = UUID(),
@@ -75,7 +78,8 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
         photos: [PhotoAttachment] = [],
         spoken: Bool = false,
         speech: String? = nil,
-        completedAt: Date? = nil
+        completedAt: Date? = nil,
+        toolLog: [String] = []
     ) {
         self.id = id
         self.role = role
@@ -94,10 +98,11 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
         self.spoken = spoken
         self.speech = speech
         self.completedAt = completedAt
+        self.toolLog = toolLog
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, role, text, createdAt, status, missionIDs, teamIDs, proposal, activity, steps, quickReplies, fileIDs, scheduled, photos, spoken, speech, completedAt
+        case id, role, text, createdAt, status, missionIDs, teamIDs, proposal, activity, steps, quickReplies, fileIDs, scheduled, photos, spoken, speech, completedAt, toolLog
     }
 
     /// Older conversations on disk predate `steps`, `quickReplies`, and `completedAt`.
@@ -120,6 +125,7 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
         spoken = try c.decodeIfPresent(Bool.self, forKey: .spoken) ?? false
         speech = try c.decodeIfPresent(String.self, forKey: .speech)
         completedAt = try c.decodeIfPresent(Date.self, forKey: .completedAt)
+        toolLog = try c.decodeIfPresent([String].self, forKey: .toolLog) ?? []
     }
 
     /// Trims, de-duplicates, and caps quick replies so model output can't flood the UI.
