@@ -240,7 +240,7 @@ export function SidePanel({ state, missionIDs, onChange, onClose, onResize }: {
         <Tab name="console" icon="terminal" label={t('Console')} active={state.tab === 'console'} badge={state.tab === 'console' ? 0 : Math.max(0, errorCount - seenErrors)} onSelect={select} />
         <Tab name="files" icon="file" label={t('Files')} active={state.tab === 'files'} badge={names.length || undefined} onSelect={select} />
       </div>
-      {missionIDs.length > 1 && state.source?.kind !== 'code' && state.source?.kind !== 'chat' && state.source?.kind !== 'project' ? <select className="co-canvas-select" aria-label={t('Team run')} value={missionID ?? ''} onChange={(event) => onChange({ ...state, missionID: event.target.value, source: state.source?.kind === 'mission' ? { kind: 'mission', missionID: event.target.value } : state.source })}>
+      {missionIDs.length > 1 && state.source?.kind !== 'code' && state.source?.kind !== 'chat' && state.source?.kind !== 'project' ? <select className="co-canvas-select" aria-label={t('Specialist run')} value={missionID ?? ''} onChange={(event) => onChange({ ...state, missionID: event.target.value, source: state.source?.kind === 'mission' ? { kind: 'mission', missionID: event.target.value } : state.source })}>
         {missionIDs.map((id, index) => <option key={id} value={id}>{index === 0 ? t('Latest run') : t('Run {n}', { n: missionIDs.length - index })}</option>)}
       </select> : null}
       <button type="button" className="co-icon-button" aria-label={t('Close panel')} onClick={onClose}><Icon name="close" size={15} /></button>
@@ -261,7 +261,7 @@ export function SidePanel({ state, missionIDs, onChange, onClose, onResize }: {
       <div className="co-preview-stage">
         {doc ? <iframe key={frameID} ref={frame} title={t('Site preview')} referrerPolicy="no-referrer" src={FRAME_URL} style={{ width: deviceWidth[device] }} />
           : loadingFiles ? <div className="co-canvas-empty"><Spinner /></div>
-          : <div className="co-canvas-empty"><Icon name="monitor" size={26} /><b>{t('Nothing to preview yet')}</b><p>{missionID && detail?.running ? t('The team is still working. The page appears here once an HTML file is written.') : t('Ask Ada for a web page, then press Preview on its HTML block — or have a team build a site.')}</p></div>}
+          : <div className="co-canvas-empty"><Icon name="monitor" size={26} /><b>{t('Nothing to preview yet')}</b><p>{missionID && detail?.running ? t('The specialists are still working. The page appears here once an HTML file is written.') : t('Ask Ada for a web page, then press Preview on its HTML block — or ask her to build a whole site.')}</p></div>}
       </div>
       <p className="co-canvas-note"><Icon name="shield" size={11} />{t('Runs in an isolated sandbox with no access to your account.')}</p>
     </div> : null}
@@ -277,7 +277,7 @@ export function SidePanel({ state, missionIDs, onChange, onClose, onResize }: {
           <time>{new Date(row.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</time>
           <span className="co-console-who">{row.who}</span>
           <span className="co-console-text">{row.text}</span>
-        </div>) : <p className="co-console-empty">{missionID || doc ? t('No output yet.') : t('Team work and preview output appear here.')}</p>}
+        </div>) : <p className="co-console-empty">{missionID || doc ? t('No output yet.') : t('Specialist work and preview output appear here.')}</p>}
       </div>
     </div> : null}
 
@@ -298,7 +298,7 @@ function FilesTab({ names, fetchOne, selected, onSelect, onPreview, downloadURL 
     fetchOne(current).then((text) => setContent((value) => ({ ...value, [current]: text }))).catch((err) => setError(errorMessage(err)))
   }, [current, readable, content, fetchOne])
 
-  if (!names.length) return <div className="co-canvas-body"><div className="co-canvas-empty"><Icon name="file" size={24} /><b>{t('No files yet')}</b><p>{t('Files Ada and your teams write show up here.')}</p></div></div>
+  if (!names.length) return <div className="co-canvas-body"><div className="co-canvas-empty"><Icon name="file" size={24} /><b>{t('No files yet')}</b><p>{t('Files Ada and her specialists write show up here.')}</p></div></div>
 
   const downloadAll = async () => {
     try {
