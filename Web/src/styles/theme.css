@@ -49,14 +49,6 @@ a:hover { text-decoration: underline; }
 input, textarea, button, select { font-family: inherit; font-size: inherit; color: inherit; }
 :focus-visible { outline: 2px solid rgba(74, 217, 158, 0.6); outline-offset: 2px; }
 
-/* ---------- top bar ---------- */
-.topbar {
-  position: sticky; top: 0; z-index: 50;
-  display: flex; align-items: center; gap: 18px; padding: 12px 24px;
-  backdrop-filter: blur(14px) saturate(1.2);
-  background: rgba(10, 16, 13, 0.78);
-  border-bottom: 1px solid var(--line);
-}
 .logo { display: flex; align-items: center; gap: 11px; color: inherit; }
 .logo:hover { text-decoration: none; }
 .logo .mark {
@@ -67,7 +59,6 @@ input, textarea, button, select { font-family: inherit; font-size: inherit; colo
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 .logo .word { font-family: var(--display); font-size: 18.5px; font-weight: 650; color: var(--bright); }
-.nav { display: flex; gap: 6px; margin-left: auto; flex-wrap: wrap; }
 .pill {
   border: none; background: transparent; color: var(--mut);
   font-family: var(--mono); font-weight: 500; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
@@ -75,20 +66,7 @@ input, textarea, button, select { font-family: inherit; font-size: inherit; colo
 }
 .pill:hover { color: var(--ink); text-decoration: none; }
 .pill.active { color: var(--em); background: rgba(74, 217, 158, 0.08); box-shadow: inset 0 0 0 1px rgba(74, 217, 158, 0.22); }
-.whoami { font-family: var(--mono); font-size: 11px; color: var(--dim); }
-/* The collapsible Workspace menu: setup and admin pages, out of the way of everyday tabs. */
-.nav-group { position: relative; }
-.nav-group-scrim { position: fixed; inset: 0; z-index: 40; }
-.nav-group-menu {
-  position: absolute; right: 0; top: calc(100% + 6px); z-index: 41; min-width: 190px;
-  display: flex; flex-direction: column; gap: 2px; padding: 6px;
-  background: var(--panel2); border: 1px solid var(--line2); border-radius: 12px; box-shadow: var(--shadow-pop);
-}
-.nav-menu-item { color: var(--ink); font-size: 13.5px; padding: 9px 12px; border-radius: 8px; }
-.nav-menu-item:hover { text-decoration: none; background: rgba(148, 190, 156, 0.06); }
-.nav-menu-item.active { color: var(--em); }
-
-main.page { width: 100%; max-width: 1160px; margin: 0 auto; padding: 28px 20px 80px; }
+.page { width: 100%; max-width: 1160px; margin: 0 auto; padding: 28px 20px 80px; }
 .page-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 22px; flex-wrap: wrap; }
 .kicker { font-family: var(--mono); font-size: 10.5px; font-weight: 600; letter-spacing: 0.2em; color: var(--em); text-transform: uppercase; }
 .lede { color: var(--mut); font-size: 14.2px; line-height: 1.6; max-width: 640px; }
@@ -171,10 +149,7 @@ main.page { width: 100%; max-width: 1160px; margin: 0 auto; padding: 28px 20px 8
 .center { display: grid; place-items: center; min-height: 60vh; }
 
 @media (max-width: 720px) {
-  .topbar { padding: 10px 16px; gap: 10px; flex-wrap: wrap; }
-  .nav { margin-left: 0; width: 100%; overflow-x: auto; flex-wrap: nowrap; }
-  .whoami { display: none; }
-  main.page { padding: 20px 16px 64px; }
+  .page { padding: 20px 16px 64px; }
   .card { padding: 16px; border-radius: 14px; }
   h1 { font-size: 24px; }
 }
@@ -327,49 +302,15 @@ main.page { width: 100%; max-width: 1160px; margin: 0 auto; padding: 28px 20px 8
 }
 .btn.danger-text { color: var(--danger); }
 
-/* ---------- sign out + phone navigation ---------- */
-.signout { padding: 7px 10px; }
+/* ---------- language switch + phone filters ---------- */
 .lang-toggle { display: flex; gap: 4px; }
 .lang-toggle .pill { padding: 7px 10px; }
-.tabbar { display: none; }
-.sheet, .sheet-backdrop { display: none; }
 
 @media (max-width: 720px) {
-  .topbar .nav, .topbar .signout { display: none; }
-  main.page { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
-  .tabbar {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 60;
-    display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;
-    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
-    background: rgba(10, 16, 13, 0.92); backdrop-filter: blur(14px) saturate(1.2);
-    border-top: 1px solid var(--line);
-  }
-  .tab {
-    border: none; background: transparent; color: var(--mut); cursor: pointer;
-    font-family: var(--mono); font-size: 10.5px; line-height: 1.4; letter-spacing: 0.12em; text-transform: uppercase;
-    padding: 12px 4px; border-radius: 10px; text-align: center;
-  }
-  .tab:hover { text-decoration: none; color: var(--ink); }
-  .tab.active { color: var(--em); background: rgba(74, 217, 158, 0.08); }
   /* Status filters stay on one swipeable line instead of wrapping one pill onto its own row. */
   .filter-pills { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; scrollbar-width: none; }
   .filter-pills::-webkit-scrollbar { display: none; }
   .filter-pills .pill { flex: none; }
-  .sheet-backdrop { display: block; position: fixed; inset: 0; z-index: 55; background: rgba(0, 0, 0, 0.45); }
-  .sheet {
-    display: flex; flex-direction: column; gap: 2px;
-    position: fixed; left: 8px; right: 8px; bottom: calc(64px + env(safe-area-inset-bottom)); z-index: 58;
-    background: var(--panel2); border: 1px solid var(--line2); border-radius: 16px; padding: 8px;
-    box-shadow: var(--shadow-pop);
-  }
-  .sheet-who { font-size: 11px; color: var(--dim); padding: 8px 12px 6px; }
-  .sheet-item {
-    border: none; background: transparent; text-align: left; cursor: pointer;
-    color: var(--ink); font-size: 15px; padding: 13px 12px; border-radius: 10px;
-  }
-  .sheet-item:hover { text-decoration: none; background: rgba(148, 190, 156, 0.06); }
-  .sheet-item.active { color: var(--em); }
-  .sheet-item.danger { color: var(--danger); }
 }
 
 /* Connectors: on/off switches for what agents may do. */

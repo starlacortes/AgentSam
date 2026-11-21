@@ -65,9 +65,9 @@ func routes(_ app: Application, ctx: ServerContext) {
             }
             try ctx.keyRing.set(refreshToken, for: GoogleTokenProvider.refreshAccount(for: connectorID))
             ctx.keyRing.remove(GoogleTokenProvider.cacheAccount(for: connectorID))
-            // Back to the web app's Connectors page, which shows the new connection.
+            // Back to Settings > Connections in the web app, which shows the new connection.
             var headers = HTTPHeaders()
-            headers.replaceOrAdd(name: .location, value: "/connectors?connected=\(connectorID.rawValue)")
+            headers.replaceOrAdd(name: .location, value: "/settings/connections?connected=\(connectorID.rawValue)")
             return Response(status: .seeOther, headers: headers, body: .init())
         } catch {
             return oauthResultPage(title: SrvL10n.t("srv.connectionFailed", lang: lang), message: error.localizedDescription)

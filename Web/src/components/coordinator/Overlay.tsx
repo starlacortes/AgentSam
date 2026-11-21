@@ -1,6 +1,4 @@
-import { useEffect, useRef, type ReactNode, type RefObject } from 'react'
-import { useI18n } from '../../i18n'
-import { Icon } from './Icon'
+import { useEffect, useRef, type RefObject } from 'react'
 
 export function useDialogA11y(ref: RefObject<HTMLElement | null>, onClose: () => void) {
   const close = useRef(onClose)
@@ -36,20 +34,4 @@ export function useDialogA11y(ref: RefObject<HTMLElement | null>, onClose: () =>
       previous?.focus()
     }
   }, [ref])
-}
-
-export function Drawer({ title, eyebrow, description, onClose, children }: { title: string; eyebrow: string; description: string; onClose: () => void; children: ReactNode }) {
-  const { t } = useI18n()
-  const ref = useRef<HTMLElement>(null)
-  useDialogA11y(ref, onClose)
-  return <>
-    <div className="co-scrim" onClick={onClose} />
-    <aside className="co-drawer" ref={ref} role="dialog" aria-modal="true" aria-labelledby="co-drawer-title">
-      <div className="co-drawer-head">
-        <div><span className="co-kicker">{eyebrow}</span><h2 id="co-drawer-title">{title}</h2><p>{description}</p></div>
-        <button className="co-icon-button" aria-label={t('Close')} onClick={onClose}><Icon name="close" /></button>
-      </div>
-      <div className="co-drawer-body">{children}</div>
-    </aside>
-  </>
 }

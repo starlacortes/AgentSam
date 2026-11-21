@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, errorMessage, uploadPhoto, uploadProjectFile } from '../api/client'
-import type { AgentActionRequest, ArchiveSettings, ConnectorStatus, Conversation, ConversationSummary, GuideState, MissionDetail, ProviderStatus, WorkspaceKnowledge, WorkspaceMemory } from '../api/types'
+import type { AgentActionRequest, ArchiveSettings, ConnectorStatus, Conversation, ConversationSummary, GuideState, MissionDetail, ProviderStatus } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { AgentWorkroom } from '../components/coordinator/AgentWorkroom'
-import { CoordinatorSidebar, type PanelName } from '../components/coordinator/CoordinatorSidebar'
+import { CoordinatorSidebar } from '../components/coordinator/CoordinatorSidebar'
 import { ConversationMessages, type MessageHandlers } from '../components/coordinator/ConversationMessages'
 import { SidePanel, type CanvasState } from '../components/coordinator/SidePanel'
 import { ScheduleModal } from '../components/coordinator/ScheduleModal'
@@ -12,7 +12,7 @@ import { ArchivedChats, RetentionPrompt } from '../components/coordinator/Archiv
 import { Guide } from '../components/coordinator/Guide'
 import { Icon } from '../components/coordinator/Icon'
 import { VoiceMode, type VoicePartial, type VoiceReply } from '../components/coordinator/VoiceMode'
-import { WorkspacePanel } from '../components/coordinator/WorkspacePanels'
+import { PopMenu, type PopMenuItem } from '../components/coordinator/PopMenu'
 import { ErrorBanner, Spinner } from '../components/ui'
 import { useI18n } from '../i18n'
 import { canvasForFinishedFiles, connectorLabel, pollDelay, shouldPoll, workspaceFileSource, wroteFreshFiles, browserTimeZone } from '../lib/coordinator'
@@ -65,12 +65,9 @@ export function CoordinatorPage() {
   const [conversation, setConversation] = useState<Conversation | null>(null)
   const [connectors, setConnectors] = useState<ConnectorStatus[]>([])
   const [providers, setProviders] = useState<ProviderStatus[]>([])
-  const [memory, setMemory] = useState<WorkspaceMemory | null>(null)
-  const [knowledge, setKnowledge] = useState<WorkspaceKnowledge | null>(null)
   const [guide, setGuide] = useState<GuideState | null>(null)
   const [draft, setDraft] = useState('')
   const [projectName, setProjectName] = useState('Personal')
-  const [panel, setPanel] = useState<PanelName | null>(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [voiceOpen, setVoiceOpen] = useState(false)
   const [scheduleOpen, setScheduleOpen] = useState(false)
@@ -88,7 +85,6 @@ export function CoordinatorPage() {
   const [dragging, setDragging] = useState(false)
   const [photos, setPhotos] = useState<PendingPhoto[]>([])
   const [preparing, setPreparing] = useState(0)
-  const [photoMenu, setPhotoMenu] = useState(false)
   const input = useRef<HTMLTextAreaElement>(null)
   const uploadInput = useRef<HTMLInputElement>(null)
   const cameraInput = useRef<HTMLInputElement>(null)
@@ -185,15 +181,9 @@ export function CoordinatorPage() {
   }, [])
 
   const refreshWorkspace = useCallback(async () => {
-    const [chats, currentMemory, currentKnowledge] = await Promise.all([
-      api<ConversationSummary[]>('conversations'),
-      api<WorkspaceMemory>('workspace/memory'),
-      api<WorkspaceKnowledge>('workspace/knowledge'),
-    ])
+    const chats = await api<ConversationSummary[]>('conversations')
     if (!mounted.current) return
     setConversations(chats)
-    setMemory(currentMemory)
-    setKnowledge(currentKnowledge)
   }, [])
 
   useEffect(() => {
@@ -206,38 +196,19 @@ export function CoordinatorPage() {
   useEffect(() => () => { for (const photo of photosRef.current) URL.revokeObjectURL(photo.url) }, [])
 
   useEffect(() => {
-    if (!photoMenu) return
-    const close = (event: Event) => {
-      if (event instanceof globalThis.KeyboardEvent && event.key !== 'Escape') return
-      if (event.target instanceof Element && event.target.closest('.co-photo-picker') && event.type === 'pointerdown') return
-      setPhotoMenu(false)
-    }
-    document.addEventListener('pointerdown', close)
-    document.addEventListener('keydown', close)
-    return () => {
-      document.removeEventListener('pointerdown', close)
-      document.removeEventListener('keydown', close)
-    }
-  }, [photoMenu])
-
-  useEffect(() => {
     let active = true
     void (async () => {
       try {
-        const [chats, connectionList, providerList, currentMemory, currentKnowledge, guideState] = await Promise.all([
+        const [chats, connectionList, providerList, guideState] = await Promise.all([
           api<ConversationSummary[]>('conversations'),
           api<ConnectorStatus[]>('connectors'),
           api<ProviderStatus[]>('providers'),
-          api<WorkspaceMemory>('workspace/memory'),
-          api<WorkspaceKnowledge>('workspace/knowledge'),
           api<GuideState>('workspace/guide'),
         ])
         if (!active) return
         setConversations(chats)
         setConnectors(connectionList)
         setProviders(providerList)
-        setMemory(currentMemory)
-        setKnowledge(currentKnowledge)
         setGuide(guideState)
       } catch (err) {
         if (active) setError(errorMessage(err))
@@ -309,13 +280,13 @@ export function CoordinatorPage() {
   const stopRef = useRef<() => void>(() => {})
   useEffect(() => {
     const escape = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== 'Escape' || !running || voiceOpen || panel) return
+      if (event.key !== 'Escape' || !running || voiceOpen) return
       event.preventDefault()
       stopRef.current()
     }
     window.addEventListener('keydown', escape)
     return () => window.removeEventListener('keydown', escape)
-  }, [running, voiceOpen, panel])
+  }, [running, voiceOpen])
 
   const newChat = async (project?: string) => {
     setError(null)
@@ -490,7 +461,6 @@ export function CoordinatorPage() {
       source: 'source' in next ? next.source ?? null : current?.source ?? null,
       missionID: 'missionID' in next ? next.missionID ?? null : current?.missionID ?? null,
     }))
-    setPanel(null)
   }, [])
 
   const resizeCanvas = useCallback((width: number) => {
@@ -501,7 +471,6 @@ export function CoordinatorPage() {
 
   const prompt = (text: string) => {
     setDraft(text)
-    setPanel(null)
     window.setTimeout(() => {
       input.current?.focus()
       input.current?.setSelectionRange(text.length, text.length)
@@ -577,7 +546,6 @@ export function CoordinatorPage() {
   const restartGuide = async () => {
     const state = await api<GuideState>('workspace/guide', { method: 'PATCH', body: { completed: false } })
     setGuide(state)
-    setPanel(null)
     setSearchParams({ guide: '1' })
   }
 
@@ -586,10 +554,6 @@ export function CoordinatorPage() {
     void refreshWorkspace().catch((err) => setError(errorMessage(err)))
   }
 
-  const openPanel = (name: PanelName) => {
-    setPanel(name)
-    setSidebarOpen(false)
-  }
   stopRef.current = () => { void stop() }
 
   const handlers: MessageHandlers = {
@@ -601,23 +565,44 @@ export function CoordinatorPage() {
     onStarter: prompt,
   }
 
+  function showArchived() {
+    setArchivedOpen(true)
+    if (!archiveSettings) void api<ArchiveSettings>('workspace/archive').then(setArchiveSettings).catch(() => {})
+  }
+  // Other pages link here with ?archived=1 to open the archived chats list.
+  useEffect(() => {
+    if (searchParams.get('archived') !== '1') return
+    showArchived()
+    setSearchParams({}, { replace: true })
+  })
+
+  // Less-used chat actions sit behind one "more" button so the header stays calm.
+  const chatMenu: PopMenuItem[] = [
+    ...(conversation && !conversation.schedule ? [{ label: t('Set a recurring schedule'), icon: 'refresh' as const, disabled: running, onSelect: () => setScheduleOpen(true) }] : []),
+    { label: t('Connections'), icon: 'plug', note: t(connectorLabel(gmail)), onSelect: () => navigate('/settings/connections') },
+    { label: t('Open the guide'), icon: 'info', onSelect: () => void restartGuide().catch((err) => setError(errorMessage(err))) },
+    ...(conversation ? [{ label: t('Delete conversation'), icon: 'trash' as const, danger: true, disabled: running, onSelect: () => void remove() }] : []),
+  ]
+  // One "+" for everything you can add: photos (camera on phones) and files for the project.
+  const photosFull = running || photos.length + preparing >= MAX_PHOTOS
+  const addMenu: PopMenuItem[] = [
+    ...(touch ? [{ label: t('Take a photo'), icon: 'camera' as const, disabled: photosFull, onSelect: () => cameraInput.current?.click() }] : []),
+    { label: touch ? t('Photo library') : t('Add photos'), icon: 'image', disabled: photosFull, onSelect: () => libraryInput.current?.click() },
+    { label: t('Upload files to project'), icon: 'file', disabled: uploading, onSelect: () => uploadInput.current?.click() },
+  ]
+
   return <div className={`co-app ${canvas ? 'with-canvas' : ''}`} style={canvas ? { ['--co-canvas-width' as string]: `${clampCanvasWidth(canvasWidth)}px` } : undefined}>
-    <CoordinatorSidebar conversations={conversations} selectedID={conversation?.id ?? null} open={sidebarOpen} onClose={() => setSidebarOpen(false)} onSelect={(chatID) => navigate(`/chats/${chatID}`)} onNew={(project) => void newChat(project)} onPanel={openPanel} memoryEnabled={memory?.enabled ?? false} onArchive={(chatID) => void archiveChat(chatID)} onShowArchived={() => {
-      setArchivedOpen(true)
-      if (!archiveSettings) void api<ArchiveSettings>('workspace/archive').then(setArchiveSettings).catch(() => {})
-    }} archivedNotice={archivedNotice} onUndoArchive={() => void undoArchive()} />
+    <CoordinatorSidebar conversations={conversations} selectedID={conversation?.id ?? null} open={sidebarOpen} onClose={() => setSidebarOpen(false)} onSelect={(chatID) => navigate(`/chats/${chatID}`)} onNew={(project) => void newChat(project)} onArchive={(chatID) => void archiveChat(chatID)} onShowArchived={showArchived} archivedNotice={archivedNotice} onUndoArchive={() => void undoArchive()} />
     <main className="co-main">
       <header className="co-chat-header">
         <button className="co-icon-button co-menu-button" aria-label={t('Open workspace sidebar')} onClick={() => setSidebarOpen(true)}><Icon name="menu" /></button>
         <div className="co-chat-heading"><span>{t(conversation?.projectName ?? projectName)} <span className="co-path-separator">/</span></span><h1>{conversation?.title ?? t('New conversation')}</h1></div>
         <div className="co-header-actions">
           {conversation?.archivedAt ? <button className="co-archived-pill" title={t('Restore this chat to the sidebar')} onClick={() => void api<Conversation>(`conversations/${conversation.id}/archive`, { method: 'DELETE' }).then(restored).catch((err) => setError(errorMessage(err)))}><Icon name="archive" size={13} /><span>{t('Archived')}</span><b>{t('Restore')}</b></button> : null}
-          <button className={`co-connection-pill ${gmail?.configured && gmail.enabled ? 'connected' : ''}`} onClick={() => openPanel('connections')}><Icon name="plug" size={13} /><span>{t(connectorLabel(gmail))}</span><i /></button>
-          {conversation ? <button className={`co-icon-button co-schedule-toggle ${conversation.schedule ? 'active' : ''}`} aria-label={conversation.schedule ? t('Recurring schedule on — open settings') : t('Set a recurring schedule')} aria-pressed={Boolean(conversation.schedule)} title={t('Recurring schedule')} disabled={!conversation.schedule && running} onClick={() => setScheduleOpen(true)}><Icon name="refresh" size={16} /></button> : null}
-          <button className="co-icon-button co-help-button" aria-label={t('Open the guide')} onClick={() => void restartGuide().catch((err) => setError(errorMessage(err)))}><Icon name="info" size={17} /></button>
+          {conversation?.schedule ? <button className="co-icon-button co-schedule-toggle active" aria-label={t('Recurring schedule on — open settings')} aria-pressed title={t('Recurring schedule')} onClick={() => setScheduleOpen(true)}><Icon name="refresh" size={16} /></button> : null}
           <button className={`co-icon-button co-canvas-toggle ${canvas ? 'active' : ''}`} aria-label={canvas ? t('Hide preview and console') : t('Show preview and console')} aria-pressed={Boolean(canvas)} title={t('Preview & console')} onClick={() => canvas ? setCanvas(null) : openCanvas({ tab: missionIDs.length ? 'console' : 'preview' })}><Icon name="panel" size={16} /></button>
           <button className="co-voice-button" onClick={() => setVoiceOpen(true)} disabled={sending}><Icon name="mic" size={15} /><span>{t('Voice')}</span></button>
-          {conversation ? <button className="co-icon-button co-delete-chat" aria-label={t('Delete conversation')} disabled={running} onClick={() => void remove()}><Icon name="trash" size={16} /></button> : null}
+          <PopMenu label={t('More chat options')} icon="more" className="co-chat-menu" items={chatMenu} />
         </div>
       </header>
       <AgentWorkroom conversation={conversation} />
@@ -625,7 +610,7 @@ export function CoordinatorPage() {
         {loading && id ? <div className="co-loading"><Spinner /></div> : <ConversationMessages conversation={conversation} busy={sending || running} handlers={handlers} actions={actions} onActions={setActions} />}
       </div>
       <div className="co-composer-wrap">
-        {!hasProvider && !loading ? <div className="co-provider-notice"><Icon name="info" size={16} /><p>{t('Add a model provider and API key before chatting with Ada.')}</p>{isAdmin ? <Link to="/settings">{t('Set up providers')} →</Link> : null}</div> : null}
+        {!hasProvider && !loading ? <div className="co-provider-notice"><Icon name="info" size={16} /><p>{t('Add a model provider and API key before chatting with Ada.')}</p>{isAdmin ? <Link to="/settings/providers">{t('Set up providers')} →</Link> : null}</div> : null}
         <ErrorBanner message={error} />
         <form className={`co-composer ${dragging ? 'dragging' : ''}`} onSubmit={submit} onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); setDragging(true) } }} onDragLeave={() => setDragging(false)} onDrop={drop}>
           <input ref={uploadInput} type="file" multiple hidden aria-label={t('Choose project files')} onChange={(event) => { const files = [...(event.currentTarget.files ?? [])]; event.currentTarget.value = ''; void upload(files) }} />
@@ -637,9 +622,8 @@ export function CoordinatorPage() {
             {Array.from({ length: preparing }, (_, index) => <div className="co-photo-thumb preparing" key={`preparing-${index}`} role="status" aria-label={t('Preparing photo')}><span className="co-photo-spinner" /></div>)}
           </div> : null}
           <textarea ref={input} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={composeKey} onPaste={paste} aria-label={t('Message Ada')} placeholder={t('Ask a question, or describe an outcome…')} rows={1} maxLength={20000} disabled={running} />
-          <div className="co-composer-foot"><button type="button" className="co-icon-button co-upload-button" aria-label={t('Upload files to project')} title={t('Upload files to the shared project workspace (5 MB each)')} disabled={uploading} onClick={() => uploadInput.current?.click()}><Icon name={uploading ? 'refresh' : 'plus'} size={16} /></button><div className="co-photo-picker"><button type="button" className="co-icon-button co-photo-button" aria-label={t('Add photos')} title={t('Add photos')} aria-haspopup={touch ? 'menu' : undefined} aria-expanded={touch ? photoMenu : undefined} disabled={running || photos.length + preparing >= MAX_PHOTOS} onClick={() => touch ? setPhotoMenu((open) => !open) : libraryInput.current?.click()}><Icon name="camera" size={16} /></button>{photoMenu ? <div className="co-photo-menu" role="menu"><button type="button" role="menuitem" onClick={() => { setPhotoMenu(false); cameraInput.current?.click() }}><Icon name="camera" size={15} />{t('Take a photo')}</button><button type="button" role="menuitem" onClick={() => { setPhotoMenu(false); libraryInput.current?.click() }}><Icon name="image" size={15} />{t('Photo library')}</button></div> : null}</div><span className="co-composer-hint">{t('Ada answers directly or brings in help when it’s needed.')}<span className="co-enter-hint"> · {t('Enter to send · Shift + Enter for a new line')}</span></span>{running ? <button className="co-stop-button" type="button" onClick={() => void stop()} title={t('Stop (Esc)')}><Icon name="stop" size={12} />{t('Stop')}</button> : <button className="co-send-button" type="submit" aria-label={t('Send message')} disabled={sending || preparing > 0 || (!draft.trim() && !photos.length) || !hasProvider}><Icon name="arrow" size={18} /></button>}</div>
+          <div className="co-composer-foot"><PopMenu label={t('Add photos or files')} icon={uploading ? 'refresh' : 'plus'} align="left" up className="co-add-menu" items={addMenu} /><span className="co-composer-spacer" />{running ? <button className="co-stop-button" type="button" onClick={() => void stop()} title={t('Stop (Esc)')}><Icon name="stop" size={12} />{t('Stop')}</button> : <button className="co-send-button" type="submit" aria-label={t('Send message')} disabled={sending || preparing > 0 || (!draft.trim() && !photos.length) || !hasProvider}><Icon name="arrow" size={18} /></button>}</div>
         </form>
-        <p className="co-composer-note">{t('Agent activity shows concise work summaries, not private reasoning. Review connections before granting access.')}</p>
       </div>
     </main>
     {canvas ? <SidePanel state={canvas} missionIDs={missionIDs} onChange={setCanvas} onClose={() => setCanvas(null)} onResize={resizeCanvas} /> : null}
@@ -651,7 +635,6 @@ export function CoordinatorPage() {
     }} /> : null}
     {archivedOpen ? <ArchivedChats settings={archiveSettings} onSettings={setArchiveSettings} onRestored={restored} onClose={() => setArchivedOpen(false)} onOpen={(chatID) => { setArchivedOpen(false); navigate(`/chats/${chatID}`) }} /> : null}
     {scheduleOpen && conversation ? <ScheduleModal conversation={conversation} onUpdated={updateProposal} onClose={() => setScheduleOpen(false)} /> : null}
-    {panel ? <WorkspacePanel panel={panel} connectors={connectors} memory={memory} knowledge={knowledge} onConnectors={setConnectors} onMemory={setMemory} onKnowledge={setKnowledge} onClose={() => setPanel(null)} onRestartGuide={restartGuide} /> : null}
     {guide && (!guide.completed || searchParams.get('guide') === '1') ? <Guide onFinish={finishGuide} /> : null}
     {voiceOpen ? <VoiceMode onSend={sendMessage} onTranscribe={transcribeVoice} onClose={() => setVoiceOpen(false)} activity={liveActivity} /> : null}
   </div>

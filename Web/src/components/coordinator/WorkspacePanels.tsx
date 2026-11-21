@@ -1,22 +1,16 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { api, errorMessage } from '../../api/client'
 import type { AccessAuditEntry, ConnectorPermissions, ConnectorStatus, HostFolderGrant, WorkspaceKnowledge, WorkspaceKnowledgeDocumentID, WorkspaceMemory } from '../../api/types'
-import type { VoiceInfo } from '../../api/chatTypes'
 import { useAuth } from '../../auth/AuthContext'
 import { dateLocale, useI18n } from '../../i18n'
-import { LanguageToggle } from '../Layout'
-import { VoiceSettingsPanel } from '../VoiceSettingsPanel'
 import { ErrorBanner } from '../ui'
-import { Drawer } from './Overlay'
 import { Icon } from './Icon'
-import type { PanelName } from './CoordinatorSidebar'
 
 function Switch({ checked, label, onChange, disabled = false }: { checked: boolean; label: string; onChange: () => void; disabled?: boolean }) {
   return <button type="button" className="co-switch" role="switch" aria-checked={checked} aria-label={label} disabled={disabled} onClick={onChange} />
 }
 
-function ConnectorCard({ connector, onChange }: { connector: ConnectorStatus; onChange: (connector: ConnectorStatus) => void }) {
+export function ConnectorCard({ connector, onChange }: { connector: ConnectorStatus; onChange: (connector: ConnectorStatus) => void }) {
   const { t } = useI18n()
   const { isAdmin } = useAuth()
   const [busy, setBusy] = useState(false)
@@ -78,7 +72,7 @@ function ConnectorCard({ connector, onChange }: { connector: ConnectorStatus; on
   </article>
 }
 
-function KnowledgePanel({ knowledge, onChange }: { knowledge: WorkspaceKnowledge | null; onChange: (knowledge: WorkspaceKnowledge) => void }) {
+export function KnowledgePanel({ knowledge, onChange }: { knowledge: WorkspaceKnowledge | null; onChange: (knowledge: WorkspaceKnowledge) => void }) {
   const { t } = useI18n()
   const [selected, setSelected] = useState<WorkspaceKnowledgeDocumentID>('capabilities')
   const [busy, setBusy] = useState(false)
@@ -97,7 +91,7 @@ function KnowledgePanel({ knowledge, onChange }: { knowledge: WorkspaceKnowledge
     <ErrorBanner message={error ?? knowledge?.lastError ?? null} /></div></section>
 }
 
-function MemoryPanel({ memory, onChange }: { memory: WorkspaceMemory | null; onChange: (memory: WorkspaceMemory) => void }) {
+export function MemoryPanel({ memory, onChange }: { memory: WorkspaceMemory | null; onChange: (memory: WorkspaceMemory) => void }) {
   const { t } = useI18n()
   const [error, setError] = useState<string | null>(null)
   const toggle = async () => {
@@ -107,7 +101,7 @@ function MemoryPanel({ memory, onChange }: { memory: WorkspaceMemory | null; onC
   return <section><div className="co-setting-card"><div className="co-setting-row"><div><b>{t('Workspace memory')}</b><p>{t('A continuously compacted Markdown summary shared across your chats.')}</p></div><Switch checked={memory?.enabled ?? false} label={t('Workspace memory enabled')} onChange={() => void toggle()} /></div><div className="co-memory-meta">{memory ? `${t('{count} compactions', { count: memory.compactionCount })} · ${t('{count} source exchanges', { count: memory.sources.length })}${memory.pendingEntries ? ` · ${t('{count} pending', { count: memory.pendingEntries })}` : ''}` : t('Loading')}</div><p className="co-panel-note">{t('Pausing stops new memories from being recorded. It does not delete the existing summary. Memory contains concise facts, not private reasoning.')}</p><pre className="co-memory-doc">{memory?.markdown ?? t('Loading')}</pre><a className="co-secondary-button co-download" href="/api/workspace/memory/export" download><Icon name="file" size={14} />{t('Export memory.md')}</a><ErrorBanner message={error} /></div></section>
 }
 
-function HostAccessPanel() {
+export function HostAccessPanel() {
   const { t } = useI18n()
   const { isAdmin } = useAuth()
   const [grants, setGrants] = useState<HostFolderGrant[]>([])
@@ -148,42 +142,4 @@ function HostAccessPanel() {
     {audit.length ? <details className="co-access-audit"><summary>{t('Recent access activity')}</summary><ul>{audit.slice(0, 8).map((entry) => <li key={entry.id}><code>{entry.action}</code><span>{entry.detail}</span><time>{new Date(entry.timestamp).toLocaleString(dateLocale())}</time></li>)}</ul></details> : null}
     <ErrorBanner message={error} />
   </div>
-}
-
-function SettingsPanel({ onRestartGuide }: { onRestartGuide: () => Promise<void> }) {
-  const { t } = useI18n()
-  const { isAdmin, signOut } = useAuth()
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [voiceInfo, setVoiceInfo] = useState<VoiceInfo | null>(null)
-  useEffect(() => {
-    if (!isAdmin) return
-    void api<VoiceInfo>('voice').then(setVoiceInfo).catch((err) => setError(errorMessage(err)))
-  }, [isAdmin])
-  return <section><div className="co-setting-card"><h3>{t('Your preferences')}</h3><div className="co-setting-row"><span>{t('Language')}</span><LanguageToggle /></div><Link className="co-setting-link" to="/account">{t('Account & app tokens')} →</Link>{isAdmin ? <><Link className="co-setting-link" to="/settings">{t('Model providers')} →</Link><Link className="co-setting-link" to="/people">{t('People & invitations')} →</Link></> : null}<Link className="co-setting-link" to="/missions">{t('Mission history & files')} →</Link>{voiceInfo ? <VoiceSettingsPanel info={voiceInfo} onSaved={setVoiceInfo} onError={setError} /> : null}</div>
-    <HostAccessPanel />
-    <div className="co-guide-reset"><h3>{t('A quick guide, whenever you need it')}</h3><p>{t('Three short steps explain chat, how Ada gets help, and connections. Restarting changes only the guide—not your chats, providers, connections, or memory.')}</p><button className="co-secondary-button" disabled={busy} onClick={() => { setBusy(true); setError(null); void onRestartGuide().catch((err) => setError(errorMessage(err))).finally(() => setBusy(false)) }}><Icon name="memory" size={14} />{t('Restart the guide')}</button><ErrorBanner message={error} /></div>
-    <button className="co-secondary-button co-signout" onClick={() => void signOut()}>{t('Sign out')}</button>
-  </section>
-}
-
-export function WorkspacePanel({ panel, connectors, memory, knowledge, onConnectors, onMemory, onKnowledge, onClose, onRestartGuide }: { panel: PanelName; connectors: ConnectorStatus[]; memory: WorkspaceMemory | null; knowledge: WorkspaceKnowledge | null; onConnectors: (connectors: ConnectorStatus[]) => void; onMemory: (memory: WorkspaceMemory) => void; onKnowledge: (knowledge: WorkspaceKnowledge) => void; onClose: () => void; onRestartGuide: () => Promise<void> }) {
-  const { t } = useI18n()
-  const [error, setError] = useState<string | null>(null)
-  useEffect(() => {
-    if (panel === 'connections') api<ConnectorStatus[]>('connectors').then(onConnectors).catch((err) => setError(errorMessage(err)))
-    if (panel === 'knowledge') api<WorkspaceKnowledge>('workspace/knowledge').then(onKnowledge).catch((err) => setError(errorMessage(err)))
-  }, [panel, onConnectors, onKnowledge])
-  const content = {
-    connections: { title: t('Connections'), eyebrow: t('Bring your tools'), description: t('Give Ada access to the services you choose.') },
-    knowledge: { title: t('Workspace knowledge'), eyebrow: t('Discovered and kept current'), description: t('The live guide to your capabilities, connections, and projects, available to Ada in every chat.') },
-    memory: { title: t('Workspace memory'), eyebrow: t('Context that carries forward'), description: t('Inspect the actual Markdown Ada uses across your workspace.') },
-    settings: { title: t('Settings & guide'), eyebrow: t('Make it yours'), description: t('Simple controls, without resetting your work.') },
-  }[panel]
-  return <Drawer {...content} onClose={onClose}>
-    {panel === 'connections' ? <section><ErrorBanner message={error} />{connectors.map((connector) => <ConnectorCard key={connector.id} connector={connector} onChange={(updated) => onConnectors(connectors.map((item) => item.id === updated.id ? updated : item))} />)}<div className="co-safety-note"><Icon name="shield" /><p>{t('External writes always need your explicit, one-use approval. Connector permissions still apply. Review the exact arguments before approving; read tools do not need approval.')}</p></div></section> : null}
-    {panel === 'knowledge' ? <KnowledgePanel knowledge={knowledge} onChange={onKnowledge} /> : null}
-    {panel === 'memory' ? <MemoryPanel memory={memory} onChange={onMemory} /> : null}
-    {panel === 'settings' ? <SettingsPanel onRestartGuide={onRestartGuide} /> : null}
-  </Drawer>
 }

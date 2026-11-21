@@ -1,12 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type TouchEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, NavLink } from 'react-router-dom'
 import type { ConversationSummary } from '../../api/types'
 import { useAuth } from '../../auth/AuthContext'
 import { useI18n } from '../../i18n'
 import { groupedConversations } from '../../lib/coordinator'
 import { Icon } from './Icon'
-
-export type PanelName = 'connections' | 'knowledge' | 'memory' | 'settings'
 
 interface Props {
   conversations: ConversationSummary[]
@@ -15,9 +13,8 @@ interface Props {
   onClose: () => void
   onSelect: (id: string) => void
   onNew: (projectName?: string) => void
-  onPanel: (panel: PanelName) => void
-  memoryEnabled: boolean
-  onArchive: (id: string) => void
+  /** Archives a chat. Left out on pages that cannot archive, which hides the archive buttons. */
+  onArchive?: (id: string) => void
   onShowArchived: () => void
   /** The chat just archived, offered for a quick undo. */
   archivedNotice?: { id: string; title: string } | null
@@ -27,7 +24,7 @@ interface Props {
 /** Swipe left at least this far (px) on a phone to reveal a chat's archive button. */
 const SWIPE_REVEAL = 36
 
-export function CoordinatorSidebar({ conversations, selectedID, open, onClose, onSelect, onNew, onPanel, memoryEnabled, onArchive, onShowArchived, archivedNotice, onUndoArchive }: Props) {
+export function CoordinatorSidebar({ conversations, selectedID, open, onClose, onSelect, onNew, onArchive, onShowArchived, archivedNotice, onUndoArchive }: Props) {
   const { t } = useI18n()
   const { me } = useAuth()
   const [query, setQuery] = useState('')
@@ -37,8 +34,6 @@ export function CoordinatorSidebar({ conversations, selectedID, open, onClose, o
   }, [conversations, query])
   const groups = groupedConversations(filtered)
   const select = (id: string) => { onSelect(id); onClose() }
-  const [workspaceOpen, setWorkspaceOpen] = useState(readWorkspaceOpen)
-  const toggleWorkspace = () => { writeWorkspaceOpen(!workspaceOpen); setWorkspaceOpen(!workspaceOpen) }
   // Touch screens have no hover: a left swipe on a chat reveals its archive button instead.
   const [revealed, setRevealed] = useState<string | null>(null)
   const swipe = useRef<{ id: string; x: number; y: number } | null>(null)
@@ -57,7 +52,7 @@ export function CoordinatorSidebar({ conversations, selectedID, open, onClose, o
     if (dx < -SWIPE_REVEAL) { setRevealed(start.id); swipe.current = null }
     else if (dx > SWIPE_REVEAL) { setRevealed(null); swipe.current = null }
   }
-  const archive = (id: string) => { setRevealed(null); onArchive(id) }
+  const archive = (id: string) => { setRevealed(null); onArchive?.(id) }
 
   return <>
     {open ? <div className="co-nav-scrim" onClick={onClose} /> : null}
@@ -75,39 +70,23 @@ export function CoordinatorSidebar({ conversations, selectedID, open, onClose, o
           }}><Icon name="plus" size={14} /></button></div>
           {groups.map(([project, chats]) => <div className="co-project" key={project}>
             <div className="co-project-row"><Icon name="folder" size={14} /><span>{project === 'Personal' ? t('Personal') : project}</span><span className="co-count">{chats.length}</span></div>
-            <div className="co-project-chats">{chats.map((chat) => <div key={chat.id} className={`co-chat-row ${selectedID === chat.id ? 'active' : ''} ${revealed === chat.id ? 'revealed' : ''}`} onTouchStart={(event) => touchStart(chat.id, event)} onTouchMove={touchMove}>
+            <div className="co-project-chats">{chats.map((chat) => <div key={chat.id} className={`co-chat-row ${selectedID === chat.id ? 'active' : ''} ${revealed === chat.id ? 'revealed' : ''}`} onTouchStart={onArchive ? (event) => touchStart(chat.id, event) : undefined} onTouchMove={onArchive ? touchMove : undefined}>
               <button className={`co-chat-link ${selectedID === chat.id ? 'active' : ''}`} onClick={() => revealed === chat.id ? setRevealed(null) : select(chat.id)} title={chat.title}>
                 {chat.running ? <span className="co-live-dot" /> : null}{chat.title}
               </button>
-              <button className="co-chat-archive" aria-label={t('Archive {title}', { title: chat.title })} title={t('Archive chat')} onClick={() => archive(chat.id)}><Icon name="close" size={13} /></button>
+              {onArchive ? <button className="co-chat-archive" aria-label={t('Archive {title}', { title: chat.title })} title={t('Archive chat')} onClick={() => archive(chat.id)}><Icon name="close" size={13} /></button> : null}
             </div>)}</div>
           </div>)}
           {groups.length === 0 ? <p className="co-side-empty">{t('No conversations found.')}</p> : null}
           {archivedNotice ? <div className="co-archive-toast" role="status"><span>{t('Chat archived')}</span>{onUndoArchive ? <button onClick={onUndoArchive}>{t('Undo')}</button> : null}</div> : null}
-          <button className="co-side-item co-archived-link" onClick={() => { onShowArchived(); onClose() }}><Icon name="archive" size={14} /><span>{t('Archived chats')}</span></button>
-        </section>
+</section>
       </div>
       <div className="co-sidebar-foot">
-        {/* Lower-use panels fold into one collapsible group so the sidebar stays about chats. */}
-        <button className="co-side-item co-side-toggle" aria-expanded={workspaceOpen} aria-controls="co-workspace-links" onClick={toggleWorkspace}><Icon name="settings" size={15} /><span>{t('Workspace')}</span><span className="co-toggle-caret" aria-hidden="true">{workspaceOpen ? '▴' : '▾'}</span></button>
-        {workspaceOpen ? <div className="co-side-group" id="co-workspace-links">
-          <button className="co-side-item" onClick={() => onPanel('connections')}><Icon name="plug" size={15} />{t('Connections')}</button>
-          <button className="co-side-item" onClick={() => onPanel('knowledge')}><Icon name="memory" size={15} />{t('Knowledge')}</button>
-          <button className="co-side-item" onClick={() => onPanel('settings')}><Icon name="settings" size={15} />{t('Settings & guide')}</button>
-        </div> : null}
-        <button className="co-profile" onClick={() => onPanel('memory')}><span className="co-profile-avatar">{(me?.name.trim()[0] ?? 'A').toUpperCase()}</span><span><b>{me?.name}</b><small>{memoryEnabled ? t('Workspace memory on') : t('Workspace memory paused')}</small></span><i className={memoryEnabled ? 'co-online-dot' : 'co-offline-dot'} /></button>
+        {/* Everything that isn't a chat lives in three places: past work, archived chats, and Settings. */}
+        <NavLink to="/missions" className={({ isActive }) => `co-side-item ${isActive ? 'active' : ''}`} onClick={onClose}><Icon name="activity" size={15} /><span>{t('History')}</span></NavLink>
+        <button className="co-side-item co-archived-link" onClick={() => { onShowArchived(); onClose() }}><Icon name="archive" size={15} /><span>{t('Archived chats')}</span></button>
+        <NavLink to="/settings" className={({ isActive }) => `co-profile ${isActive ? 'active' : ''}`} aria-label={t('Settings')} onClick={onClose}><span className="co-profile-avatar">{(me?.name.trim()[0] ?? 'A').toUpperCase()}</span><span><b>{me?.name}</b><small>{me?.role ? t(me.role) : ''}</small></span><Icon name="settings" size={16} /></NavLink>
       </div>
     </aside>
   </>
-}
-
-const WORKSPACE_OPEN_KEY = 'agentsam.sidebar.workspaceOpen'
-
-/** Whether the Workspace group was left open. Closed by default; storage may be unavailable. */
-function readWorkspaceOpen(): boolean {
-  try { return localStorage.getItem(WORKSPACE_OPEN_KEY) === '1' } catch { return false }
-}
-
-function writeWorkspaceOpen(open: boolean) {
-  try { localStorage.setItem(WORKSPACE_OPEN_KEY, open ? '1' : '0') } catch { /* a convenience only */ }
 }
