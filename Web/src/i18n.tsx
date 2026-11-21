@@ -304,7 +304,7 @@ export const es: Record<string, string> = {
   // Login page
   'Welcome back': 'Bienvenido de nuevo',
   'Sign in': 'Iniciar sesión',
-  'Your agent team is waiting.': 'Tu equipo de agentes te espera.',
+  'Ada is ready when you are.': 'Ada está lista cuando quieras.',
   'Signing in…': 'Iniciando sesión…',
   'No account? Ask an admin for an invite link.': '¿Sin cuenta? Pide a un administrador un enlace de invitación.',
 
