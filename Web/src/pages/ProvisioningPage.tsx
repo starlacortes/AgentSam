@@ -219,7 +219,7 @@ export function ProvisioningPage() {
       const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }))
       const anchor = document.createElement('a')
       anchor.href = url
-      anchor.download = `agentsam-provisioning-${detail.batch.id}.csv`
+      anchor.download = `ada-provisioning-${detail.batch.id}.csv`
       document.body.appendChild(anchor)
       anchor.click()
       anchor.remove()
@@ -240,13 +240,13 @@ export function ProvisioningPage() {
           <h1>{t('Bulk account provisioning')}</h1>
           <p className="lede">{t('Create identity-separated accounts with independent credentials, domains, names, and jittered creation times.')}</p>
         </div>
-        <Link className="btn ghost" to="/people">
+        <Link className="btn ghost" to="/settings/people">
           {t('Back to people')}
         </Link>
       </div>
 
       <div className="notice" style={{ marginBottom: 18 }}>
-        {t('Identity separation only: every account still shares the same missions. Credentials are retrievable until copied or downloaded, then permanently hidden.')}
+        {t('Identity separation only: every account still shares the same projects and missions. Credentials are retrievable until copied or downloaded, then permanently hidden.')}
       </div>
       <ErrorBanner message={error} />
 

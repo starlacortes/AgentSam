@@ -20,7 +20,7 @@ export function MissionsPage() {
   const { t } = useI18n()
   const [needsKeys, setNeedsKeys] = useState(false)
   const liveCount = missions?.filter((m) => m.status === 'running' || m.status === 'queued').length ?? 0
-  useDocumentTitle(liveCount > 0 ? t('● {count} running · Missions', { count: liveCount }) : t('Missions'))
+  useDocumentTitle(liveCount > 0 ? t('● {count} running · History', { count: liveCount }) : t('History'))
 
   useEffect(() => {
     if (!isAdmin) return
@@ -70,7 +70,7 @@ export function MissionsPage() {
     <>
       <div className="page-head">
         <div>
-          <div className="kicker">{t('Missions')}</div>
+          <div className="kicker">{t('History')}</div>
           <h1>{t('What Ada has been working on')}</h1>
         </div>
         <Link className="btn" to="/">
@@ -81,8 +81,8 @@ export function MissionsPage() {
       {needsKeys ? (
         <div className="notice row" style={{ marginBottom: 16 }}>
           <span style={{ flex: 1 }}>{t('No provider has an API key yet, so missions can’t run.')}</span>
-          <Link className="btn small" to="/settings">
-            {t('Finish setup')}
+          <Link className="btn small" to="/settings/providers">
+            {t('Set up providers')}
           </Link>
         </div>
       ) : null}
@@ -95,9 +95,9 @@ export function MissionsPage() {
           onChange={(e) => setQuery(e.target.value)}
           aria-label={t('Search missions')}
         />
-        <div className="row" role="group" aria-label={t('Filter by status')}>
+        <div className="row filter-pills" role="group" aria-label={t('Filter by status')}>
           {FILTERS.map((f) => (
-            <button key={f} className={filter === f ? 'pill active' : 'pill'} onClick={() => setFilter(f)}>
+            <button key={f} className={filter === f ? 'pill active' : 'pill'} aria-pressed={filter === f} onClick={() => setFilter(f)}>
               {t(f)}
             </button>
           ))}

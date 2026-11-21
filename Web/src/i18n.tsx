@@ -30,7 +30,7 @@ export function currentLanguage(): Lang {
   return currentLang
 }
 
-const es: Record<string, string> = {
+export const es: Record<string, string> = {
   ...coordinatorSpanish,
 
   // Language switcher
@@ -45,7 +45,7 @@ const es: Record<string, string> = {
   Account: 'Cuenta',
   'Sign out': 'Cerrar sesión',
   More: 'Más',
-  'AgentSam home': 'Inicio de AgentSam',
+  'Ada home': 'Inicio de Ada',
   Main: 'Principal',
   admin: 'admin',
   member: 'miembro',
@@ -116,6 +116,7 @@ const es: Record<string, string> = {
   'Launch a mission': 'Lanzar una misión',
   'No missions match.': 'Ninguna misión coincide.',
   '● {count} running · Missions': '● {count} en marcha · Misiones',
+  '● {count} running · History': '● {count} en marcha · Historial',
 
   // Teams page
   'Your agent teams': 'Tus equipos de agentes',
@@ -228,8 +229,8 @@ const es: Record<string, string> = {
 
   // People page
   'Who can use this server': 'Quién puede usar este servidor',
-  'Everyone shares the same missions. Admins also manage people and provider keys.':
-    'Todos comparten las mismas misiones. Los administradores también gestionan personas y claves de proveedor.',
+  'Everyone shares the same projects and missions. Admins also manage people and provider keys.':
+    'Todos comparten los mismos proyectos y misiones. Los administradores también gestionan personas y claves de proveedor.',
   'Invite someone': 'Invitar a alguien',
   'Email to invite': 'Correo a invitar',
   'Create invite link': 'Crear enlace de invitación',
@@ -246,10 +247,64 @@ const es: Record<string, string> = {
   'Pending invites': 'Invitaciones pendientes',
   Expires: 'Caduca',
 
+  // Bulk provisioning page
+  'Provision accounts in bulk →': 'Crear cuentas en bloque →',
+  'Bulk provisioning': 'Alta en bloque',
+  'Select or enter at least one domain.': 'Selecciona o escribe al menos un dominio.',
+  'Confirm that this batch creates admin accounts.': 'Confirma que este lote crea cuentas de administrador.',
+  'Cancel the remaining items? Accounts and invites already created will remain.': '¿Cancelar los elementos pendientes? Las cuentas y las invitaciones ya creadas se conservan.',
+  'Download credentials and permanently hide them from this page? Store the CSV securely.': '¿Descargar las credenciales y ocultarlas para siempre en esta página? Guarda el CSV en un lugar seguro.',
+  'Bulk account provisioning': 'Alta de cuentas en bloque',
+  'Create identity-separated accounts with independent credentials, domains, names, and jittered creation times.': 'Crea cuentas con identidades separadas, con credenciales, dominios y nombres independientes y horas de creación escalonadas.',
+  'Back to people': 'Volver a personas',
+  'Identity separation only: every account still shares the same projects and missions. Credentials are retrievable until copied or downloaded, then permanently hidden.': 'Solo separa identidades: todas las cuentas comparten los mismos proyectos y misiones. Las credenciales se pueden recuperar hasta que se copian o descargan; después se ocultan para siempre.',
+  'New batch': 'Nuevo lote',
+  'Accounts': 'Cuentas',
+  '1–50 per batch; server limits may be lower.': 'De 1 a 50 por lote; el servidor puede tener un límite menor.',
+  'Delivery': 'Entrega',
+  'Single-use invite links': 'Enlaces de invitación de un solo uso',
+  'Generated passwords': 'Contraseñas generadas',
+  'Pacing': 'Ritmo',
+  'Careful · 120–300 seconds': 'Prudente · 120–300 segundos',
+  'Standard · 30–120 seconds': 'Normal · 30–120 segundos',
+  'Fast · 5–15 seconds': 'Rápido · 5–15 segundos',
+  'Invite expiry (days)': 'Caducidad de la invitación (días)',
+  'Domain pool · a random domain is chosen for each account': 'Dominios · se elige uno al azar para cada cuenta',
+  'Additional domains (optional)': 'Dominios adicionales (opcional)',
+  'Comma-separated. Use domains you control; the reserved example domains are suitable for local testing.': 'Separados por comas. Usa dominios que controles; los dominios de ejemplo reservados sirven para pruebas locales.',
+  'I confirm that every account in this batch will have admin privileges.': 'Confirmo que todas las cuentas de este lote tendrán privilegios de administrador.',
+  'Creating batch…': 'Creando lote…',
+  'Create batch': 'Crear lote',
+  'Items run one at a time. A failed item does not block the rest.': 'Los elementos se procesan de uno en uno. Si uno falla, los demás siguen.',
+  'Batches': 'Lotes',
+  'No provisioning batches yet.': 'Aún no hay lotes de alta.',
+  'Batch': 'Lote',
+  'Configuration': 'Configuración',
+  'Status': 'Estado',
+  'Progress': 'Progreso',
+  'Invites': 'Invitaciones',
+  'Passwords': 'Contraseñas',
+  'domains': 'dominios',
+  'Pause': 'Pausar',
+  'Resume': 'Reanudar',
+  'Retry failed': 'Reintentar los fallidos',
+  'Batch items': 'Elementos del lote',
+  'Download CSV': 'Descargar CSV',
+  'Copy or download credentials now. Each copy or download acknowledges those items and removes their secrets from the server.': 'Copia o descarga las credenciales ahora. Cada copia o descarga marca esos elementos como recibidos y borra sus secretos del servidor.',
+  'State': 'Estado',
+  'Attempts': 'Intentos',
+  'Completed': 'Completado',
+  'Error': 'Error',
+  'Credential': 'Credencial',
+  'Copy and hide': 'Copiar y ocultar',
+  'Acknowledged': 'Recibido',
+  'Unavailable': 'No disponible',
+  'This batch is paused. Resume it to create the remaining items.': 'Este lote está en pausa. Reanúdalo para crear los elementos pendientes.',
+
   // Login page
   'Welcome back': 'Bienvenido de nuevo',
   'Sign in': 'Iniciar sesión',
-  'Ada is ready when you are.': 'Ada está lista cuando quieras.',
+  'Your agent team is waiting.': 'Tu equipo de agentes te espera.',
   'Signing in…': 'Iniciando sesión…',
   'No account? Ask an admin for an invite link.': '¿Sin cuenta? Pide a un administrador un enlace de invitación.',
 
@@ -268,7 +323,7 @@ const es: Record<string, string> = {
   'Invite unavailable': 'Invitación no disponible',
   'Go to sign in': 'Ir a iniciar sesión',
   'You’re invited': 'Estás invitado',
-  'Join AgentSam': 'Únete a AgentSam',
+  'Join Ada': 'Únete a Ada',
   'Creating an account for {email} as {role}.': 'Creando una cuenta para {email} como {role}.',
   'an admin': 'un administrador',
   'a member': 'un miembro',

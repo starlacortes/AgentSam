@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { api } from '../../api/client'
 import type { AgentActionRequest, Conversation, ConversationMessage, WorkspaceKnowledge } from '../../api/types'
 import { I18nProvider } from '../../i18n'
 import { Guide } from './Guide'
 import { ActionApprovalCard, ConversationMessages } from './ConversationMessages'
-import { WorkspacePanel } from './WorkspacePanels'
+import { KnowledgePanel } from './WorkspacePanels'
+import { SettingsPage } from '../../pages/SettingsPage'
 
 vi.mock('../../api/client', async (importOriginal) => ({ ...await importOriginal<typeof import('../../api/client')>(), api: vi.fn() }))
 vi.mock('../../auth/AuthContext', () => ({ useAuth: () => ({ me: { name: 'Owner' }, isAdmin: false, signOut: vi.fn() }) }))
@@ -94,7 +95,7 @@ describe('workspace knowledge', () => {
   it('shows maintained documents, switches tabs, and refreshes on request', async () => {
     vi.mocked(api).mockResolvedValue(knowledge)
     const onKnowledge = vi.fn()
-    renderUI(<WorkspacePanel panel="knowledge" connectors={[]} memory={null} knowledge={knowledge} onConnectors={vi.fn()} onMemory={vi.fn()} onKnowledge={onKnowledge} onClose={vi.fn()} onRestartGuide={vi.fn()} />)
+    renderUI(<KnowledgePanel knowledge={knowledge} onChange={onKnowledge} />)
     expect(screen.getByText(/# Workspace capabilities/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Connections' }))
     expect(screen.getByText(/# Workspace connections/)).toBeTruthy()
@@ -119,12 +120,13 @@ describe('resettable guide', () => {
     await waitFor(() => expect(finish).toHaveBeenCalledTimes(1))
   })
 
-  it('restarts the guide through its isolated preference action', async () => {
-    const restart = vi.fn().mockResolvedValue(undefined)
-    renderUI(<WorkspacePanel panel="settings" connectors={[]} memory={null} knowledge={null} onConnectors={vi.fn()} onMemory={vi.fn()} onKnowledge={vi.fn()} onClose={vi.fn()} onRestartGuide={restart} />)
+  it('restarts the guide from Settings and returns to chat to show it', async () => {
+    vi.mocked(api).mockResolvedValue({ completed: false })
+    function Where() { const location = useLocation(); return <output>{location.pathname + location.search}</output> }
+    render(<I18nProvider><MemoryRouter initialEntries={['/settings/preferences']}><Routes><Route path="/settings/:section" element={<SettingsPage />} /><Route path="*" element={<Where />} /></Routes></MemoryRouter></I18nProvider>)
     fireEvent.click(screen.getByRole('button', { name: 'Restart the guide' }))
-    await waitFor(() => expect(restart).toHaveBeenCalledTimes(1))
-    expect(api).not.toHaveBeenCalled()
+    await waitFor(() => expect(api).toHaveBeenCalledWith('workspace/guide', { method: 'PATCH', body: { completed: false } }))
+    await waitFor(() => expect(screen.getByText('/?guide=1')).toBeTruthy())
   })
 })
 
@@ -140,5 +142,18 @@ describe('photos in messages', () => {
     expect(images[0]?.getAttribute('src')).toBe('/api/conversations/chat-1/photos/p1')
     expect(screen.getByText('What is this?')).toBeTruthy()
     expect(container.querySelectorAll('.co-user-message > p')).toHaveLength(1)
+  })
+})
+
+describe('settings', () => {
+  afterEach(() => { cleanup(); vi.clearAllMocks() })
+
+  it('keeps every setting in one list and hides admin sections from members', async () => {
+    vi.mocked(api).mockResolvedValue([])
+    render(<I18nProvider><MemoryRouter initialEntries={['/settings/connections']}><Routes><Route path="/settings/:section" element={<SettingsPage />} /></Routes></MemoryRouter></I18nProvider>)
+    const nav = screen.getByRole('navigation', { name: 'Settings' })
+    const labels = [...nav.querySelectorAll('a')].map((link) => link.textContent)
+    expect(labels).toEqual(['Connections', 'Memory & knowledge', 'Voice & language', 'Account'])
+    await waitFor(() => expect(api).toHaveBeenCalledWith('connectors'))
   })
 })

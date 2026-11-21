@@ -7,7 +7,7 @@
 "srv.oauthNoCode" = "Google did not return an authorization code.";
 "srv.oauthNoRefreshToken" = "Google did not return a refresh token. Reconnect and approve the consent screen.";
 "srv.connectorConnectedTitle" = "%@ connected";
-"srv.connectorConnectedMessage" = "AgentSam can now use %@ in missions. You can close this window.";
+"srv.connectorConnectedMessage" = "Ada can now use %@ in missions. You can close this window.";
 "srv.badTeamID" = "Bad team id";
 "srv.teamNotFound" = "Team not found";
 "srv.missingProviderID" = "Missing provider id";
@@ -36,7 +36,7 @@
 "srv.objectiveLimit" = "Mission objective must be 20,000 characters or fewer.";
 "srv.interrupted" = "Mission interrupted by a server restart. Review saved work and start a new mission when ready.";
 "srv.maloonRosterIncomplete" = "The Maloon owner team needs a complete roster and a configured API key for its provider.";
-"srv.maloonProviderMissing" = "Configure one provider API key and default model on the AgentSam server before launching a Maloon workflow.";
+"srv.maloonProviderMissing" = "Configure one provider API key and default model on the Ada server before launching a Maloon workflow.";
 "srv.maloonTeamName" = "Maloon Owner Crew";
 "srv.maloonTeamGoal" = "Turn fresh Indigo business snapshots into read-only operational insights and owner-reviewed drafts.";
 "srv.maloonTestOK" = "Connected to Indigo and received a valid Maloon snapshot.";

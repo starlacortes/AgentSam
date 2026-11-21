@@ -371,7 +371,7 @@ public actor CoordinatorChatEngine {
             .map { "- \($0.name)" }
             .joined(separator: "\n")
         var prompt = """
-        You are \(coordinator.name), the coordinator of the AgentSam team "\(team.name)". \
+        You are \(coordinator.name), the coordinator of the team "\(team.name)". \
         You are the person's main contact: they talk to you to get work done by your team.
         \(coordinator.systemPrompt)
 

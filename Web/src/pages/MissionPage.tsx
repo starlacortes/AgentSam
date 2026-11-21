@@ -11,7 +11,7 @@ import { presentMission, type ChatterItem } from '../lib/missionPresentation'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { useLiveMission, type LiveConnection } from '../lib/useLiveMission'
 import { makeZip } from '../lib/zip'
-import { translate, useI18n } from '../i18n'
+import { dateLocale, translate, useI18n } from '../i18n'
 
 type Tab = 'plan' | 'chatter' | 'files' | 'activity'
 
@@ -242,7 +242,7 @@ function Chatter({ items }: { items: ChatterItem[] }) {
         <div key={item.seq} className={`chat ${item.system ? 'system' : ''} ${item.failed ? 'failed' : ''} role-${item.role ?? 'none'}`}>
           <div className="chat-head mono">
             {item.system ? t('mission') : item.agentName}
-            <span className="dim"> · {new Date(item.timestamp).toLocaleTimeString()}</span>
+            <span className="dim"> · {new Date(item.timestamp).toLocaleTimeString(dateLocale())}</span>
           </div>
           <div className="chat-text">{item.text}</div>
         </div>

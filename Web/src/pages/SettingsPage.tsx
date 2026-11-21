@@ -1,260 +1,150 @@
-import { useCallback, useEffect, useState } from 'react'
-import { useDocumentTitle } from '../lib/useDocumentTitle'
+import { useEffect, useState, type ReactNode } from 'react'
+import { Navigate, NavLink, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, errorMessage } from '../api/client'
-import type { Ack, ProviderConfig, ProviderStatus, ProviderTestResult } from '../api/types'
+import type { VoiceInfo } from '../api/chatTypes'
+import type { ConnectorStatus, GuideState, WorkspaceKnowledge, WorkspaceMemory } from '../api/types'
+import { useAuth } from '../auth/AuthContext'
+import { ConnectorCard, HostAccessPanel, KnowledgePanel, MemoryPanel } from '../components/coordinator/WorkspacePanels'
+import { Icon, type IconName } from '../components/coordinator/Icon'
+import { LanguageToggle } from '../components/Layout'
+import { VoiceSettingsPanel } from '../components/VoiceSettingsPanel'
 import { ErrorBanner, Spinner } from '../components/ui'
 import { useI18n } from '../i18n'
+import { useDocumentTitle } from '../lib/useDocumentTitle'
+import { AccountPage } from './AccountPage'
+import { PeoplePage } from './PeoplePage'
+import { ProvidersPage } from './ProvidersPage'
 
-const BLANK: ProviderConfig = { id: '', name: '', kind: 'openAICompatible', baseURL: 'https://', models: [], defaultModel: '' }
+export type SettingsSection = 'connections' | 'memory' | 'preferences' | 'account' | 'providers' | 'people' | 'folders'
 
-/** Admin only: provider configs and the API keys stored on the server. Keys are write-only from here. */
+interface SectionLink { id: SettingsSection; label: string; icon: IconName; adminOnly?: boolean }
+
+/** Every setting in one place: one list of sections on the left (a row of chips on phones). */
 export function SettingsPage() {
+  const { section } = useParams()
   const { t } = useI18n()
-  useDocumentTitle(t('Providers'))
-  const [providers, setProviders] = useState<ProviderStatus[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [adding, setAdding] = useState(false)
+  const { isAdmin, signOut } = useAuth()
+  const all: SectionLink[] = [
+    { id: 'connections', label: t('Connections'), icon: 'plug' },
+    { id: 'memory', label: t('Memory & knowledge'), icon: 'memory' },
+    { id: 'preferences', label: t('Voice & language'), icon: 'mic' },
+    { id: 'account', label: t('Account'), icon: 'users' },
+    { id: 'providers', label: t('Model providers'), icon: 'spark', adminOnly: true },
+    { id: 'people', label: t('People'), icon: 'users', adminOnly: true },
+    { id: 'folders', label: t('Folder access'), icon: 'folder', adminOnly: true },
+  ]
+  const sections = all.filter((item) => isAdmin || !item.adminOnly)
+  const current = sections.find((item) => item.id === section)
+  useDocumentTitle(current ? `${current.label} · ${t('Settings')}` : t('Settings'))
+  if (!current) return <Navigate to="/settings/connections" replace />
 
-  const load = useCallback(async () => {
-    try {
-      setProviders(await api<ProviderStatus[]>('providers'))
-    } catch (err) {
-      setError(errorMessage(err))
-    }
-  }, [])
+  return (
+    <div className="settings">
+      <nav className="settings-nav" aria-label={t('Settings')}>
+        <h1 className="settings-title">{t('Settings')}</h1>
+        {sections.map((item) => (
+          <NavLink key={item.id} to={`/settings/${item.id}`} className={({ isActive }) => `settings-link ${isActive ? 'active' : ''}`}>
+            <Icon name={item.icon} size={15} />
+            <span>{item.label}</span>
+          </NavLink>
+        ))}
+        <button className="settings-link settings-signout" onClick={() => void signOut()}>
+          <span>{t('Sign out')}</span>
+        </button>
+      </nav>
+      <section className="settings-body">
+        {current.id === 'connections' ? <ConnectionsSettings /> : null}
+        {current.id === 'memory' ? <MemorySettings /> : null}
+        {current.id === 'preferences' ? <PreferenceSettings /> : null}
+        {current.id === 'account' ? <AccountPage /> : null}
+        {current.id === 'providers' ? <ProvidersPage /> : null}
+        {current.id === 'people' ? <PeoplePage /> : null}
+        {current.id === 'folders' ? <SectionHead title={t('Folder access')} lede={t('Folders on the server that Ada may read, and optionally write.')}><HostAccessPanel /></SectionHead> : null}
+      </section>
+    </div>
+  )
+}
 
-  useEffect(() => {
-    void load()
-  }, [load])
-
+function SectionHead({ title, lede, children }: { title: string; lede: string; children: ReactNode }) {
   return (
     <>
       <div className="page-head">
         <div>
-          <div className="kicker">{t('Server settings')}</div>
-          <h1>{t('Model providers')}</h1>
-          <p className="lede">{t('Keys are stored on the server and shared by every mission. They can be replaced or removed here, but never read back.')}</p>
+          <h1>{title}</h1>
+          <p className="lede">{lede}</p>
         </div>
-        <button className="btn ghost" onClick={() => setAdding(true)} disabled={adding}>
-          {t('Add provider')}
-        </button>
       </div>
-      <ErrorBanner message={error} />
-      {adding ? (
-        <ProviderCard
-          status={{ provider: BLANK, hasKey: false }}
-          isNew
-          onSaved={() => {
-            setAdding(false)
-            void load()
-          }}
-          onCancel={() => setAdding(false)}
-        />
-      ) : null}
-      {!providers ? <Spinner /> : providers.map((p) => <ProviderCard key={p.provider.id} status={p} onSaved={() => void load()} />)}
+      {children}
     </>
   )
 }
 
-export function ProviderCard({
-  status,
-  isNew = false,
-  onSaved,
-  onCancel,
-}: {
-  status: ProviderStatus
-  isNew?: boolean
-  onSaved: () => void
-  onCancel?: () => void
-}) {
+function ConnectionsSettings() {
   const { t } = useI18n()
-  const [config, setConfig] = useState<ProviderConfig>(status.provider)
-  const [modelsText, setModelsText] = useState(status.provider.models.join(', '))
-  const [editing, setEditing] = useState(isNew)
-  const [key, setKey] = useState('')
-  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null)
-  const [busy, setBusy] = useState<string | null>(null)
-
-  async function run(label: string, action: () => Promise<{ ok: boolean; message: string } | void>) {
-    setBusy(label)
-    setResult(null)
-    try {
-      const outcome = await action()
-      if (outcome) setResult(outcome)
-    } catch (err) {
-      setResult({ ok: false, message: errorMessage(err) })
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  const saveConfig = () =>
-    run('save', async () => {
-      const models = modelsText.split(',').map((m) => m.trim()).filter(Boolean)
-      await api('providers', {
-        method: 'POST',
-        body: { ...config, models, defaultModel: config.defaultModel || models[0] },
-      })
-      setEditing(false)
-      onSaved()
-      return { ok: true, message: t('Provider saved.') }
-    })
-
-  const saveKey = () =>
-    run('key', async () => {
-      const ack = await api<Ack>(`providers/${status.provider.id}/key`, { method: 'POST', body: { key } })
-      setKey('')
-      onSaved()
-      const test = await api<ProviderTestResult>(`providers/${status.provider.id}/test`, { method: 'POST' })
-      return {
-        ok: test.ok,
-        message: test.ok
-          ? `${ack.detail ?? t('Key saved')}. ${test.message}`
-          : t('Key saved, but the test failed: {message}', { message: test.message }),
-      }
-    })
-
+  const [params, setParams] = useSearchParams()
+  const [connectors, setConnectors] = useState<ConnectorStatus[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => { void api<ConnectorStatus[]>('connectors').then(setConnectors).catch((err) => setError(errorMessage(err))) }, [])
+  // Google sends people back here after they sign in.
+  const connectedName = connectors?.find((item) => item.id === params.get('connected'))?.name
   return (
-    <div className="card stack">
-      <div className="row">
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <h2>{isNew ? t('New provider') : config.name}</h2>
-          {!isNew ? (
-            <div className="dim mono" style={{ fontSize: 11, overflowWrap: 'anywhere' }}>
-              {config.id} · {config.kind === 'anthropic' ? 'Anthropic API' : 'OpenAI-compatible'} · {config.baseURL}
-            </div>
-          ) : null}
-        </div>
-        {!isNew ? <span className={status.hasKey ? 'chip em' : 'chip'}>{status.hasKey ? t('key saved') : t('no key')}</span> : null}
+    <SectionHead title={t('Connections')} lede={t('Give Ada access to the services you choose.')}>
+      <ErrorBanner message={error} />
+      {connectedName ? <div className="notice row"><span style={{ flex: 1 }}>{t('{name} is connected.', { name: connectedName })}</span><button className="pill" onClick={() => setParams({})}>{t('Dismiss')}</button></div> : null}
+      {!connectors ? <Spinner /> : <div className="settings-cards">{connectors.map((connector) => <ConnectorCard key={connector.id} connector={connector} onChange={(updated) => setConnectors((list) => (list ?? []).map((item) => item.id === updated.id ? updated : item))} />)}</div>}
+      <div className="co-safety-note"><Icon name="shield" /><p>{t('External writes always need your explicit, one-use approval. Connector permissions still apply. Review the exact arguments before approving; read tools do not need approval.')}</p></div>
+    </SectionHead>
+  )
+}
+
+function MemorySettings() {
+  const { t } = useI18n()
+  const [memory, setMemory] = useState<WorkspaceMemory | null>(null)
+  const [knowledge, setKnowledge] = useState<WorkspaceKnowledge | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    void api<WorkspaceMemory>('workspace/memory').then(setMemory).catch((err) => setError(errorMessage(err)))
+    void api<WorkspaceKnowledge>('workspace/knowledge').then(setKnowledge).catch((err) => setError(errorMessage(err)))
+  }, [])
+  return (
+    <SectionHead title={t('Memory & knowledge')} lede={t('What Ada remembers across your chats, and what she knows about your workspace.')}>
+      <ErrorBanner message={error} />
+      <MemoryPanel memory={memory} onChange={setMemory} />
+      <KnowledgePanel knowledge={knowledge} onChange={setKnowledge} />
+    </SectionHead>
+  )
+}
+
+function PreferenceSettings() {
+  const { t } = useI18n()
+  const { isAdmin } = useAuth()
+  const navigate = useNavigate()
+  const [voiceInfo, setVoiceInfo] = useState<VoiceInfo | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    if (!isAdmin) return
+    void api<VoiceInfo>('voice').then(setVoiceInfo).catch((err) => setError(errorMessage(err)))
+  }, [isAdmin])
+  const restartGuide = async () => {
+    setBusy(true); setError(null)
+    try {
+      await api<GuideState>('workspace/guide', { method: 'PATCH', body: { completed: false } })
+      navigate('/?guide=1')
+    } catch (err) { setError(errorMessage(err)); setBusy(false) }
+  }
+  return (
+    <SectionHead title={t('Voice & language')} lede={t('Simple controls, without resetting your work.')}>
+      <div className="co-setting-card">
+        <div className="co-setting-row"><span>{t('Language')}</span><LanguageToggle /></div>
+        {voiceInfo ? <VoiceSettingsPanel info={voiceInfo} onSaved={setVoiceInfo} onError={setError} /> : null}
       </div>
-
-      {editing ? (
-        <div className="grid-3">
-          <label className="field">
-            <span>{t('Id')}</span>
-            <input className="input" disabled={!isNew} value={config.id} onChange={(e) => setConfig({ ...config, id: e.target.value.toLowerCase() })} placeholder="my-provider" />
-          </label>
-          <label className="field">
-            <span>{t('Name')}</span>
-            <input className="input" value={config.name} onChange={(e) => setConfig({ ...config, name: e.target.value })} />
-          </label>
-          <label className="field">
-            <span>{t('API style')}</span>
-            <select className="select" value={config.kind} onChange={(e) => setConfig({ ...config, kind: e.target.value as ProviderConfig['kind'] })}>
-              <option value="openAICompatible">OpenAI-compatible</option>
-              <option value="anthropic">Anthropic</option>
-            </select>
-          </label>
-          <label className="field" style={{ gridColumn: 'span 2' }}>
-            <span>{t('Base URL')}</span>
-            <input className="input" value={config.baseURL} onChange={(e) => setConfig({ ...config, baseURL: e.target.value })} />
-          </label>
-          <label className="field">
-            <span>{t('Default model')}</span>
-            <input className="input" value={config.defaultModel ?? ''} onChange={(e) => setConfig({ ...config, defaultModel: e.target.value })} />
-          </label>
-          <label className="field" style={{ gridColumn: '1 / -1' }}>
-            <span>{t('Models (comma separated)')}</span>
-            <input className="input" value={modelsText} onChange={(e) => setModelsText(e.target.value)} />
-          </label>
-        </div>
-      ) : (
-        <div className="row">
-          {config.models.map((m) => (
-            <span key={m} className={m === config.defaultModel ? 'chip em' : 'chip'}>
-              {m}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {!isNew ? (
-        <div className="row">
-          <input
-            className="input mono"
-            style={{ flex: '1 1 260px' }}
-            type="password"
-            autoComplete="off"
-            placeholder={status.hasKey ? t('Paste a new key to replace the saved one') : t('Paste API key')}
-            value={key}
-            onChange={(e) => setKey(e.target.value)}
-            aria-label={t('API key for {name}', { name: config.name })}
-          />
-          <button className="btn small" disabled={!key.trim() || busy !== null} onClick={() => void saveKey()}>
-            {busy === 'key' ? t('Saving…') : t('Save and test key')}
-          </button>
-          {status.hasKey ? (
-            <button
-              className="btn small ghost"
-              disabled={busy !== null}
-              onClick={() =>
-                void run('test', async () => api<ProviderTestResult>(`providers/${status.provider.id}/test`, { method: 'POST' }))
-              }
-            >
-              {busy === 'test' ? t('Testing…') : t('Test connection')}
-            </button>
-          ) : null}
-        </div>
-      ) : null}
-
-      {result ? <div className={result.ok ? 'notice' : 'error'}>{result.message}</div> : null}
-
-      <div className="row">
-        {editing ? (
-          <>
-            <button className="btn small" disabled={busy !== null} onClick={() => void saveConfig()}>
-              {t('Save provider')}
-            </button>
-            <button
-              className="btn small ghost"
-              onClick={() => {
-                setConfig(status.provider)
-                setModelsText(status.provider.models.join(', '))
-                setEditing(false)
-                onCancel?.()
-              }}
-            >
-              {t('Cancel')}
-            </button>
-          </>
-        ) : (
-          <button className="pill" onClick={() => setEditing(true)}>
-            {t('Edit models and URL')}
-          </button>
-        )}
-        <span className="spacer" />
-        {!isNew && status.hasKey ? (
-          <button
-            className="pill"
-            onClick={() => {
-              if (window.confirm(t('Remove the saved {name} key? Agents using it will stop working.', { name: config.name }))) {
-                void run('remove', async () => {
-                  await api(`providers/${status.provider.id}/key`, { method: 'DELETE' })
-                  onSaved()
-                  return { ok: true, message: t('Key removed.') }
-                })
-              }
-            }}
-          >
-            {t('Remove key')}
-          </button>
-        ) : null}
-        {!isNew ? (
-          <button
-            className="pill"
-            onClick={() => {
-              if (window.confirm(t('Delete the {name} provider and its key?', { name: config.name }))) {
-                void run('delete', async () => {
-                  await api(`providers/${status.provider.id}`, { method: 'DELETE' })
-                  onSaved()
-                })
-              }
-            }}
-          >
-            {t('Delete provider')}
-          </button>
-        ) : null}
+      <div className="co-guide-reset">
+        <h3>{t('A quick guide, whenever you need it')}</h3>
+        <p>{t('Three short steps explain chat, how Ada gets help, and connections. Restarting changes only the guide—not your chats, providers, connections, or memory.')}</p>
+        <button className="co-secondary-button" disabled={busy} onClick={() => void restartGuide()}><Icon name="info" size={14} />{t('Restart the guide')}</button>
       </div>
-    </div>
+      <ErrorBanner message={error} />
+    </SectionHead>
   )
 }

@@ -5,9 +5,9 @@ export function Logo() {
   return (
     <span className="logo">
       <span className="mark" aria-hidden="true">
-        S
+        A
       </span>
-      <span className="word">AgentSam</span>
+      <span className="word">Ada</span>
     </span>
   )
 }

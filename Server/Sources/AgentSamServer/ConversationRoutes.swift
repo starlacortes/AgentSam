@@ -258,7 +258,7 @@ func conversationRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
         let memory = await ctx.memory.state(ownerID: owner)
         var headers = HTTPHeaders()
         headers.replaceOrAdd(name: .contentType, value: "text/markdown; charset=utf-8")
-        headers.replaceOrAdd(name: .contentDisposition, value: "attachment; filename=agentsam-memory.md")
+        headers.replaceOrAdd(name: .contentDisposition, value: "attachment; filename=ada-memory.md")
         return Response(status: .ok, headers: headers, body: .init(string: memory.markdown))
     }
 
@@ -283,7 +283,7 @@ func conversationRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
         }
         var headers = HTTPHeaders()
         headers.replaceOrAdd(name: .contentType, value: "text/markdown; charset=utf-8")
-        headers.replaceOrAdd(name: .contentDisposition, value: "attachment; filename=agentsam-\(id.rawValue).md")
+        headers.replaceOrAdd(name: .contentDisposition, value: "attachment; filename=ada-\(id.rawValue).md")
         return Response(status: .ok, headers: headers, body: .init(string: document.markdown))
     }
 

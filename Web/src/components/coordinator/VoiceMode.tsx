@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { useI18n } from '../../i18n'
 import { api } from '../../api/client'
 import type { VoiceInfo } from '../../api/chatTypes'
@@ -56,17 +56,19 @@ function prefersReducedMotion(): boolean {
 }
 
 /**
- * Feeds how loud Ada is speaking into the orb's `--level` while she speaks, smoothed so the orb
- * swells with her voice instead of flickering. Writes the style directly to skip re-renders.
+ * Feeds a live sound level (the microphone while listening, Ada's voice while speaking) into the
+ * orb's `--level`, smoothed so the orb swells with the sound instead of flickering. Writes the style
+ * directly to skip re-renders; the CSS turns it into scale and opacity, which never repaint.
  */
-function useSpeakingLevel(orb: { current: HTMLElement | null }, speaker: { current: Speaker | null }, speaking: boolean) {
+function useOrbLevel(orb: { current: HTMLElement | null }, read: (() => number) | null) {
   useEffect(() => {
     const element = orb.current
-    if (!speaking || !element || prefersReducedMotion() || typeof window.requestAnimationFrame !== 'function') return
+    if (!read || !element || prefersReducedMotion() || typeof window.requestAnimationFrame !== 'function') return
     let smoothed = 0
     let frame = 0
     const tick = () => {
-      const level = speaker.current?.level() ?? 0
+      const level = Math.max(0, Math.min(1, read()))
+      // Rise quickly with a syllable, settle slowly after it.
       smoothed += (level - smoothed) * (level > smoothed ? 0.45 : 0.12)
       element.style.setProperty('--level', smoothed.toFixed(3))
       element.toggleAttribute('data-metered', level > 0 || smoothed > 0.01)
@@ -78,7 +80,7 @@ function useSpeakingLevel(orb: { current: HTMLElement | null }, speaker: { curre
       element.style.removeProperty('--level')
       element.removeAttribute('data-metered')
     }
-  }, [orb, speaker, speaking])
+  }, [orb, read])
 }
 
 export function VoiceMode({ onSend, onTranscribe, onClose, activity = null }: { onSend: (text: string, waitForCompletion: boolean, onPartial?: (update: VoicePartial) => void) => Promise<VoiceReply | null>; onTranscribe: (audio: Blob) => Promise<string>; onClose: () => void; /** What Ada is doing right now, such as "Searching Gmail"; null while she isn't working. */ activity?: string | null }) {
@@ -328,7 +330,8 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null }: { 
     if (value) stopSpeaking()
   }
 
-  useSpeakingLevel(orb, speaker, phase === 'speaking')
+  const readSpeaking = useCallback(() => speaker.current?.level() ?? 0, [])
+  useOrbLevel(orb, phase === 'listening' ? recorder.readLevel : phase === 'speaking' ? readSpeaking : null)
 
   const orbState = error && phase === 'idle' ? 'error' : phase
   // The status box shows only while Ada is working: the server's current step, or a plain fallback.
@@ -338,7 +341,7 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null }: { 
     <header className="co-voice-head"><span className="co-brand-mark">A</span><div><b id="co-voice-title">{t('Voice with Ada')}</b><small>{t('One conversation, brought to life')}</small></div><button className="co-icon-button" aria-label={t('Return to chat')} onClick={close}><Icon name="close" /></button></header>
     <main className="co-voice-stage">
       <span className="co-kicker">{label}</span>
-      <button ref={orb} className={`co-voice-orb ${orbState}`} style={phase === 'listening' ? { ['--level' as string]: recorder.level } : undefined} onClick={listen} disabled={phase === 'thinking' || phase === 'speaking' || recorder.state === 'starting'} aria-label={phase === 'listening' ? t('Finish speaking') : t('Start listening')}><span>A</span><i /><i /><i /><b className="co-orb-arc" aria-hidden="true" /><b className="co-orb-ripple" aria-hidden="true" /></button>
+      <button ref={orb} className={`co-voice-orb ${orbState}`} onClick={listen} disabled={phase === 'thinking' || phase === 'speaking' || recorder.state === 'starting'} aria-label={phase === 'listening' ? t('Finish speaking') : t('Start listening')}><b className="co-orb-glow" aria-hidden="true" /><b className="co-orb-core" aria-hidden="true" /><span>A</span><i /><i /><i /><b className="co-orb-arc" aria-hidden="true" /><b className="co-orb-ripple" aria-hidden="true" /><b className="co-orb-ripple late" aria-hidden="true" /></button>
       <div className={`co-voice-status ${working ? 'on' : ''}`} role="status" aria-live="polite">{working ? <><i aria-hidden="true" /><span key={working}>{working}</span></> : null}</div>
       <h1>{phase === 'listening' ? t('I’m listening') : phase === 'thinking' ? t('Finding your answer') : phase === 'speaking' ? t('Here’s what I found') : t('What can I help with?')}</h1>
       <p className="co-voice-transcript">{transcript || (phase === 'listening' ? t('Speak naturally. I’ll send your message when you finish.') : t('Start listening, or use the keyboard below.'))}</p>

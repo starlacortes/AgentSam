@@ -16,7 +16,7 @@ const chats: ConversationSummary[] = [
 ]
 
 function sidebar(overrides: Partial<Parameters<typeof CoordinatorSidebar>[0]> = {}) {
-  const props = { conversations: chats, teams: [], selectedID: 'c1', open: true, onClose: vi.fn(), onSelect: vi.fn(), onNew: vi.fn(), onPanel: vi.fn(), memoryEnabled: true, onArchive: vi.fn(), onShowArchived: vi.fn(), ...overrides }
+  const props = { conversations: chats, selectedID: 'c1', open: true, onClose: vi.fn(), onSelect: vi.fn(), onNew: vi.fn(), onArchive: vi.fn(), onShowArchived: vi.fn(), ...overrides }
   render(<I18nProvider><MemoryRouter><CoordinatorSidebar {...props} /></MemoryRouter></I18nProvider>)
   return props
 }
@@ -77,5 +77,16 @@ describe('chat archiving', () => {
     expect(daysUntilPurge('2026-11-10T00:00:00Z', 30, now)).toBe(21)
     expect(daysUntilPurge('2026-10-01T00:00:00Z', 30, now)).toBe(0)
     expect(daysUntilPurge('2026-11-10T00:00:00Z', null, now)).toBeNull()
+  })
+})
+
+describe('sidebar outside chat', () => {
+  afterEach(() => { cleanup(); vi.clearAllMocks() })
+
+  it('hides archive buttons when the page cannot archive, and links to History and Settings', () => {
+    sidebar({ onArchive: undefined })
+    expect(screen.queryByRole('button', { name: 'Archive Taxes' })).toBeNull()
+    expect(screen.getByRole('link', { name: 'History' }).getAttribute('href')).toBe('/missions')
+    expect(screen.getByRole('link', { name: 'Settings' }).getAttribute('href')).toBe('/settings')
   })
 })
