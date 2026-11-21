@@ -385,7 +385,8 @@ public actor MissionEngine {
         await store.appendEvent(mission.id, kind: .taskStarted, agent: agent, text: task.goal)
         let connectorDefs = await connectors?.toolDefs(scope: team.toolScope) ?? []
         let externalToolNames = connectorDefs.map(\.function.name)
-        let tools = AgentTools.workerTools + connectorDefs
+        let offered = OfferedTools.worker(connectorTools: connectorDefs)
+        let tools = offered.definitions
 
         do {
             for _ in 0..<max(2, config.maxSteps) {
@@ -411,14 +412,19 @@ public actor MissionEngine {
                 var finished = false
                 for call in calls {
                     let outcome: ToolOutcome
-                    if let connectors, connectors.owns(call.function.name) {
-                        if let connectorWrite, !ConnectorHub.readOnlyToolNames.contains(call.function.name) {
+                    switch offered.family(of: call.function.name) {
+                    case .connector?:
+                        if let connectorWrite, ToolCatalog.spec(call.function.name)?.access != .read {
                             outcome = await connectorWrite(mission.id, call, team.toolScope)
-                        } else {
+                        } else if let connectors {
                             outcome = await connectors.run(call: call, scope: team.toolScope)
+                        } else {
+                            outcome = .failure("Connectors are not available in this mission.")
                         }
-                    } else {
+                    case .worker?:
                         outcome = AgentTools.run(call: call, workspace: workspace, protecting: store.root)
+                    default:
+                        outcome = .failure(ConversationEngine.unknownToolMessage(call.function.name, offered: offered.names))
                     }
                     if let name = outcome.wroteFiles.first {
                         deliverables = Array(Set(deliverables + outcome.wroteFiles)).sorted()
