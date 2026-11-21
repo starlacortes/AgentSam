@@ -466,7 +466,7 @@ public actor ConversationEngine {
                 await beginStep(ConversationPrompts.toolStepLabel(call.function.name, language: language), in: ref)
                 let outcome: ToolOutcome
                 switch offeredTools.family(of: call.function.name) {
-                case nil:
+                case nil, .worker:
                     outcome = .failure(Self.unknownToolMessage(call.function.name, offered: offered))
                 case .chat:
                     if call.function.name == "run_program" {
