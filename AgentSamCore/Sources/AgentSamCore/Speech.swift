@@ -290,14 +290,15 @@ public struct SpeechClient: Sendable {
     }
 
     /// Turns text into MP3 audio.
-    public func speak(text: String, provider: ProviderConfig, key: String, model: String, voice: String, instructions: String? = nil) async throws -> Data {
-        try await speakAudio(text: text, provider: provider, key: key, model: model, voice: voice, instructions: instructions).data
+    public func speak(text: String, provider: ProviderConfig, key: String, model: String, voice: String, instructions: String? = nil, language: String? = nil) async throws -> Data {
+        try await speakAudio(text: text, provider: provider, key: key, model: model, voice: voice, instructions: instructions, language: language).data
     }
 
     /// Turns text into audio. Self-hosted Kokoro servers are asked for WAV, which skips the MP3 encode
     /// and decode and so starts playing sooner; if one refuses, it falls back to MP3. Repeats are served from memory.
-    public func speakAudio(text: String, provider: ProviderConfig, key: String, model: String, voice: String, instructions: String? = nil) async throws -> SpokenAudio {
-        let trimmed = String(Self.spokenText(text).prefix(Self.maxSpeechCharacters))
+    /// `language` is the language Ada is speaking ("en" or "es"); numbers and amounts are read in it.
+    public func speakAudio(text: String, provider: ProviderConfig, key: String, model: String, voice: String, instructions: String? = nil, language: String? = nil) async throws -> SpokenAudio {
+        let trimmed = String(Self.spokenText(text, language: language).prefix(Self.maxSpeechCharacters))
         guard !trimmed.isEmpty else { throw SpeechError("There is nothing to say.") }
 
         // Only the gpt-4o family takes steering instructions; older TTS models reject the field.
@@ -350,7 +351,11 @@ public struct SpeechClient: Sendable {
     /// the same rules; change both together. Drops the suggestions block and any on-screen ```details,
     /// code, tables, bare links, IDs and folder paths; turns headings and list items into sentences;
     /// strips Markdown marks but keeps hyphens inside words.
-    public static func spokenText(_ markdown: String) -> String {
+    ///
+    /// With a `language`, numbers and amounts are also made ready to read in the language the text is in
+    /// (see `SpokenNumbers`; `language` is the fallback when the text alone doesn't say). The browser leaves
+    /// that to the server, which is where the voice is made.
+    public static func spokenText(_ markdown: String, language: String? = nil) -> String {
         var text = markdown
         for fence in ["```suggestions", "```details"] {
             if let range = text.range(of: fence, options: .caseInsensitive) { text = String(text[..<range.lowerBound]) }
@@ -371,7 +376,9 @@ public struct SpeechClient: Sendable {
         replace("\\s+", " ")
         replace(" ([.,!?])", "$1")
         replace("(?<!\\.)\\.\\.(?!\\.)", ".")
-        return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let language else { return text }
+        return SpokenNumbers.normalize(text, language: SpokenNumbers.language(of: text, fallback: language))
     }
 
     /// Most characters Ada speaks in one reply. Longer replies stop at a sentence end with a short
@@ -381,8 +388,10 @@ public struct SpeechClient: Sendable {
     /// Cuts spoken text at the last sentence end within `limit` and adds `tail`. Text within the limit is unchanged.
     public static func cappedSpeech(_ text: String, tail: String, limit: Int = spokenLimit) -> String {
         guard text.count > limit else { return text }
-        let head = String(text.prefix(limit))
-        let cut = head.lastIndex(where: { ".!?".contains($0) }).map { String(head[...$0]) } ?? head
+        let characters = Array(text)
+        // A sentence ends at a mark followed by a space, so "1.000" or "$10.50" is never cut in two.
+        let end = (0..<limit).last { ".!?".contains(characters[$0]) && characters[$0 + 1].isWhitespace }
+        let cut = end.map { String(characters[...$0]) } ?? String(characters[..<limit])
         return cut.trimmingCharacters(in: .whitespaces) + " " + tail
     }
 
@@ -393,9 +402,12 @@ public struct SpeechClient: Sendable {
         guard !cleaned.isEmpty else { return [] }
         var sentences: [String] = []
         var current = ""
-        for character in cleaned {
+        let characters = Array(cleaned)
+        for (index, character) in characters.enumerated() {
             current.append(character)
-            if ".!?\n".contains(character) {
+            // A period inside a number ("1.000", "$10.50") is not a sentence end.
+            let next = index + 1 < characters.count ? characters[index + 1] : nil
+            if "!?\n".contains(character) || (".".contains(character) && (next?.isWhitespace ?? true)) {
                 sentences.append(current)
                 current = ""
             }
