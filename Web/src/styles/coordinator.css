@@ -801,3 +801,15 @@
   .co-browser-window { width: 100%; height: 100%; border: 0; border-radius: 0; }
   .co-browser-head .co-secondary-button { padding: 6px 8px; font-size: 11.5px; }
 }
+
+/* Finished action cards fold to one line once newer conversation arrives. */
+.co-action-card.collapsed { margin-top: 10px; border-radius: 10px; }
+.co-action-summary { display: flex; align-items: center; gap: 9px; width: 100%; padding: 9px 13px; border: 0; background: transparent; color: var(--em); text-align: left; cursor: pointer; }
+.co-action-summary:hover { background: rgba(148,190,156,.05); }
+.co-action-summary b { min-width: 0; overflow: hidden; color: var(--ink2); font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.co-action-summary .co-action-tool { flex: 1; min-width: 0; overflow: hidden; color: var(--dim); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.co-action-summary > svg:last-child { flex: none; color: var(--dim); }
+.co-action-fold { display: inline-flex; align-items: center; padding: 4px; border: 0; background: transparent; color: var(--dim); cursor: pointer; }
+.co-action-fold svg { transform: rotate(-90deg); }
+.co-action-fold:hover { color: var(--ink); }
+@media (max-width: 760px) { .co-action-summary .co-action-tool { display: none; } }
