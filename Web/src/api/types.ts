@@ -400,6 +400,11 @@ export interface ProviderStatus {
   hasKey: boolean
 }
 
+export interface VisionModelSetting {
+  providerID: string
+  model: string
+}
+
 export interface TeamTemplate {
   id: string
   name: string

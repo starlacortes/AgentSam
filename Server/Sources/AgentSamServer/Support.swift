@@ -81,6 +81,10 @@ struct ProviderStatus: Encodable {
     var hasKey: Bool
 }
 
+struct VisionModelBody: Codable {
+    var setting: VisionModelSetting?
+}
+
 struct ProviderTestResult: Encodable {
     var ok: Bool
     var message: String

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { api, errorMessage } from '../api/client'
-import type { Ack, ProviderConfig, ProviderStatus, ProviderTestResult } from '../api/types'
+import type { Ack, ProviderConfig, ProviderStatus, ProviderTestResult, VisionModelSetting } from '../api/types'
 import { ErrorBanner, Spinner } from '../components/ui'
 import { useI18n } from '../i18n'
 
@@ -51,6 +51,7 @@ export function ProvidersPage() {
           onCancel={() => setAdding(false)}
         />
       ) : null}
+      {providers ? <VisionModelCard providers={providers} /> : null}
       {!providers ? <Spinner /> : providers.map((p) => <ProviderCard key={p.provider.id} status={p} onSaved={() => void load()} />)}
     </>
   )
@@ -254,6 +255,70 @@ export function ProviderCard({
             {t('Delete provider')}
           </button>
         ) : null}
+      </div>
+    </div>
+  )
+}
+
+/** Which model looks at photos. Empty provider means automatic. */
+export function VisionModelCard({ providers }: { providers: ProviderStatus[] }) {
+  const { t } = useI18n()
+  const [providerID, setProviderID] = useState('')
+  const [model, setModel] = useState('')
+  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null)
+
+  useEffect(() => {
+    api<{ setting?: VisionModelSetting | null }>('vision-model')
+      .then((r) => {
+        setProviderID(r.setting?.providerID ?? '')
+        setModel(r.setting?.model ?? '')
+      })
+      .catch(() => undefined)
+  }, [])
+
+  const chosen = providers.find((p) => p.provider.id === providerID)
+  const save = async () => {
+    try {
+      const setting = providerID ? { providerID, model: model.trim() } : null
+      await api('vision-model', { method: 'PUT', body: { setting } })
+      setResult({ ok: true, message: t('Vision model saved.') })
+    } catch (err) {
+      setResult({ ok: false, message: errorMessage(err) })
+    }
+  }
+
+  return (
+    <div className="card stack">
+      <h2>{t('Vision model')}</h2>
+      <p className="dim">{t("Used when a message has photos attached. Leave on automatic to use Ada's own model, or the image processor if hers cannot see.")}</p>
+      <div className="grid-3">
+        <label className="field">
+          <span>{t('Provider')}</span>
+          <select
+            className="select"
+            value={providerID}
+            onChange={(e) => {
+              setProviderID(e.target.value)
+              setModel(providers.find((p) => p.provider.id === e.target.value)?.provider.defaultModel ?? '')
+            }}
+          >
+            <option value="">{t('Automatic')}</option>
+            {providers.filter((p) => p.hasKey).map((p) => (
+              <option key={p.provider.id} value={p.provider.id}>{p.provider.name}</option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>{t('Model')}</span>
+          <input className="input" list="vision-models" disabled={!providerID} value={model} onChange={(e) => setModel(e.target.value)} />
+          <datalist id="vision-models">
+            {(chosen?.provider.models ?? []).map((m) => <option key={m} value={m} />)}
+          </datalist>
+        </label>
+      </div>
+      {result ? <div className={result.ok ? 'notice' : 'error'}>{result.message}</div> : null}
+      <div className="row">
+        <button className="btn small" disabled={Boolean(providerID) && !model.trim()} onClick={() => void save()}>{t('Save vision model')}</button>
       </div>
     </div>
   )

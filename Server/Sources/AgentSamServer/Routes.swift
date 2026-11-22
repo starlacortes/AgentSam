@@ -202,6 +202,27 @@ func routes(_ app: Application, ctx: ServerContext) {
         return try req.json(provider, status: .created)
     }
 
+    // The model that looks at photos; null means Ada's own model (or the image processor) is used.
+    api.get("vision-model") { req async throws -> Response in
+        try req.json(VisionModelBody(setting: await ctx.store.loadVisionModel()))
+    }
+
+    adminAPI.put("vision-model") { req async throws -> Response in
+        let lang = SrvL10n.lang(for: req)
+        let body = try req.decodeJSON(VisionModelBody.self)
+        if let setting = body.setting {
+            let providers = await ctx.store.loadProviders()
+            guard providers.contains(where: { $0.id == setting.providerID }) else {
+                throw Abort(.notFound, reason: SrvL10n.tf("srv.unknownProvider", setting.providerID, lang: lang))
+            }
+            guard !setting.model.trimmingCharacters(in: .whitespaces).isEmpty else {
+                throw Abort(.badRequest, reason: SrvL10n.t("srv.providerNeedsModels", lang: lang))
+            }
+        }
+        await ctx.store.saveVisionModel(body.setting)
+        return try req.json(body)
+    }
+
     adminAPI.post("providers", ":id", "key") { req async throws -> Response in
         let lang = SrvL10n.lang(for: req)
         guard let idString = req.parameters.get("id") else {

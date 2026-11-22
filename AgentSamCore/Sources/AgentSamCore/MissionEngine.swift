@@ -22,16 +22,17 @@ public actor MissionEngine {
         public var maxSteps: Int
         public var verifyWithAgent: Bool
         /// Token budget per conversation (≈ characters ÷ 4). Conversations
-        /// that grow past it are compacted before each call; when a provider
-        /// still reports context overflow, the budget is halved and the call
-        /// retried before the phase fails.
-        public var contextBudgetTokens: Int
+        /// that grow past it are compacted (older turns summarized) before each
+        /// call; when a provider still reports context overflow, the budget is
+        /// halved and the call retried before the phase fails. Nil sizes it
+        /// from the agent's model (see `ModelLimits`).
+        public var contextBudgetTokens: Int?
         /// Output token cap passed to the provider. Anthropic always sends it
         /// (the API requires one) with a 16384 default; OpenAI-compatible
         /// providers only send it when set, since their limits vary.
         public var maxOutputTokens: Int?
 
-        public init(maxParallel: Int = 4, maxSteps: Int = 24, verifyWithAgent: Bool = true, contextBudgetTokens: Int = 20_000, maxOutputTokens: Int? = nil) {
+        public init(maxParallel: Int = 4, maxSteps: Int = 24, verifyWithAgent: Bool = true, contextBudgetTokens: Int? = nil, maxOutputTokens: Int? = nil) {
             self.maxParallel = maxParallel
             self.maxSteps = maxSteps
             self.verifyWithAgent = verifyWithAgent
@@ -57,6 +58,7 @@ public actor MissionEngine {
     private let promptBuilder: PromptBuilder
     private let connectorWrite: (@Sendable (UUID, APIToolCall, ToolScope?) async -> ToolOutcome)?
     private var runningTasks: [UUID: Task<Void, Never>] = [:]
+    private let summaryStates = SummaryStates()
 
     public init(
         store: MissionStore,
@@ -629,10 +631,15 @@ public actor MissionEngine {
         // not: compact when the running estimate exceeds the budget, and when
         // a provider rejects for context overflow, halve the budget and retry
         // before giving up on the phase.
-        var budgetTokens = config.contextBudgetTokens
+        var budgetTokens = config.contextBudgetTokens ?? ModelLimits.conversationBudget(model: agent.model)
+        let summaryState = summaryStates.state(missionID: missionID, agent: agent.name)
         var overflowRetries = 0
         while true {
-            let compacted = ConversationCompactor.compact(messages: messages, budgetTokens: budgetTokens)
+            let compacted = await ConversationCompactor.compact(messages: messages, budgetTokens: budgetTokens, summarizer: { previous, transcript in
+                let request = ConversationCompactor.summaryRequest(previous: previous, transcript: transcript)
+                let summary = try? await self.client.complete(provider: provider, key: key, model: agent.model, system: ConversationCompactor.summarySystem, messages: [.user(request)], tools: nil, temperature: 0.2, maxTokens: 900)
+                return summary?.message.content
+            }, state: summaryState)
             if compacted.trimmed, let note = compacted.notice {
                 await store.appendEvent(missionID, kind: .notice, agent: agent, text: note)
             }
