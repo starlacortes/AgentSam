@@ -48,6 +48,18 @@ RUN apt-get update \
 RUN apt-get update \
     && apt-get install -y --no-install-recommends bubblewrap \
     && rm -rf /var/lib/apt/lists/*
+# Google's Google Ads MCP server (github.com/googleads/google-ads-mcp) in its own virtualenv, so
+# it never touches the python3 Ada's programs use. Ada runs it on loopback when
+# AGENTSAM_GOOGLE_ADS_MCP=1; see deploy/google-ads-mcp/README.md.
+COPY deploy/google-ads-mcp/requirements.txt /opt/google-ads-mcp-requirements.txt
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3-venv \
+    && rm -rf /var/lib/apt/lists/* \
+    && python3 -m venv /opt/google-ads-mcp \
+    && /opt/google-ads-mcp/bin/pip install --no-cache-dir --require-virtualenv -r /opt/google-ads-mcp-requirements.txt \
+    && /opt/google-ads-mcp/bin/python3 -I -c "import ads_mcp.server" \
+    && rm /opt/google-ads-mcp-requirements.txt
+COPY deploy/google-ads-mcp/ada_launch.py deploy/google-ads-mcp/tools_config.yaml /opt/google-ads-mcp/
 # ssh client for Ada's workstation over SSH (AGENTSAM_WORKSTATION_SSH)
 RUN apt-get update \
     && apt-get install -y --no-install-recommends openssh-client \

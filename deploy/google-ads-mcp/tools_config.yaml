@@ -1,0 +1,17 @@
+# Tools Ada gets from Google's Google Ads MCP server.
+#
+# upload_video_asset is off: it uploads a file from this machine's disk to YouTube, and the
+# server shares a disk with Ada's data. Everything else stays on. The server's own read tools are
+# marked read-only, so Ada runs them at once; the rest go through Ada's approval cards and the
+# server's own propose-and-confirm step.
+namespaces:
+  customers: true
+  search: true
+  metadata: true
+  labels: true
+  assets:
+    enabled: true
+    prefix: "assets"
+    enabled_tools:
+      - create_asset: true
+      - upload_video_asset: false

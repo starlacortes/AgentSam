@@ -60,6 +60,8 @@ struct ServerContext: Sendable {
     let browser: BrowserLink?
     /// The VNC password of the browser's display, handed only to admins who open the live window.
     let browserPassword: String
+    /// Google's Google Ads MCP server, run next to Ada when AGENTSAM_GOOGLE_ADS_MCP is on.
+    let googleAdsMCP: GoogleAdsMCPRunner?
 
     static func make() throws -> ServerContext {
         let raw = Environment.get("AGENTSAM_DATA") ?? "data"
@@ -89,6 +91,8 @@ struct ServerContext: Sendable {
         let browserConfig = BrowserConfig.fromEnvironment(workstation: workstationConfig)
         if let problem = browserConfig.problem { print(problem) }
         let browser = browserConfig.enabled ? access.workstation.map { BrowserLink(config: browserConfig, workstation: $0) } : nil
+        let googleAdsMCPConfig = GoogleAdsMCPConfig.fromEnvironment()
+        let googleAdsMCP = googleAdsMCPConfig.enabled ? access.mcp.map { GoogleAdsMCPRunner(config: googleAdsMCPConfig, keyRing: keyRing, oauth: google, registry: $0) } : nil
         if browser != nil { print("Ada's browser is on: admins can open a live window on \(workstationConfig.ssh?.destination ?? "the workstation").") }
         if let ssh = workstationConfig.ssh, workstationConfig.enabled {
             print("Workstation access is on: Ada can run approved commands on \(ssh.destination) over SSH.")
@@ -206,7 +210,8 @@ struct ServerContext: Sendable {
             dummyPasswordHash: (try? Bcrypt.hash(Secrets.randomToken())) ?? "",
             push: WebPushCenter(dataDir: store.root, contact: Self.pushContact()),
             browser: browser,
-            browserPassword: Environment.get("AGENTSAM_BROWSER_VNC_PASSWORD") ?? ""
+            browserPassword: Environment.get("AGENTSAM_BROWSER_VNC_PASSWORD") ?? "",
+            googleAdsMCP: googleAdsMCP
         )
     }
 
@@ -257,7 +262,15 @@ struct ServerContext: Sendable {
         }
     }
 
+    /// Starts, restarts or stops the Google Ads MCP server to match the Google Ads connection.
+    /// Runs in the background: the server takes a few seconds to answer.
+    func syncGoogleAdsMCP() {
+        guard let googleAdsMCP else { return }
+        Task { await googleAdsMCP.sync() }
+    }
+
     func shutdown() async {
+        await googleAdsMCP?.stop()
         await conversationEngine.shutdown()
         await provisioningRunner.shutdown()
         await scheduler.shutdown()
