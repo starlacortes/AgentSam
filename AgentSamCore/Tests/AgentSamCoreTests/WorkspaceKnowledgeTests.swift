@@ -107,6 +107,9 @@ final class WorkspaceKnowledgeTests: XCTestCase {
         XCTAssertTrue(text.contains("`ada@kokofast.example` (port 2222), reached over SSH"))
         XCTAssertTrue(text.contains("create files, run programs and publish to git"))
         XCTAssertTrue(text.contains("cat ~/GIT.md"))
+        XCTAssertTrue(text.contains("open a pull request"))
+        XCTAssertTrue(text.contains("Missions have it too"))
+        XCTAssertFalse(text.lowercased().contains("deploy key"), "her git access is a GitHub App now, not a deploy key")
         for tool in WorkstationTools.names { XCTAssertTrue(text.contains("`\(tool)`"), tool) }
         XCTAssertTrue(text.contains("`workstation_run`: runs without a card only for single commands starting with `pacman -Q`, `systemctl status`"))
         XCTAssertTrue(text.contains("`workstation_start_job`: asks every time"))

@@ -72,11 +72,13 @@ public struct OfferedTools: Sendable {
         ])
     }
 
-    /// A mission worker's tools: its workspace tools, then the connectors its team's scope allows.
-    public static func worker(connectorTools: [APIToolDef]) -> OfferedTools {
+    /// A mission worker's tools: its workspace tools, the connectors its team's scope allows, and the
+    /// workstation when the mission's owner may use it.
+    public static func worker(connectorTools: [APIToolDef], hasWorkstation: Bool = false) -> OfferedTools {
         OfferedTools([
             (.worker, AgentTools.workerTools),
             (.connector, connectorTools),
+            (.workstation, hasWorkstation ? WorkstationTools.definitions : []),
         ])
     }
 }
