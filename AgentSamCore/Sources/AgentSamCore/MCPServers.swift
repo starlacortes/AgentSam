@@ -122,6 +122,22 @@ public actor MCPRegistry {
         return server
     }
 
+    /// Connects a server that Ada's own host runs (such as the Google Ads MCP server), found by its
+    /// URL. A server connected before keeps the admin's name, on/off switch and read-tool choices;
+    /// only its token changes and its tools are listed again. Throws if the server cannot be reached.
+    @discardableResult
+    public func connectManaged(name: String, url: String, token: String) async throws -> MCPServerConfig {
+        guard let index = servers.firstIndex(where: { $0.url == url }) else {
+            return try await add(name: name, url: url, token: token)
+        }
+        let id = servers[index].id
+        try keyRing.set(token, for: Self.tokenAccount(id))
+        sessions[id] = nil
+        guard let server = await refresh(id: id) else { throw MCPError.protocolError("the MCP server entry was removed") }
+        if let error = server.lastError { throw MCPError.protocolError(error) }
+        return server
+    }
+
     public func update(id: UUID, name: String?, enabled: Bool?, readTools: [String]?, token: String?) throws -> MCPServerConfig {
         guard let index = servers.firstIndex(where: { $0.id == id }) else { throw MCPError.protocolError("no MCP server has that ID") }
         if let name = name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty { servers[index].name = String(name.prefix(60)) }

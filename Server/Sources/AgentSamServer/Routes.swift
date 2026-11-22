@@ -10,6 +10,7 @@ public func configure(_ app: Application) async throws {
     await ctx.scheduler.start()
     await ctx.knowledgeScheduler.start()
     await ctx.startPushAlerts()
+    ctx.syncGoogleAdsMCP()
     await app.storage.setWithAsyncShutdown(ServerContextKey.self, to: ctx) { context in
         await context.shutdown()
     }
@@ -73,6 +74,7 @@ func routes(_ app: Application, ctx: ServerContext) {
             }
             try ctx.keyRing.set(refreshToken, for: GoogleTokenProvider.refreshAccount(for: connectorID))
             ctx.keyRing.remove(GoogleTokenProvider.cacheAccount(for: connectorID))
+            if connectorID == .googleads { ctx.syncGoogleAdsMCP() }
             // Back to Settings > Connections in the web app, which shows the new connection.
             var headers = HTTPHeaders()
             headers.replaceOrAdd(name: .location, value: "/settings/connections?connected=\(connectorID.rawValue)")
@@ -329,6 +331,7 @@ func routes(_ app: Application, ctx: ServerContext) {
             throw Abort(.notFound, reason: SrvL10n.t("srv.unknownConnector", lang: lang))
         }
         ctx.connectors.disconnect(connectorID)
+        if connectorID == .googleads { ctx.syncGoogleAdsMCP() }
         return try req.json(AckResult(ok: true, detail: SrvL10n.tf("srv.disconnected", connectorID.displayName, lang: lang)))
     }
 
@@ -402,6 +405,7 @@ func routes(_ app: Application, ctx: ServerContext) {
                 .replacingOccurrences(of: " ", with: "")
             try ctx.keyRing.set(normalized, for: GoogleAdsConnector.customerIdAccount)
         }
+        ctx.syncGoogleAdsMCP()
         return try req.json(AckResult(ok: true, detail: SrvL10n.t("srv.adsStored", lang: lang)))
     }
 

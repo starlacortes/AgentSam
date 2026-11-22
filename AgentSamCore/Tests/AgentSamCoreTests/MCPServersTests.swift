@@ -134,6 +134,22 @@ final class MCPServersTests: XCTestCase {
         XCTAssertEqual(FakeMCPProtocol.calls.suffix(4), ["tools/call", "initialize", "notifications/initialized", "tools/call"])
     }
 
+    func testManagedServersReconnectWithANewTokenAndKeepTheAdminsChoices() async throws {
+        let (mcp, keys) = registry()
+        let first = try await mcp.connectManaged(name: "Google Ads MCP", url: "http://127.0.0.1:8765/mcp", token: "token-one")
+        XCTAssertEqual(first.slug, "googleadsmcp")
+        _ = try await mcp.update(id: first.id, name: nil, enabled: false, readTools: [], token: nil)
+
+        let again = try await mcp.connectManaged(name: "Google Ads MCP", url: "http://127.0.0.1:8765/mcp", token: "token-two")
+        let all = await mcp.list()
+        XCTAssertEqual(all.count, 1, "the same URL reconnects the existing entry")
+        XCTAssertEqual(again.id, first.id)
+        XCTAssertFalse(again.enabled, "an admin's off switch survives a restart")
+        XCTAssertEqual(again.readTools, [])
+        XCTAssertEqual(keys.get(MCPRegistry.tokenAccount(first.id)), "token-two")
+        XCTAssertEqual(FakeMCPProtocol.authorization.last, "Bearer token-two")
+    }
+
     func testOnlySafeURLsAreAccepted() async {
         XCTAssertNotNil(MCPRegistry.validURL("https://example.test/mcp"))
         XCTAssertNotNil(MCPRegistry.validURL("http://127.0.0.1:3000/mcp"))
