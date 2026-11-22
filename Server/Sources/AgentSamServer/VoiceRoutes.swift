@@ -137,7 +137,8 @@ func voiceRoutes(
                 key: key,
                 model: tts.model,
                 voice: tts.voice ?? SpeechDefaults.defaultVoice(for: provider, language: chat.language),
-                instructions: "You are \(name), a calm, friendly team coordinator giving a quick spoken update. Natural pace, warm and clear."
+                instructions: "You are \(name), a calm, friendly team coordinator giving a quick spoken update. Natural pace, warm and clear.",
+                language: SpokenNumbers.language(of: line.text, fallback: chat.language)
             )
             var headers = HTTPHeaders()
             headers.replaceOrAdd(name: .contentType, value: "audio/mpeg")
