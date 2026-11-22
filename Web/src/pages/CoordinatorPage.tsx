@@ -8,6 +8,8 @@ import { CoordinatorSidebar } from '../components/coordinator/CoordinatorSidebar
 import { ConversationMessages, type MessageHandlers } from '../components/coordinator/ConversationMessages'
 import { SidePanel, type CanvasState } from '../components/coordinator/SidePanel'
 import { ScheduleModal } from '../components/coordinator/ScheduleModal'
+import { PromptCardsModal } from '../components/coordinator/PromptCardsModal'
+import { listPromptCards, type PromptCard } from '../lib/promptCards'
 import { ArchivedChats, RetentionPrompt } from '../components/coordinator/ArchiveModals'
 import { Guide } from '../components/coordinator/Guide'
 import { Icon } from '../components/coordinator/Icon'
@@ -72,6 +74,9 @@ export function CoordinatorPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [voiceOpen, setVoiceOpen] = useState(false)
   const [scheduleOpen, setScheduleOpen] = useState(false)
+  const [promptCards, setPromptCards] = useState<PromptCard[]>([])
+  /** The prompt cards list, when open; `draft` is text waiting to be saved as a new card. */
+  const [promptCardsOpen, setPromptCardsOpen] = useState<{ draft?: string } | null>(null)
   const [browserAvailable, setBrowserAvailable] = useState(false)
   const [browserOpen, setBrowserOpen] = useState(false)
   const [archiveSettings, setArchiveSettings] = useState<ArchiveSettings | null>(null)
@@ -477,6 +482,12 @@ export function CoordinatorPage() {
     writeStored(CANVAS_WIDTH_KEY, String(next))
   }, [])
 
+  useEffect(() => {
+    let active = true
+    void listPromptCards().then((cards) => { if (active) setPromptCards(cards) }).catch(() => {})
+    return () => { active = false }
+  }, [])
+
   const prompt = (text: string) => {
     setDraft(text)
     window.setTimeout(() => {
@@ -571,6 +582,7 @@ export function CoordinatorPage() {
     onQuickReply: (text) => void sendMessage(text),
     onOpenCanvas: openCanvas,
     onStarter: prompt,
+    onPromptCards: (draft) => setPromptCardsOpen({ draft }),
   }
 
   function showArchived() {
@@ -598,6 +610,7 @@ export function CoordinatorPage() {
     ...(touch ? [{ label: t('Take a photo'), icon: 'camera' as const, disabled: photosFull, onSelect: () => cameraInput.current?.click() }] : []),
     { label: touch ? t('Photo library') : t('Add photos'), icon: 'image', disabled: photosFull, onSelect: () => libraryInput.current?.click() },
     { label: t('Upload files to project'), icon: 'file', disabled: uploading, onSelect: () => uploadInput.current?.click() },
+    { label: t('Prompt cards'), icon: 'spark', note: promptCards.length ? String(promptCards.length) : undefined, onSelect: () => setPromptCardsOpen({}) },
   ]
 
   return <div className={`co-app ${canvas ? 'with-canvas' : ''}`} style={canvas ? { ['--co-canvas-width' as string]: `${clampCanvasWidth(canvasWidth)}px` } : undefined}>
@@ -616,7 +629,7 @@ export function CoordinatorPage() {
       </header>
       <AgentWorkroom conversation={conversation} />
       <div className="co-chat-body">
-        {loading && id ? <div className="co-loading"><Spinner /></div> : <ConversationMessages conversation={conversation} busy={sending || running} handlers={handlers} actions={actions} onActions={setActions} />}
+        {loading && id ? <div className="co-loading"><Spinner /></div> : <ConversationMessages conversation={conversation} busy={sending || running} handlers={handlers} actions={actions} onActions={setActions} promptCards={promptCards} />}
       </div>
       <div className="co-composer-wrap">
         {!hasProvider && !loading ? <div className="co-provider-notice"><Icon name="info" size={16} /><p>{t('Add a model provider and API key before chatting with Ada.')}</p>{isAdmin ? <Link to="/settings/providers">{t('Set up providers')} →</Link> : null}</div> : null}
@@ -644,6 +657,7 @@ export function CoordinatorPage() {
     }} /> : null}
     {archivedOpen ? <ArchivedChats settings={archiveSettings} onSettings={setArchiveSettings} onRestored={restored} onClose={() => setArchivedOpen(false)} onOpen={(chatID) => { setArchivedOpen(false); navigate(`/chats/${chatID}`) }} /> : null}
     {browserOpen ? <BrowserWindow onClose={() => setBrowserOpen(false)} /> : null}
+    {promptCardsOpen ? <PromptCardsModal cards={promptCards} draft={promptCardsOpen.draft} onChange={setPromptCards} onUse={(text) => { setPromptCardsOpen(null); prompt(text) }} onClose={() => setPromptCardsOpen(null)} /> : null}
     {scheduleOpen && conversation ? <ScheduleModal conversation={conversation} gmailConnected={Boolean(gmail?.configured)} onUpdated={updateProposal} onClose={() => setScheduleOpen(false)} /> : null}
     {guide && (!guide.completed || searchParams.get('guide') === '1') ? <Guide onFinish={finishGuide} /> : null}
     {voiceOpen ? <VoiceMode onSend={sendMessage} onTranscribe={transcribeVoice} onClose={() => setVoiceOpen(false)} activity={liveActivity} /> : null}
