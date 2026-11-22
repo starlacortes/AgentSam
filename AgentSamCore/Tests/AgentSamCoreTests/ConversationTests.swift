@@ -1077,7 +1077,7 @@ final class ConversationTests: XCTestCase {
     func testEveryToolHasOneCatalogEntryWithTheRightAccess() {
         let everything = ConnectorPermissions(sendEmail: true, createDraft: true, dnsWrite: true, githubWrite: true, adsWrite: true)
         let connectorNames = Set(ConnectorHub.providers.flatMap { $0.toolDefs(permissions: everything) }.map(\.function.name))
-        let workspaceNames = Set((ChatWorkspaceTools.definitions + TriggerTools.definitions + TaskTools.definitions(catalog: "") + ExtendedWorkspaceTools.definitions + ConversationMissionTools.definitions + SkillTools.definitions + MemoryTools.definitions + WorkstationTools.definitions).map(\.function.name))
+        let workspaceNames = Set((ChatWorkspaceTools.definitions + TriggerTools.definitions + TaskTools.definitions(catalog: "") + ExtendedWorkspaceTools.definitions + ConversationMissionTools.definitions + SkillTools.definitions + MemoryTools.definitions + WorkstationTools.definitions + AgentTools.workerTools).map(\.function.name))
         let catalogNames = ToolCatalog.specs.map(\.name)
         XCTAssertEqual(catalogNames.count, Set(catalogNames).count, "a tool is listed twice in the catalog")
         XCTAssertEqual(Set(catalogNames), connectorNames.union(workspaceNames), "the catalog and the tool definitions disagree")
@@ -1089,6 +1089,18 @@ final class ConversationTests: XCTestCase {
         XCTAssertEqual(ToolCatalog.spec("chat_delete_file")?.access, .approval)
         XCTAssertEqual(ConversationPrompts.toolStepLabel("gmail_send", language: "es"), "Preparando un correo")
         XCTAssertEqual(ConversationPrompts.toolStepLabel("unknown_tool", language: "en"), "Using unknown_tool")
+    }
+
+    func testMissionWorkersAreOfferedTheirToolsAndTheirTeamsConnectorsOnly() {
+        let gmail = APIToolDef(name: "gmail_search", description: "Search Gmail", parameters: .object(["type": .string("object")]))
+        let offered = OfferedTools.worker(connectorTools: [gmail])
+        XCTAssertEqual(offered.definitions.map(\.function.name), AgentTools.workerTools.map(\.function.name) + ["gmail_search"])
+        XCTAssertEqual(offered.family(of: "write_file"), .worker)
+        XCTAssertEqual(offered.family(of: "finish"), .worker)
+        XCTAssertEqual(offered.family(of: "gmail_search"), .connector)
+        XCTAssertNil(offered.family(of: "gmail_send"), "a connector outside the team's scope must not run")
+        XCTAssertNil(offered.family(of: "chat_write_file"), "Ada's own tools are not a worker's")
+        XCTAssertNil(OfferedTools.direct(connectorTools: [], hasLinkedMissions: true, hasExtendedAccess: true).family(of: "finish"))
     }
 
     func testDirectAnswerCompactsLargeExecutedToolPayloads() async throws {

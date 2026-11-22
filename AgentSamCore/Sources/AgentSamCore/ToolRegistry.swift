@@ -22,6 +22,8 @@ public enum ToolFamily: Sendable, Equatable {
     case mcp
     /// External services through `ConnectorHub`. Reads run at once; writes need an approval.
     case connector
+    /// A mission worker's files, programs and `finish` in the mission workspace (`AgentTools`).
+    case worker
 }
 
 /// The tools offered in one request, with the family each name belongs to.
@@ -64,6 +66,14 @@ public struct OfferedTools: Sendable {
             (.memory, MemoryTools.definitions),
             (.workstation, hasWorkstation ? WorkstationTools.definitions : []),
             (.mcp, mcpTools),
+        ])
+    }
+
+    /// A mission worker's tools: its workspace tools, then the connectors its team's scope allows.
+    public static func worker(connectorTools: [APIToolDef]) -> OfferedTools {
+        OfferedTools([
+            (.worker, AgentTools.workerTools),
+            (.connector, connectorTools),
         ])
     }
 }
@@ -161,6 +171,10 @@ public enum ToolCatalog {
         ToolSpec("cloudflare_dns_create", .approval, en: "Preparing a DNS change", es: "Preparando un cambio de DNS"),
         ToolSpec("cloudflare_dns_update", .approval, en: "Preparing a DNS change", es: "Preparando un cambio de DNS"),
         ToolSpec("cloudflare_dns_delete", .approval, en: "Preparing a DNS change", es: "Preparando un cambio de DNS"),
+        ToolSpec("write_file", .write, en: "Writing a file", es: "Escribiendo un archivo"),
+        ToolSpec("read_file", .read, en: "Reading a file", es: "Leyendo un archivo"),
+        ToolSpec("list_dir", .read, en: "Listing files", es: "Revisando los archivos"),
+        ToolSpec("finish", .read, en: "Finishing the task", es: "Terminando la tarea"),
         ToolSpec("cloudflare_purge_cache", .approval, en: "Preparing a cache purge", es: "Preparando una limpieza de caché"),
     ]
 
