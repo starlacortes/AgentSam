@@ -8,6 +8,8 @@ public enum ToolFamily: Sendable, Equatable {
     case extended
     /// Files of missions linked to this conversation (`ConversationMissionTools`).
     case mission
+    /// Handing a larger job to a background mission mid-reply (`TaskTools`).
+    case task
     /// Events that wake the conversation: new email, webhook calls (`TriggerTools`).
     case trigger
     /// Saving procedures as skills (`SkillTools`).
@@ -50,11 +52,12 @@ public struct OfferedTools: Sendable {
     public func family(of name: String) -> ToolFamily? { families[name] }
 
     /// Ada's direct-reply tools. Extended tools need workspace access; mission tools need a linked mission.
-    public static func direct(connectorTools: [APIToolDef], hasLinkedMissions: Bool, hasExtendedAccess: Bool, hasWorkstation: Bool = false, mcpTools: [APIToolDef] = []) -> OfferedTools {
+    public static func direct(connectorTools: [APIToolDef], hasLinkedMissions: Bool, hasExtendedAccess: Bool, hasWorkstation: Bool = false, mcpTools: [APIToolDef] = [], taskTools: [APIToolDef] = []) -> OfferedTools {
         OfferedTools([
             (.connector, connectorTools),
             (.chat, ChatWorkspaceTools.definitions),
             (.trigger, TriggerTools.definitions),
+            (.task, taskTools),
             (.extended, hasExtendedAccess ? ExtendedWorkspaceTools.definitions : []),
             (.mission, hasLinkedMissions ? ConversationMissionTools.definitions : []),
             (.skill, SkillTools.definitions),
@@ -116,6 +119,7 @@ public enum ToolCatalog {
         ToolSpec("run_program", .write, en: "Running the program", es: "Ejecutando el programa"),
         ToolSpec("chat_schedule_run", .write, en: "Scheduling recurring work", es: "Programando el trabajo recurrente"),
         ToolSpec("chat_schedule_cancel", .write, en: "Cancelling the schedule", es: "Cancelando la programación"),
+        ToolSpec("start_task", .write, en: "Handing this to a task", es: "Pasando esto a una tarea"),
         ToolSpec("chat_trigger_add", .write, en: "Setting up a trigger", es: "Configurando un disparador"),
         ToolSpec("chat_trigger_remove", .write, en: "Removing a trigger", es: "Quitando un disparador"),
         ToolSpec("chat_patch_file", .write, en: "Editing a file", es: "Editando un archivo"),
