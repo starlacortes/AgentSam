@@ -78,10 +78,10 @@ public struct ConversationPromptContext: Sendable {
                 case .pending: outcome = "waiting for the person to approve or deny"
                 case .approved: outcome = "approved, about to run"
                 case .executing: outcome = "approved and running"
-                case .completed: outcome = "approved and done"
+                case .completed: outcome = action.automatic == true ? "ran automatically under a standing permission; done" : "approved and done"
                 case .denied: outcome = "denied by the person; nothing was done"
                 case .expired: outcome = "expired without a decision; nothing was done"
-                case .failed: outcome = "approved, but it failed"
+                case .failed: outcome = action.automatic == true ? "ran automatically under a standing permission, but it failed" : "approved, but it failed"
                 }
                 let result = action.result.map { "; result: " + String($0.replacingOccurrences(of: "\n", with: " ").prefix(500)) } ?? ""
                 return "- \(action.toolName) \(String(arguments.prefix(200))), requested \(Self.describe(action.createdAt, in: timeZone)): \(outcome)\(result)"

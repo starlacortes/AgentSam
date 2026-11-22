@@ -510,13 +510,35 @@ public actor ConversationEngine {
                     if ConnectorHub.readOnlyToolNames.contains(call.function.name) {
                         outcome = await connectors.run(call: call, readOnly: true)
                     } else if let ref {
+                        let decision = await access?.permissions.decide(ownerID: ref.ownerID, toolName: call.function.name, arguments: AgentTools.arguments(of: call)) ?? .ask(nil)
+                        if case .deny(let reason) = decision {
+                            outcome = .failure(reason)
+                            break
+                        }
+                        if case .allow = decision {
+                            let result = await connectors.run(call: call, approved: true)
+                            let record = AgentActionRequest(
+                                ownerID: ref.ownerID, conversationID: conversationID, kind: .connectorWrite,
+                                title: "Ran \(call.function.name) automatically", detail: "Your standing permission for this tool allowed it without an approval card.",
+                                toolName: call.function.name, arguments: .object([("raw", .string(call.function.arguments))])
+                            )
+                            await access?.actions.recordAutomatic(record, result: result.resultText, succeeded: result.succeeded)
+                            outcome = result.succeeded
+                                ? ToolOutcome(resultText: "Ran without an approval card because the user's standing permission allows it.\n\n" + result.resultText)
+                                : result
+                            break
+                        }
+                        var reason: String?
+                        if case .ask(let why) = decision { reason = why }
+                        let lifetime = await access?.permissions.approvalLifetime(ownerID: ref.ownerID) ?? 15 * 60
                         let action = AgentActionRequest(
                             ownerID: ref.ownerID, conversationID: conversationID, kind: .connectorWrite,
-                            title: "Approve \(call.function.name)", detail: "Ada requested an external connector write. Review the exact arguments. Nothing has been sent or changed yet.",
-                            toolName: call.function.name, arguments: .object([("raw", .string(call.function.arguments))])
+                            title: "Approve \(call.function.name)", detail: "Ada requested an external connector write. Review the exact arguments. Nothing has been sent or changed yet." + (reason.map { " " + $0 } ?? ""),
+                            toolName: call.function.name, arguments: .object([("raw", .string(call.function.arguments))]), lifetime: lifetime
                         )
                         if let saved = await access?.actions.request(action) {
-                            outcome = ToolOutcome(resultText: "Approval requested (\(saved.id.uuidString)). Do not retry this write. Tell the user to review the approval card; the external action has not happened. The outcome will appear under approval requests in your context on a later turn.")
+                            let why = reason.map { " \($0)" } ?? ""
+                            outcome = ToolOutcome(resultText: "Approval requested (\(saved.id.uuidString)).\(why) Do not retry this write. Tell the user to review the approval card; the external action has not happened. The outcome will appear under approval requests in your context on a later turn.")
                         } else {
                             outcome = .failure("Connector approvals are not available. No external write was performed.")
                         }

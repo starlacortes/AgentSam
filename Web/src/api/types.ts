@@ -234,6 +234,8 @@ export interface AgentActionRequest {
   createdAt: string
   expiresAt: string
   result?: string
+  /** Ran without a card because a standing permission allowed it. */
+  automatic?: boolean
 }
 
 export interface WorkspaceMemory {
@@ -431,4 +433,27 @@ export interface PublicBatch {
 
 export interface BatchDetail {
   batch: PublicBatch
+}
+
+export type PermissionMode = 'ask' | 'allow' | 'never'
+
+export interface PermissionRule {
+  mode: PermissionMode
+  maxPerDay?: number
+  maxAmount?: number
+  branchPrefix?: string
+  allowedRecipients?: string[]
+}
+
+export interface PermissionPolicy {
+  paused: boolean
+  rules: { [tool: string]: PermissionRule }
+  approvalMinutes: number
+}
+
+export interface PermissionsView {
+  policy: PermissionPolicy
+  usageToday: { [tool: string]: number }
+  tools: string[]
+  canEdit: boolean
 }

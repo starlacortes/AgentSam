@@ -296,8 +296,10 @@ public struct AgentActionRequest: Codable, Identifiable, Hashable, Sendable {
     public var createdAt: Date
     public var expiresAt: Date
     public var result: String?
+    /// True when a standing permission ran this without a card; the record is kept so the chat shows it.
+    public var automatic: Bool?
 
-    public init(ownerID: String, conversationID: UUID, missionID: UUID? = nil, kind: Kind, title: String, detail: String, toolName: String, arguments: JSONValue, teamID: UUID? = nil, toolScope: ToolScope? = nil, fileScope: FileScope? = nil, projectName: String? = nil) {
+    public init(ownerID: String, conversationID: UUID, missionID: UUID? = nil, kind: Kind, title: String, detail: String, toolName: String, arguments: JSONValue, teamID: UUID? = nil, toolScope: ToolScope? = nil, fileScope: FileScope? = nil, projectName: String? = nil, lifetime: TimeInterval = 15 * 60) {
         id = UUID()
         self.ownerID = ownerID
         self.conversationID = conversationID
@@ -313,7 +315,7 @@ public struct AgentActionRequest: Codable, Identifiable, Hashable, Sendable {
         self.projectName = projectName
         status = .pending
         createdAt = Date()
-        expiresAt = Date().addingTimeInterval(15 * 60)
+        expiresAt = Date().addingTimeInterval(max(60, lifetime))
         result = nil
     }
 }
@@ -323,10 +325,12 @@ public struct ConversationAccess: Sendable {
     public let actions: AgentActionCenter
     public let audit: AccessAuditLog
     public let terminal: WorkspaceTerminal
+    public let permissions: PermissionStore
 
     public init(root: URL) {
         let audit = AccessAuditLog(root: root)
         self.audit = audit
+        permissions = PermissionStore(root: root, audit: audit)
         hosts = HostAccessStore(root: root, audit: audit)
         actions = AgentActionCenter(root: root, audit: audit)
         terminal = WorkspaceTerminal()
@@ -357,6 +361,10 @@ public actor AgentActionCenter {
 
     public func owner(missionID: UUID) -> String? {
         links[missionID]?.ownerID
+    }
+
+    public func conversation(missionID: UUID) -> UUID? {
+        links[missionID]?.conversationID
     }
 
     @discardableResult
@@ -409,15 +417,28 @@ public actor AgentActionCenter {
         Task { await audit.record(ownerID: ownerID, action: action.kind == .connectorWrite ? "connector.executed" : "file.deletion.finished", detail: "\(action.toolName): \(action.status.rawValue)") }
     }
 
-    public func awaitConnectorApproval(missionID: UUID, call: APIToolCall, scope: ToolScope?) async -> String {
+    /// Keeps a record of a write a standing permission ran without a card, so it shows in the chat
+    /// beside approval cards and in the audit log.
+    @discardableResult
+    public func recordAutomatic(_ action: AgentActionRequest, result: String, succeeded: Bool) -> AgentActionRequest {
+        var record = action
+        record.automatic = true
+        record.status = succeeded ? .completed : .failed
+        record.result = String(result.prefix(4_000))
+        save(record)
+        Task { await audit.record(ownerID: record.ownerID, action: "connector.executed", detail: "\(record.toolName): \(record.status.rawValue) (standing permission)") }
+        return record
+    }
+
+    public func awaitConnectorApproval(missionID: UUID, call: APIToolCall, scope: ToolScope?, lifetime: TimeInterval = 15 * 60) async -> String {
         guard let link = links[missionID] else { return "No conversation owns this mission. Launch connector-writing missions from a conversation so a person can approve the action." }
         let action = AgentActionRequest(
             ownerID: link.ownerID, conversationID: link.conversationID, missionID: missionID, kind: .connectorWrite,
             title: "Approve \(call.function.name)", detail: "A mission worker requested an external connector write. Review its exact arguments before approving.",
-            toolName: call.function.name, arguments: .object([("raw", .string(call.function.arguments))]), toolScope: scope
+            toolName: call.function.name, arguments: .object([("raw", .string(call.function.arguments))]), toolScope: scope, lifetime: lifetime
         )
         let saved = request(action)
-        let deadline = Date().addingTimeInterval(15 * 60)
+        let deadline = saved.expiresAt
         while Date() < deadline {
             try? Task.checkCancellation()
             guard let current = get(ownerID: link.ownerID, id: saved.id) else { return "The approval request disappeared; the connector write was not executed." }

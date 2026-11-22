@@ -11,6 +11,13 @@ struct ActionDecisionBody: Content {
     var approve: Bool
 }
 
+struct PermissionsView: Content {
+    var policy: PermissionPolicy
+    var usageToday: [String: Int]
+    var tools: [String]
+    var canEdit: Bool
+}
+
 struct UploadedProjectFile: Content {
     var path: String
     var bytes: Int
@@ -98,6 +105,30 @@ func accessRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
         }
         await ctx.access.audit.record(ownerID: principal.conversationOwnerID, action: "host.revoke", detail: id.uuidString)
         return try req.json(AckResult(ok: true, detail: "Host folder access revoked. Existing files are unchanged."))
+    }
+
+    @Sendable func permissionsView(owner: String, canEdit: Bool) async -> PermissionsView {
+        PermissionsView(
+            policy: await ctx.access.permissions.policy(ownerID: owner),
+            usageToday: await ctx.access.permissions.usageToday(ownerID: owner),
+            tools: PermissionStore.ruleTools.sorted(),
+            canEdit: canEdit
+        )
+    }
+
+    // Standing permissions: which write tools Ada may run without an approval card, within limits.
+    api.get("access", "permissions") { req async throws -> Response in
+        let principal = try req.requirePrincipal()
+        return try req.json(await permissionsView(owner: principal.conversationOwnerID, canEdit: principal.isAdmin))
+    }
+
+    api.put("access", "permissions") { req async throws -> Response in
+        let principal = try req.requirePrincipal()
+        // Connector accounts are shared by the whole server, so only admins may let Ada act on them unasked.
+        guard principal.isAdmin else { throw Abort(.forbidden, reason: "Only admins can change Ada's standing permissions.") }
+        let policy = try req.decodeJSON(PermissionPolicy.self)
+        await ctx.access.permissions.save(ownerID: principal.conversationOwnerID, policy: policy)
+        return try req.json(await permissionsView(owner: principal.conversationOwnerID, canEdit: true))
     }
 
     api.get("access", "audit") { req async throws -> Response in

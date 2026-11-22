@@ -35,7 +35,7 @@ export function ActionApprovalCard({ action, onResolved }: { action: AgentAction
     } catch (err) { setError(errorMessage(err)) } finally { setBusy(false) }
   }
   return <section className="co-team-proposal co-action-card" aria-label={t('Action approval')}>
-    <div className="co-proposal-head"><Icon name="shield" /><div><b>{action.title}</b><span>{action.toolName}</span></div><span className="co-chip">{expired ? t('expired') : t(action.status)}</span></div>
+    <div className="co-proposal-head"><Icon name="shield" /><div><b>{action.title}</b><span>{action.toolName}</span></div><span className="co-chip">{expired ? t('expired') : action.automatic ? t('ran automatically') : t(action.status)}</span></div>
     <p className="co-proposal-rationale">{action.detail}</p>
     <pre className="co-action-arguments">{formatActionArguments(action)}</pre>
     {action.result ? <pre className="co-action-result">{action.result}</pre> : null}
