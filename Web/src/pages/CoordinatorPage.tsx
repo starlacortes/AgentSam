@@ -578,7 +578,7 @@ export function CoordinatorPage() {
 
   // Less-used chat actions sit behind one "more" button so the header stays calm.
   const chatMenu: PopMenuItem[] = [
-    ...(conversation && !conversation.schedule ? [{ label: t('Set a recurring schedule'), icon: 'refresh' as const, disabled: running, onSelect: () => setScheduleOpen(true) }] : []),
+    ...(conversation && !conversation.schedule && !conversation.triggers?.length ? [{ label: t('Automate this chat'), icon: 'refresh' as const, disabled: running, onSelect: () => setScheduleOpen(true) }] : []),
     { label: t('Connections'), icon: 'plug', note: t(connectorLabel(gmail)), onSelect: () => navigate('/settings/connections') },
     { label: t('Open the guide'), icon: 'info', onSelect: () => void restartGuide().catch((err) => setError(errorMessage(err))) },
     ...(conversation ? [{ label: t('Delete conversation'), icon: 'trash' as const, danger: true, disabled: running, onSelect: () => void remove() }] : []),
@@ -599,7 +599,7 @@ export function CoordinatorPage() {
         <div className="co-chat-heading"><span>{t(conversation?.projectName ?? projectName)} <span className="co-path-separator">/</span></span><h1>{conversation?.title ?? t('New conversation')}</h1></div>
         <div className="co-header-actions">
           {conversation?.archivedAt ? <button className="co-archived-pill" title={t('Restore this chat to the sidebar')} onClick={() => void api<Conversation>(`conversations/${conversation.id}/archive`, { method: 'DELETE' }).then(restored).catch((err) => setError(errorMessage(err)))}><Icon name="archive" size={13} /><span>{t('Archived')}</span><b>{t('Restore')}</b></button> : null}
-          {conversation?.schedule ? <button className="co-icon-button co-schedule-toggle active" aria-label={t('Recurring schedule on — open settings')} aria-pressed title={t('Recurring schedule')} onClick={() => setScheduleOpen(true)}><Icon name="refresh" size={16} /></button> : null}
+          {conversation?.schedule || conversation?.triggers?.length ? <button className="co-icon-button co-schedule-toggle active" aria-label={t('Automation on — open settings')} aria-pressed title={t('Automation')} onClick={() => setScheduleOpen(true)}><Icon name="refresh" size={16} /></button> : null}
           <button className={`co-icon-button co-canvas-toggle ${canvas ? 'active' : ''}`} aria-label={canvas ? t('Hide preview and console') : t('Show preview and console')} aria-pressed={Boolean(canvas)} title={t('Preview & console')} onClick={() => canvas ? setCanvas(null) : openCanvas({ tab: missionIDs.length ? 'console' : 'preview' })}><Icon name="panel" size={16} /></button>
           <button className="co-voice-button" onClick={() => setVoiceOpen(true)} disabled={sending}><Icon name="mic" size={15} /><span>{t('Voice')}</span></button>
           <PopMenu label={t('More chat options')} icon="more" className="co-chat-menu" items={chatMenu} />
@@ -634,7 +634,7 @@ export function CoordinatorPage() {
       void archiveNow(chatID)
     }} /> : null}
     {archivedOpen ? <ArchivedChats settings={archiveSettings} onSettings={setArchiveSettings} onRestored={restored} onClose={() => setArchivedOpen(false)} onOpen={(chatID) => { setArchivedOpen(false); navigate(`/chats/${chatID}`) }} /> : null}
-    {scheduleOpen && conversation ? <ScheduleModal conversation={conversation} onUpdated={updateProposal} onClose={() => setScheduleOpen(false)} /> : null}
+    {scheduleOpen && conversation ? <ScheduleModal conversation={conversation} gmailConnected={Boolean(gmail?.configured)} onUpdated={updateProposal} onClose={() => setScheduleOpen(false)} /> : null}
     {guide && (!guide.completed || searchParams.get('guide') === '1') ? <Guide onFinish={finishGuide} /> : null}
     {voiceOpen ? <VoiceMode onSend={sendMessage} onTranscribe={transcribeVoice} onClose={() => setVoiceOpen(false)} activity={liveActivity} /> : null}
   </div>

@@ -113,7 +113,7 @@ function UserMessage({ conversationID, message, onEdit }: { conversationID: stri
   const photos = message.photos ?? []
   return <div className="co-user-message" title={timeLabel(message.createdAt)}>
     {photos.length ? <div className={`co-message-photos count-${Math.min(photos.length, 4)}`}>{photos.map((photo) => <a key={photo.id} href={photoURL(conversationID, photo.id)} target="_blank" rel="noreferrer" aria-label={t('Open photo')}><img src={photoURL(conversationID, photo.id)} alt={t('Attached photo')} loading="lazy" /></a>)}</div> : null}
-    {message.scheduled ? <p className="co-scheduled-message"><span className="co-scheduled-tag"><Icon name="refresh" size={11} />{t('Scheduled run')}</span>{message.text}</p> : message.text || !photos.length ? <p>{message.text}</p> : null}
+    {message.scheduled ? <p className="co-scheduled-message"><span className="co-scheduled-tag"><Icon name="refresh" size={11} />{message.trigger ? t(message.trigger.kind === 'gmail' ? 'Started by a new email' : 'Started by a webhook call') : t('Scheduled run')}</span>{message.text}</p> : message.text || !photos.length ? <p>{message.text}</p> : null}
     <div className="co-user-actions"><button type="button" onClick={() => copy(message.text)} aria-label={t('Copy')}><Icon name={copied ? 'check' : 'copy'} size={11} /></button><button type="button" onClick={() => onEdit(message.text)} aria-label={t('Edit and resend')} title={t('Edit and resend')}><Icon name="edit" size={11} /></button></div>
   </div>
 }

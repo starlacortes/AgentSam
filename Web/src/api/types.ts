@@ -150,6 +150,14 @@ export interface ConversationMessage {
   /** For a reply to a spoken message: the part read aloud; the rest of `text` is on-screen detail. */
   speech?: string
   completedAt?: string
+  /** For a run a trigger started: what happened. */
+  trigger?: TriggerEvent
+}
+
+export interface TriggerEvent {
+  triggerID: string
+  kind: 'gmail' | 'webhook'
+  data: string
 }
 
 export interface MessageStep {
@@ -184,7 +192,34 @@ export interface ConversationSchedule {
   createdAt: string
   lastRunAt?: string
   nextRunAt: string
+  /** Set times: runs at hour:minute on these ISO weekdays (1 = Monday; empty = every day). */
+  at?: ScheduleTime
+  failures?: number
+  pausedAt?: string
+  pauseReason?: string
 }
+
+export interface ScheduleTime {
+  hour: number
+  minute: number
+  weekdays: number[]
+}
+
+/** Something that wakes the chat: new email matching a Gmail search, or a call to its webhook. */
+export interface ConversationTrigger {
+  id: string
+  kind: 'gmail' | 'webhook'
+  prompt: string
+  language: string
+  query?: string
+  token?: string
+  createdAt: string
+  lastFiredAt?: string
+  failures?: number
+  pausedAt?: string
+  pauseReason?: string
+}
+
 
 export function intervalLabel(minutes: number): string {
   return { 15: 'every 15 minutes', 30: 'every 30 minutes', 60: 'hourly', 360: 'every 6 hours', 720: 'every 12 hours', 1440: 'daily' }[minutes] ?? `every ${minutes} minutes`
@@ -195,6 +230,8 @@ export interface Conversation extends ConversationSummary {
   createdAt: string
   messages: ConversationMessage[]
   schedule?: ConversationSchedule
+  triggers?: ConversationTrigger[]
+  timeZone?: string
 }
 
 export interface HostFolderGrant {

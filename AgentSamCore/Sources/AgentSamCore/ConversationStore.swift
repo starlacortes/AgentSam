@@ -143,28 +143,105 @@ public actor ConversationStore {
     /// Advances a schedule after the server fired it: records the run and computes the next due
     /// time. The scheduler calls this right after dispatch, so a crash mid-run still counts.
     @discardableResult
-    public func markScheduleRun(id: UUID, ownerID: String) throws -> Conversation {
+    public func markScheduleRun(id: UUID, ownerID: String, now: Date = Date()) throws -> Conversation {
         guard var conversation = try get(id: id, ownerID: ownerID),
               var schedule = conversation.schedule else { throw ConversationError.notFound }
-        schedule.lastRunAt = Date()
-        schedule.nextRunAt = Date().addingTimeInterval(TimeInterval(schedule.intervalMinutes) * 60)
+        schedule.lastRunAt = now
+        schedule.nextRunAt = schedule.next(after: now, in: conversation.zone)
+        conversation.schedule = schedule
+        try save(conversation)
+        return conversation
+    }
+
+    /// Records how a scheduled run ended. Repeated failures pause the schedule.
+    @discardableResult
+    public func recordScheduleOutcome(id: UUID, ownerID: String, succeeded: Bool, now: Date = Date()) throws -> Conversation? {
+        guard var conversation = try get(id: id, ownerID: ownerID), var schedule = conversation.schedule else { return nil }
+        schedule.recordOutcome(succeeded: succeeded, now: now)
         conversation.schedule = schedule
         try save(conversation)
         return conversation
     }
 
     /// Every scheduled conversation that is due, across all owners. The scheduler polls this.
+    /// Paused schedules and archived chats are left out.
     public func dueSchedules(now: Date = Date()) throws -> [(conversationID: UUID, ownerID: String, schedule: ConversationSchedule)] {
-        let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
         var due: [(UUID, String, ConversationSchedule)] = []
-        for file in files where file.pathExtension == "json" {
-            guard let data = try? Data(contentsOf: file),
-                  let conversation = try? Self.decoder.decode(Conversation.self, from: data),
-                  conversation.archivedAt == nil,
-                  let schedule = conversation.schedule, schedule.nextRunAt <= now else { continue }
+        for conversation in try all() where conversation.archivedAt == nil {
+            guard let schedule = conversation.schedule, !schedule.isPaused, schedule.nextRunAt <= now else { continue }
             due.append((conversation.id, conversation.ownerID, schedule))
         }
         return due
+    }
+
+    // MARK: Triggers
+
+    /// Adds a trigger, up to `ConversationTrigger.maxPerConversation` per chat.
+    public func addTrigger(id: UUID, ownerID: String, trigger: ConversationTrigger) throws -> Result<ConversationTrigger, TriggerError> {
+        guard var conversation = try get(id: id, ownerID: ownerID) else { throw ConversationError.notFound }
+        guard conversation.triggers.count < ConversationTrigger.maxPerConversation else { return .failure(.tooMany) }
+        conversation.triggers.append(trigger)
+        try save(conversation)
+        return .success(trigger)
+    }
+
+    /// Removes a trigger by its full ID or a unique prefix of it (Ada sees the first 8 characters).
+    public func removeTrigger(id: UUID, ownerID: String, triggerID: String) throws -> Result<ConversationTrigger, TriggerError> {
+        guard var conversation = try get(id: id, ownerID: ownerID) else { throw ConversationError.notFound }
+        let needle = triggerID.trimmingCharacters(in: .whitespaces).uppercased()
+        let matches = conversation.triggers.filter { !needle.isEmpty && $0.id.uuidString.hasPrefix(needle) }
+        guard matches.count == 1, let match = matches.first else { return .failure(.notFound) }
+        conversation.triggers.removeAll { $0.id == match.id }
+        try save(conversation)
+        return .success(match)
+    }
+
+    /// Changes one trigger in place. Returns nil when the chat or trigger is gone.
+    @discardableResult
+    public func updateTrigger(id: UUID, ownerID: String, triggerID: UUID, _ update: (inout ConversationTrigger) -> Void) throws -> ConversationTrigger? {
+        guard var conversation = try get(id: id, ownerID: ownerID),
+              let index = conversation.triggers.firstIndex(where: { $0.id == triggerID }) else { return nil }
+        update(&conversation.triggers[index])
+        try save(conversation)
+        return conversation.triggers[index]
+    }
+
+    /// Clears a trigger's pause and failure count.
+    public func resumeTrigger(id: UUID, ownerID: String, triggerID: UUID) throws -> Conversation? {
+        guard try updateTrigger(id: id, ownerID: ownerID, triggerID: triggerID, { $0.resume() }) != nil else { return nil }
+        return try get(id: id, ownerID: ownerID)
+    }
+
+    /// The webhook trigger whose secret token this is, in a chat that isn't archived.
+    public func webhookTrigger(token: String) throws -> (conversationID: UUID, ownerID: String, trigger: ConversationTrigger)? {
+        guard token.count == 64 else { return nil }
+        for conversation in try all() where conversation.archivedAt == nil {
+            for trigger in conversation.triggers where trigger.kind == .webhook {
+                if let stored = trigger.token, Self.constantTimeEqual(stored, token) {
+                    return (conversation.id, conversation.ownerID, trigger)
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Gmail triggers that are not paused, in chats that aren't archived.
+    public func gmailTriggers() throws -> [(conversationID: UUID, ownerID: String, trigger: ConversationTrigger)] {
+        var found: [(UUID, String, ConversationTrigger)] = []
+        for conversation in try all() where conversation.archivedAt == nil {
+            for trigger in conversation.triggers where trigger.kind == .gmail && !trigger.isPaused {
+                found.append((conversation.id, conversation.ownerID, trigger))
+            }
+        }
+        return found
+    }
+
+    static func constantTimeEqual(_ a: String, _ b: String) -> Bool {
+        let left = Array(a.utf8), right = Array(b.utf8)
+        guard left.count == right.count else { return false }
+        var difference: UInt8 = 0
+        for index in left.indices { difference |= left[index] ^ right[index] }
+        return difference == 0
     }
 
     // MARK: Archive

@@ -164,7 +164,10 @@ struct ServerContext: Sendable {
             dailyLimit: Environment.get("AGENTSAM_PROVISIONING_DAILY_LIMIT").flatMap(Int.init) ?? 200
         )
         let provisioningRunner = ProvisioningRunner(store: provisioning, accounts: accounts)
-        let scheduler = ConversationScheduler(conversations: conversations, engine: conversationEngine)
+        let scheduler = ConversationScheduler(conversations: conversations, engine: conversationEngine) { [connectors] query, seen in
+            guard connectors.isConfigured(.gmail) else { throw ConnectorError("Gmail is not connected.") }
+            return try await GmailConnector().recentEmails(query: query, seen: seen, runtime: connectors.runtime)
+        }
         let knowledgeScheduler = WorkspaceKnowledgeScheduler(knowledge: knowledge)
         return ServerContext(
             store: store,

@@ -62,7 +62,19 @@ struct GuidePatchBody: Content {
 
 struct ScheduleSetBody: Content {
     var prompt: String
-    var intervalMinutes: Int
+    var intervalMinutes: Int?
+    var language: String?
+    /// A local time, 24-hour "HH:MM". With it, the schedule runs at that time instead of on an interval.
+    var at: String?
+    /// With `at`: "every day", "weekdays", "weekends", or "mon,wed,fri".
+    var days: String?
+    var timeZone: String?
+}
+
+struct TriggerAddBody: Content {
+    var kind: String
+    var prompt: String
+    var query: String?
     var language: String?
 }
 
@@ -343,10 +355,21 @@ func conversationRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
         let owner = try req.requirePrincipal().conversationOwnerID
         let id = try req.conversationID
         let body = try req.decodeJSON(ScheduleSetBody.self)
+        if let zone = body.timeZone { _ = try await ctx.conversations.setTimeZone(id: id, ownerID: owner, timeZone: zone) }
+        guard let current = try await ctx.conversations.get(id: id, ownerID: owner) else { throw Abort(.notFound) }
+        var at: ScheduleTime?
+        if let raw = body.at, !raw.trimmingCharacters(in: .whitespaces).isEmpty {
+            guard let parsed = ScheduleTime.parse(time: raw, days: body.days) else {
+                throw Abort(.badRequest, reason: "Give the time as 24-hour HH:MM and the days as every day, weekdays, weekends, or a list like mon,wed,fri.")
+            }
+            at = parsed
+        }
         guard let schedule = ConversationSchedule.validate(
             prompt: body.prompt,
             intervalMinutes: body.intervalMinutes,
-            language: body.language ?? SrvL10n.lang(for: req)
+            language: body.language ?? SrvL10n.lang(for: req),
+            at: at,
+            timeZone: current.zone
         ) else {
             throw Abort(.badRequest, reason: "The schedule needs a prompt and one of these intervals in minutes: \(ConversationSchedule.allowedIntervals.map(String.init).joined(separator: ", ")).")
         }
@@ -359,6 +382,83 @@ func conversationRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
         let id = try req.conversationID
         let conversation = try await ctx.conversations.setSchedule(id: id, ownerID: owner, schedule: nil)
         return try req.json(conversation)
+    }
+
+    // MARK: Triggers — new email or a webhook call wakes the conversation.
+
+    api.post("conversations", ":id", "triggers") { req async throws -> Response in
+        let owner = try req.requirePrincipal().conversationOwnerID
+        let id = try req.conversationID
+        let body = try req.decodeJSON(TriggerAddBody.self)
+        guard let kind = ConversationTrigger.Kind(rawValue: body.kind.lowercased()) else {
+            throw Abort(.badRequest, reason: "kind must be gmail or webhook.")
+        }
+        if kind == .gmail && !ctx.connectors.isConfigured(.gmail) {
+            throw Abort(.badRequest, reason: "Connect Gmail in Settings > Connections first.")
+        }
+        let trigger: ConversationTrigger
+        switch ConversationTrigger.validate(kind: kind, prompt: body.prompt, query: body.query, language: body.language ?? SrvL10n.lang(for: req)) {
+        case .failure(let error): throw Abort(.badRequest, reason: error.message)
+        case .success(let valid): trigger = valid
+        }
+        if case .failure(let error) = try await ctx.conversations.addTrigger(id: id, ownerID: owner, trigger: trigger) {
+            throw Abort(.badRequest, reason: error.message)
+        }
+        guard let conversation = try await ctx.conversations.get(id: id, ownerID: owner) else { throw Abort(.notFound) }
+        return try req.json(conversation)
+    }
+
+    api.delete("conversations", ":id", "triggers", ":trigger") { req async throws -> Response in
+        let owner = try req.requirePrincipal().conversationOwnerID
+        let id = try req.conversationID
+        let triggerID = req.parameters.get("trigger") ?? ""
+        guard UUID(uuidString: triggerID) != nil, case .success = try await ctx.conversations.removeTrigger(id: id, ownerID: owner, triggerID: triggerID) else {
+            throw Abort(.notFound, reason: TriggerError.notFound.message)
+        }
+        guard let conversation = try await ctx.conversations.get(id: id, ownerID: owner) else { throw Abort(.notFound) }
+        return try req.json(conversation)
+    }
+
+    api.post("conversations", ":id", "triggers", ":trigger", "resume") { req async throws -> Response in
+        let owner = try req.requirePrincipal().conversationOwnerID
+        let id = try req.conversationID
+        guard let triggerID = req.parameters.get("trigger").flatMap(UUID.init(uuidString:)),
+              let conversation = try await ctx.conversations.resumeTrigger(id: id, ownerID: owner, triggerID: triggerID) else {
+            throw Abort(.notFound, reason: TriggerError.notFound.message)
+        }
+        return try req.json(conversation)
+    }
+}
+
+/// The public webhook address of a chat's trigger. Not behind login: the secret token in the path
+/// is the credential. The request body becomes the run's event data; Ada sees it as untrusted.
+func webhookRoutes(_ app: Application, ctx: ServerContext) {
+    app.on(.POST, "api", "hooks", ":token", body: .collect(maxSize: "64kb")) { req async throws -> Response in
+        guard let token = req.parameters.get("token"),
+              let found = try await ctx.conversations.webhookTrigger(token: token) else {
+            throw Abort(.notFound, reason: "Unknown webhook.")
+        }
+        var data = "Webhook call"
+        if let type = req.headers.contentType?.serialize() { data += " (Content-Type: \(type))" }
+        if let buffer = req.body.data, buffer.readableBytes > 0 {
+            let text = String(decoding: buffer.readableBytesView.prefix(TriggerEvent.maxDataCharacters), as: UTF8.self)
+            data += ":\n" + text
+        } else {
+            data += " with an empty body."
+        }
+        let result = await ctx.scheduler.fire(conversationID: found.conversationID, ownerID: found.ownerID, triggerID: found.trigger.id, data: data)
+        let status: HTTPResponseStatus
+        let message: String
+        switch result {
+        case .started: (status, message) = (.accepted, "Ada is on it.")
+        case .busy: (status, message) = (.conflict, "The chat is busy with another reply. Try again in a minute.")
+        case .rateLimited: (status, message) = (.tooManyRequests, "This trigger already ran \(ConversationTrigger.maxFiresPerHour) times in the last hour.")
+        case .paused: (status, message) = (.locked, "This trigger is paused. Resume it in the chat's Automation panel.")
+        case .notFound: (status, message) = (.notFound, "Unknown webhook.")
+        }
+        let response = Response(status: status)
+        try response.content.encode(["status": message])
+        return response
     }
 }
 
