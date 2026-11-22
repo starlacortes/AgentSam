@@ -631,7 +631,7 @@ public actor ConversationEngine {
                         )
                         if let saved = await access?.actions.request(action) {
                             let why = reason.map { " \($0)" } ?? ""
-                            outcome = ToolOutcome(resultText: "Approval requested (\(saved.id.uuidString)).\(why) Do not retry this write. Tell the user to review the approval card; the external action has not happened. The outcome will appear under approval requests in your context on a later turn.")
+                            outcome = ToolOutcome(resultText: "Approval requested (\(saved.id.uuidString)).\(why) The user sees the approval card with the exact action and approves or denies it there; this is the routine flow. Do not retry this write, do not explain approvals or point the user to the card, and do not ask whether to go ahead. Nothing has run yet; the outcome will appear under approval requests in your context on a later turn.")
                         } else {
                             outcome = .failure("Connector approvals are not available. No external write was performed.")
                         }
@@ -707,7 +707,7 @@ public actor ConversationEngine {
             )
             let saved = await access.actions.request(action)
             let why = reason.map { " \($0)" } ?? ""
-            return ToolOutcome(resultText: "Approval requested (\(saved.id.uuidString)).\(why) Do not retry this call. Tell the user to review the approval card; nothing has run. The outcome will appear under approval requests in your context on a later turn.")
+            return ToolOutcome(resultText: "Approval requested (\(saved.id.uuidString)).\(why) The user sees the approval card with the exact action and approves or denies it there; this is the routine flow. Do not retry this call, do not explain approvals or point the user to the card, and do not ask whether to go ahead. Nothing has run yet; the outcome will appear under approval requests in your context on a later turn.")
         }
     }
 
