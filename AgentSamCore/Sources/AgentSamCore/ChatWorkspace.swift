@@ -158,10 +158,12 @@ public actor ChatWorkspaceStore {
 /// File and code tools Ada can use directly in chat. Files land in the conversation's private
 /// workspace; code runs in a fresh sandbox under the conversation's folder with a hard timeout.
 public enum ChatWorkspaceTools {
-    public static let maxRunsPerTurn = 4
+    public static let maxRunsPerTurn = 12
     public static let maxSourceBytes = 60_000
     public static let maxStdinBytes = 10_000
-    public static let runTimeout: TimeInterval = 20
+    public static let runTimeout: TimeInterval = 60
+    /// Seconds a terminal command may run.
+    public static let terminalTimeout: TimeInterval = 120
     public static let maxOutputCharacters = 12_000
 
     public static var definitions: [APIToolDef] {
@@ -204,7 +206,7 @@ public enum ChatWorkspaceTools {
                 Run code in a fresh, OS-sandboxed folder and return its output. The program can read this \
                 conversation's workspace files at ../<path> but cannot change them, and it cannot see the home \
                 folder or server data. Nothing it writes is saved; use chat_write_file for files. Languages: "js" \
-                (Node.js), "python", and "c" (compiled and run with gcc). Limits: 20-second timeout, 60,000-character source, 12,000 characters of output, and 4 program or \
+                (Node.js), "python", and "c" (compiled and run with gcc). Limits: 60-second timeout, 60,000-character source, 12,000 characters of output, and 12 program or \
                 terminal runs per reply. Use it to compute, verify, or demonstrate: run the program you wrote, or a \
                 quick check, and report the actual output.
                 """,

@@ -16,6 +16,7 @@ struct PermissionsView: Content {
     var usageToday: [String: Int]
     var tools: [String]
     var canEdit: Bool
+    var spentTodayUSD: Double
 }
 
 struct UploadedProjectFile: Content {
@@ -112,7 +113,8 @@ func accessRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
             policy: await ctx.access.permissions.policy(ownerID: owner),
             usageToday: await ctx.access.permissions.usageToday(ownerID: owner),
             tools: PermissionStore.ruleTools.sorted(),
-            canEdit: canEdit
+            canEdit: canEdit,
+            spentTodayUSD: await ctx.access.spend.today(ownerID: owner)
         )
     }
 

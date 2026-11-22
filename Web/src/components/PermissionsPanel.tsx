@@ -83,6 +83,17 @@ export function PermissionsPanel() {
       </div>
     </div>
 
+    <div className="co-setting-card permission-spend">
+      <div className="co-setting-row">
+        <div><b>{t('Spending limits')}</b><p>{t('Estimated model cost so far today: {amount}. Models without a known price count as $0.', { amount: '$' + view.spentTodayUSD.toFixed(2) })}</p></div>
+      </div>
+      <div className="permission-limits">
+        <label>{t('Per day, in US dollars')}<input type="number" min={0} step="0.5" placeholder={t('No limit')} disabled={!editable} value={policy.dailySpendCapUSD ?? ''} onChange={(event) => update({ ...policy, dailySpendCapUSD: numberOrUndefined(event.target.value) })} /></label>
+        <label>{t('Per reply, in US dollars')}<input type="number" min={0} step="0.1" placeholder={t('No limit')} disabled={!editable} value={policy.replySpendCapUSD ?? ''} onChange={(event) => update({ ...policy, replySpendCapUSD: numberOrUndefined(event.target.value) })} /></label>
+      </div>
+      <p className="co-panel-note">{t('At the daily limit Ada stops starting new work until midnight UTC. At the reply limit she stops using tools and answers with what she has.')}</p>
+    </div>
+
     <div className="settings-cards permission-rules">
       {view.tools.map((tool) => {
         const rule = policy.rules[tool] ?? { mode: 'ask' as PermissionMode }

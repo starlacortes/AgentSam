@@ -143,6 +143,40 @@ final class PermissionRulesTests: XCTestCase {
         await engine.shutdown()
     }
 
+    func testDailySpendingCapStopsNewRepliesBeforeAnyModelCall() async throws {
+        let (engine, conversations, access, store, calls) = try await countingEngine()
+        _ = store
+        await access.permissions.save(ownerID: "owner", policy: PermissionPolicy(dailySpendCapUSD: 1))
+        await access.spend.add(ownerID: "owner", usd: 1.5)
+        let conversation = try await conversations.create(ownerID: "owner")
+        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Do some research", launchedBy: "Owner", language: "en")
+        let finished = try await finishedConversation(conversations, id: conversation.id)
+        XCTAssertEqual(calls.values.count, 0, "no model call should run past the daily cap")
+        XCTAssertTrue(finished.messages.last?.text.contains("spending limit") == true, finished.messages.last?.text ?? "")
+        XCTAssertEqual(finished.messages.last?.status, .complete)
+        await engine.shutdown()
+    }
+
+    func testReplySpendingCapEndsToolRoundsAndRecordsSpend() async throws {
+        let (engine, conversations, access, _, calls) = try await countingEngine()
+        await access.permissions.save(ownerID: "owner", policy: PermissionPolicy(replySpendCapUSD: 1))
+        let conversation = try await conversations.create(ownerID: "owner")
+        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Keep listing files", launchedBy: "Owner", language: "en")
+        let finished = try await finishedConversation(conversations, id: conversation.id)
+        // Routing, one tool round (which crosses the $1 cap), then the final answer without tools.
+        XCTAssertEqual(calls.values.filter { $0 == "tools" }.count, 1, calls.values.joined(separator: ","))
+        XCTAssertEqual(calls.values.last, "final")
+        XCTAssertEqual(finished.messages.last?.status, .complete)
+        var spent = 0.0
+        for _ in 0..<50 {
+            spent = await access.spend.today(ownerID: "owner")
+            if spent > 0 { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertGreaterThan(spent, 1, "the reply's estimated cost is added to today's spend")
+        await engine.shutdown()
+    }
+
     // MARK: Helpers
 
     private final class Clock: @unchecked Sendable {
@@ -187,6 +221,30 @@ final class PermissionRulesTests: XCTestCase {
             return LLMReply(message: .assistant("Done."), inputTokens: 0, outputTokens: 0, model: "stub")
         })
         return (engine, conversations, access, calls)
+    }
+
+    private func countingEngine() async throws -> (ConversationEngine, ConversationStore, ConversationAccess, MissionStore, LockedStrings) {
+        let store = MissionStore(root: directory)
+        await store.saveProviders([provider])
+        let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
+        try keys.set("test-key", for: provider.keyAccount)
+        let access = ConversationAccess(root: directory)
+        let conversations = ConversationStore(root: directory)
+        let calls = LockedStrings()
+        // A priced model, so each call costs a known amount: 1M input tokens of claude-sonnet-4-5 is $3.
+        let engine = ConversationEngine(store: store, conversations: conversations, memory: WorkspaceMemoryStore(root: directory), keyRing: keys, missions: MissionEngine(store: store, keyRing: keys), access: access, completion: { _, _, _, system, _, tools in
+            if system.contains("Decide how to handle") {
+                calls.append(contentsOf: ["route"])
+                return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 10, outputTokens: 10, model: "claude-sonnet-4-5")
+            }
+            if tools == nil {
+                calls.append(contentsOf: ["final"])
+                return LLMReply(message: .assistant("Here is what I have so far."), inputTokens: 10, outputTokens: 10, model: "claude-sonnet-4-5")
+            }
+            calls.append(contentsOf: ["tools"])
+            return LLMReply(message: APIMessage(role: "assistant", content: nil, tool_calls: [APIToolCall(id: UUID().uuidString, function: .init(name: "chat_list_files", arguments: "{}"))]), inputTokens: 1_000_000, outputTokens: 0, model: "claude-sonnet-4-5")
+        })
+        return (engine, conversations, access, store, calls)
     }
 
     private func finishedConversation(_ conversations: ConversationStore, id: UUID) async throws -> Conversation {

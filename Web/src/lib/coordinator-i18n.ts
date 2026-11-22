@@ -414,4 +414,9 @@ export const coordinatorSpanish: Record<string, string> = {
   'Saved.': 'Guardado.',
   'Only admins can change these. Anything without a rule asks for approval.': 'Solo los administradores pueden cambiarlos. Todo lo que no tenga regla pide aprobación.',
   'Anything outside a rule’s limits asks for approval. Every automatic action shows in the chat and in recent access activity.': 'Todo lo que quede fuera de los límites de una regla pide aprobación. Cada acción automática aparece en el chat y en la actividad de acceso reciente.',
+  'Spending limits': 'Límites de gasto',
+  'Estimated model cost so far today: {amount}. Models without a known price count as $0.': 'Coste estimado de los modelos hoy: {amount}. Los modelos sin precio conocido cuentan como $0.',
+  'Per day, in US dollars': 'Por día, en dólares estadounidenses',
+  'Per reply, in US dollars': 'Por respuesta, en dólares estadounidenses',
+  'At the daily limit Ada stops starting new work until midnight UTC. At the reply limit she stops using tools and answers with what she has.': 'Al llegar al límite diario, Ada deja de empezar trabajo nuevo hasta la medianoche (UTC). Al llegar al límite por respuesta, deja de usar herramientas y responde con lo que tiene.',
 }

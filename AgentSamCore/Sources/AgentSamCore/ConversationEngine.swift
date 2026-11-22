@@ -80,7 +80,12 @@ public actor ConversationEngine {
         _ = try await conversations.append(id: conversationID, ownerID: ownerID, message: userMessage)
         let result = try await conversations.append(id: conversationID, ownerID: ownerID, message: pending)
         running[conversationID] = Task {
-            await self.drive(conversationID: conversationID, ownerID: ownerID, userMessage: userMessage, responseID: pending.id, launchedBy: launchedBy, language: lang)
+            // Every model call made for this reply adds its estimated cost to one meter.
+            let meter = CostMeter()
+            await CostMeter.$current.withValue(meter) {
+                await self.drive(conversationID: conversationID, ownerID: ownerID, userMessage: userMessage, responseID: pending.id, launchedBy: launchedBy, language: lang)
+            }
+            await self.access?.spend.add(ownerID: ownerID, usd: meter.total)
         }
         return result
     }
@@ -146,6 +151,16 @@ public actor ConversationEngine {
         let writing = es ? "Redactando la respuesta" : "Writing the answer"
         do {
             guard let conversation = try await conversations.get(id: conversationID, ownerID: ownerID) else { return }
+            if let notice = await dailyCapNotice(ownerID: ownerID, language: language) {
+                _ = try await conversations.updateMessage(id: conversationID, ownerID: ownerID, messageID: responseID) { message in
+                    message.text = notice
+                    message.status = .complete
+                    message.activity = []
+                    Self.settleSteps(&message.steps, as: "done")
+                    message.completedAt = Date()
+                }
+                return
+            }
             let allTeams = await store.loadTeams()
             // Any team saved on disk (for example through the API) becomes a skill the first time it
             // is seen. The solo team is Ada's own roster and is never a skill.
@@ -211,6 +226,7 @@ public actor ConversationEngine {
                     message.missionIDs = missionIDs
                 }
                 let finished = try await monitor(missions: [mission], teams: [solo], conversationID: conversationID, ownerID: ownerID, responseID: responseID, ada: activity[0])
+                for run in finished { CostMeter.current?.add(run.totalCostUSD) }
                 await beginStep(es ? "Redactando la respuesta" : "Writing the answer", in: ref)
                 responseText = try await consolidate(userText: userText, missions: finished, coordinator: coordinator, context: context, history: history, language: language)
                 activity = finished.flatMap { mission in
@@ -250,6 +266,7 @@ public actor ConversationEngine {
                         return selected.compactMap { team in launched.first(where: { $0.teamID == team.id }) }
                     }
                     let finished = try await monitor(missions: routed, teams: selected, conversationID: conversationID, ownerID: ownerID, responseID: responseID, ada: activity[0])
+                    for run in finished { CostMeter.current?.add(run.totalCostUSD) }
                     await beginStep(es ? "Combinando los resultados" : "Combining the results", in: ref)
                     responseText = try await consolidate(userText: userText, missions: finished, coordinator: coordinator, context: context, history: history, language: language)
                     activity = finished.flatMap { mission in
@@ -437,7 +454,7 @@ public actor ConversationEngine {
     }
 
     /// Model calls with tools in one direct reply before Ada must answer without them.
-    static let maxToolRounds = 8
+    static let maxToolRounds = 20
 
     private func directAnswer(userText: String, photos photoInput: PhotoInputs = PhotoInputs(), coordinator: AgentProfile, context: ConversationPromptContext, history: [ConversationMessage], language: String, ref: ResponseRef? = nil, conversationID: UUID, writtenFiles: inout [String], toolLog: inout [String]) async throws -> String {
         let connectorTools = await connectors?.toolDefs(readOnly: access == nil) ?? []
@@ -453,6 +470,8 @@ public actor ConversationEngine {
         var messages = Self.chatTurns(from: history.dropLast(), images: photoInput.history)
         messages.append(.user(text, images: photoInput.current))
         var runs = 0
+        let replyCap = await replySpendCap(ownerID: ref?.ownerID)
+        var overCap = false
         for round in 0..<Self.maxToolRounds {
             try Task.checkCancellation()
             let stream = streamer(for: ref)
@@ -472,7 +491,7 @@ public actor ConversationEngine {
                     if call.function.name == "run_program" {
                         runs += 1
                         if runs > ChatWorkspaceTools.maxRunsPerTurn {
-                            outcome = .failure("Program and terminal run limit reached for this reply (4).")
+                            outcome = .failure("Program and terminal run limit reached for this reply (\(ChatWorkspaceTools.maxRunsPerTurn)).")
                         } else {
                             outcome = await ChatWorkspaceTools.run(call: call, workspace: workspace, conversationID: conversationID)
                         }
@@ -495,7 +514,7 @@ public actor ConversationEngine {
                     let isTerminal = call.function.name == "run_terminal" || call.function.name == "project_terminal"
                     if isTerminal { runs += 1 }
                     if isTerminal && runs > ChatWorkspaceTools.maxRunsPerTurn {
-                        outcome = .failure("Program and terminal run limit reached for this reply (4).")
+                        outcome = .failure("Program and terminal run limit reached for this reply (\(ChatWorkspaceTools.maxRunsPerTurn)).")
                     } else {
                         let project = ProjectScope(ownerID: ref?.ownerID ?? "", projectName: context.projectName)
                         outcome = await ExtendedWorkspaceTools.run(call: call, workspace: workspace, conversationID: conversationID, project: project, terminal: access.terminal, hosts: access.hosts, actions: access.actions, audit: access.audit)
@@ -549,6 +568,11 @@ public actor ConversationEngine {
                 messages.append(.tool(id: call.id, content: String(outcome.resultText.prefix(32_000)), isError: !outcome.succeeded))
                 if toolLog.count < Self.maxToolLogEntries { toolLog.append(Self.toolLogLine(call: call, outcome: outcome)) }
             }
+            // The reply's spending limit stops further tool rounds; Ada answers with what she has.
+            if let replyCap, (CostMeter.current?.total ?? 0) >= replyCap {
+                overCap = true
+                break
+            }
             // Warn before the budget runs out, so Ada can wrap up instead of being cut off mid-task.
             let left = Self.maxToolRounds - round - 1
             if left > 0, left <= 2, let last = messages.indices.last, messages[last].role == "tool" {
@@ -557,9 +581,15 @@ public actor ConversationEngine {
             await beginStep(language == "es" ? "Redactando la respuesta" : "Writing the answer", in: ref)
         }
         // The tool budget is spent. Say so, or some models keep "calling" tools by writing the calls as text.
-        messages.append(.user(language == "es"
-            ? "Ya no quedan pasos de herramientas para esta respuesta. Responde ahora con lo que ya sabes, sin llamar a herramientas, y di qué falta si no pudiste terminar."
-            : "No tool steps are left for this reply. Answer now with what you already have, without calling any tools, and say what is still missing if you could not finish."))
+        if overCap {
+            messages.append(.user(language == "es"
+                ? "Esta respuesta alcanzó el límite de gasto que fijó la persona. Responde ahora con lo que ya sabes, sin llamar a herramientas, y di qué falta y que puede pedirte que continúes."
+                : "This reply reached the spending limit the person set. Answer now with what you already have, without calling any tools, and say what is still missing and that they can ask you to continue."))
+        } else {
+            messages.append(.user(language == "es"
+                ? "Ya no quedan pasos de herramientas para esta respuesta. Responde ahora con lo que ya sabes, sin llamar a herramientas, y di qué falta si no pudiste terminar."
+                : "No tool steps are left for this reply. Answer now with what you already have, without calling any tools, and say what is still missing if you could not finish."))
+        }
         let final = try await completeDirect(coordinator: coordinator, system: system, messages: messages, tools: nil, maxTokens: context.spoken ? Self.voiceMaxTokens : nil, contextAllowance: allowance, onDelta: streamer(for: ref)?.handler)
         let answer = final.message.content ?? ""
         if answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -568,6 +598,23 @@ public actor ConversationEngine {
                 : "I used all the tool steps for this reply before finishing. Ask me to continue and I will pick up from here."
         }
         return answer
+    }
+
+    /// The owner's per-reply spending limit, if one is set.
+    private func replySpendCap(ownerID: String?) async -> Double? {
+        guard let ownerID, let access else { return nil }
+        return await access.permissions.policy(ownerID: ownerID).replySpendCapUSD
+    }
+
+    /// The reply to send instead of working when today's estimated spend has reached the owner's cap.
+    private func dailyCapNotice(ownerID: String, language: String) async -> String? {
+        guard let access, let cap = await access.permissions.policy(ownerID: ownerID).dailySpendCapUSD else { return nil }
+        let spent = await access.spend.today(ownerID: ownerID)
+        guard spent >= cap else { return nil }
+        let amount = String(format: "%.2f", cap)
+        return language == "es"
+            ? "Hoy ya alcancé el límite de gasto diario de $\(amount), así que no empecé este trabajo. El límite se reinicia a medianoche (UTC), o un administrador puede subirlo en Ajustes, en Lo que Ada puede hacer sola."
+            : "I've reached today's spending limit of $\(amount), so I didn't start on this. It resets at midnight UTC, or an admin can raise it in Settings under What Ada can do alone."
     }
 
     /// The result for a call to a tool that was not offered: names the closest real tools so the
@@ -740,10 +787,14 @@ public actor ConversationEngine {
     private func complete(coordinator: AgentProfile, system: String, messages: [APIMessage], tools: [APIToolDef]?, maxTokens: Int? = nil, onDelta: TextDeltaHandler? = nil) async throws -> LLMReply {
         let registry = ProviderRegistry(providers: await store.loadProviders())
         guard let provider = registry.provider(id: coordinator.providerID) else { throw ConversationError.noProvider }
+        let reply: LLMReply
         if let completionOverride {
-            return try await completionOverride(provider, keyRing.get(provider.keyAccount) ?? "", coordinator, system, messages, tools)
+            reply = try await completionOverride(provider, keyRing.get(provider.keyAccount) ?? "", coordinator, system, messages, tools)
+        } else {
+            reply = try await client.complete(provider: provider, key: keyRing.get(provider.keyAccount) ?? "", model: coordinator.model, system: system, messages: messages, tools: tools, temperature: coordinator.temperature, maxTokens: maxTokens, onDelta: onDelta)
         }
-        return try await client.complete(provider: provider, key: keyRing.get(provider.keyAccount) ?? "", model: coordinator.model, system: system, messages: messages, tools: tools, temperature: coordinator.temperature, maxTokens: maxTokens, onDelta: onDelta)
+        CostMeter.current?.add(reply)
+        return reply
     }
 
     private func completeDirect(coordinator: AgentProfile, system: String, messages: [APIMessage], tools: [APIToolDef]?, maxTokens: Int? = nil, contextAllowance: Int = 0, onDelta: TextDeltaHandler? = nil) async throws -> LLMReply {

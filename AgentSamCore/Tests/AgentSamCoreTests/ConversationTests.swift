@@ -368,15 +368,17 @@ final class ConversationTests: XCTestCase {
         let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, workspace: workspace, keyRing: keys, missions: MissionEngine(store: store, keyRing: keys), access: access, completion: { _, _, _, system, messages, _ in
             if system.contains("Decide how to handle") { return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub") }
             if messages.allSatisfy({ $0.role != "tool" }) {
-                let calls = (0..<5).map { index in
+                let limit = ChatWorkspaceTools.maxRunsPerTurn
+                let calls = (0...limit).map { index in
                     APIToolCall(id: "terminal-\(index)", function: .init(name: "run_terminal", arguments: #"{"command":"true"}"#))
                 } + [APIToolCall(id: "files", function: .init(name: "project_list_files", arguments: "{}"))]
                 return LLMReply(message: APIMessage(role: "assistant", content: nil, tool_calls: calls), inputTokens: 0, outputTokens: 0, model: "stub")
             }
             let outputs = messages.filter { $0.role == "tool" }.compactMap(\.content)
-            XCTAssertEqual(outputs.count, 6)
-            XCTAssertTrue(outputs[4].contains("run limit reached"), outputs[4])
-            XCTAssertTrue(outputs[5].contains("shared project workspace is empty"), outputs[5])
+            let limit = ChatWorkspaceTools.maxRunsPerTurn
+            XCTAssertEqual(outputs.count, limit + 2)
+            XCTAssertTrue(outputs[limit].contains("run limit reached"), outputs[limit])
+            XCTAssertTrue(outputs[limit + 1].contains("shared project workspace is empty"), outputs[limit + 1])
             return LLMReply(message: .assistant("The execution cap leaves file tools available."), inputTokens: 0, outputTokens: 0, model: "stub")
         })
         _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Run checks and inspect the project", launchedBy: "Owner", language: "en")

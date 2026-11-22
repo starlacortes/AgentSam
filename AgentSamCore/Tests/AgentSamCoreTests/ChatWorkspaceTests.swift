@@ -225,7 +225,7 @@ final class ChatWorkspaceTests: XCTestCase {
             conversationID: conversationID
         )
         XCTAssertTrue(outcome.resultText.contains("Timed out"), outcome.resultText)
-        XCTAssertLessThan(Date().timeIntervalSince(started), 40)
+        XCTAssertLessThan(Date().timeIntervalSince(started), ChatWorkspaceTools.runTimeout + 20)
     }
 
     func testStdinIsPiped() async throws {

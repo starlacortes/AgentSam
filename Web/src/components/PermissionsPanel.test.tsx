@@ -12,6 +12,7 @@ const view = (canEdit: boolean): PermissionsView => ({
   usageToday: {},
   tools: ['gmail_draft', 'googleads_set_budget'],
   canEdit,
+  spentTodayUSD: 0.42,
 })
 
 afterEach(() => { cleanup(); vi.mocked(api).mockReset() })

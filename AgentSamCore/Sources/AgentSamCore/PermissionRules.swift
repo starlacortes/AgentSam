@@ -52,23 +52,31 @@ public struct PermissionPolicy: Codable, Sendable, Equatable {
     public var rules: [String: PermissionRule]
     /// How long an approval card stays open, in minutes (15 to 1,440).
     public var approvalMinutes: Int
+    /// Estimated model spend, in US dollars, after which Ada stops starting new replies for the UTC day.
+    public var dailySpendCapUSD: Double?
+    /// Estimated model spend, in US dollars, after which one reply stops using tools and wraps up.
+    public var replySpendCapUSD: Double?
 
     public static let defaultApprovalMinutes = 15
     public static let allowedApprovalMinutes = [15, 60, 240, 720, 1_440]
 
-    public init(paused: Bool = false, rules: [String: PermissionRule] = [:], approvalMinutes: Int = PermissionPolicy.defaultApprovalMinutes) {
+    public init(paused: Bool = false, rules: [String: PermissionRule] = [:], approvalMinutes: Int = PermissionPolicy.defaultApprovalMinutes, dailySpendCapUSD: Double? = nil, replySpendCapUSD: Double? = nil) {
         self.paused = paused
         self.rules = rules
         self.approvalMinutes = approvalMinutes
+        self.dailySpendCapUSD = dailySpendCapUSD
+        self.replySpendCapUSD = replySpendCapUSD
     }
 
-    enum CodingKeys: String, CodingKey { case paused, rules, approvalMinutes }
+    enum CodingKeys: String, CodingKey { case paused, rules, approvalMinutes, dailySpendCapUSD, replySpendCapUSD }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         paused = try container.decodeIfPresent(Bool.self, forKey: .paused) ?? false
         rules = try container.decodeIfPresent([String: PermissionRule].self, forKey: .rules) ?? [:]
         approvalMinutes = try container.decodeIfPresent(Int.self, forKey: .approvalMinutes) ?? Self.defaultApprovalMinutes
+        dailySpendCapUSD = try container.decodeIfPresent(Double.self, forKey: .dailySpendCapUSD)
+        replySpendCapUSD = try container.decodeIfPresent(Double.self, forKey: .replySpendCapUSD)
     }
 
     /// Keeps only rules for tools that can have one, with clean limits.
@@ -76,6 +84,8 @@ public struct PermissionPolicy: Codable, Sendable, Equatable {
         var policy = self
         policy.rules = rules.filter { PermissionStore.ruleTools.contains($0.key) }.mapValues { $0.normalized() }
         if !Self.allowedApprovalMinutes.contains(policy.approvalMinutes) { policy.approvalMinutes = Self.defaultApprovalMinutes }
+        if let cap = policy.dailySpendCapUSD, !(cap.isFinite && cap > 0) { policy.dailySpendCapUSD = nil }
+        if let cap = policy.replySpendCapUSD, !(cap.isFinite && cap > 0) { policy.replySpendCapUSD = nil }
         return policy
     }
 }
@@ -126,8 +136,11 @@ public actor PermissionStore {
         if let data = try? JSONEncoder().encode(clean) {
             try? data.write(to: policyURL(ownerID), options: .atomic)
         }
-        let summary = clean.rules.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value.mode.rawValue)" }.joined(separator: ", ")
-        Task { [audit] in await audit?.record(ownerID: ownerID, action: "permissions.updated", detail: "paused=\(clean.paused); \(summary.isEmpty ? "all ask" : summary)") }
+        var summary = clean.rules.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value.mode.rawValue)" }.joined(separator: ", ")
+        if summary.isEmpty { summary = "all ask" }
+        if let cap = clean.dailySpendCapUSD { summary += "; daily cap $\(cap)" }
+        if let cap = clean.replySpendCapUSD { summary += "; reply cap $\(cap)" }
+        Task { [audit, summary] in await audit?.record(ownerID: ownerID, action: "permissions.updated", detail: "paused=\(clean.paused); \(summary)") }
         return clean
     }
 
