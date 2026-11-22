@@ -91,6 +91,8 @@ func browserRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
             return
         }
         let owner = principal.conversationOwnerID
+        // Counted before anything can end it, so a viewer who leaves at once is still counted out.
+        await browser.viewerJoined()
         let relay: BrowserRelay
         do {
             relay = try BrowserRelay(
@@ -99,20 +101,30 @@ func browserRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
                 onEnd: { _ = ws.close(code: .goingAway) }
             )
         } catch {
+            await browser.viewerLeft()
             try? await ws.close(code: .unexpectedServerError)
             return
         }
-        await browser.viewerJoined()
-        await ctx.access.audit.record(ownerID: owner, action: "browser.view", detail: "opened the live window")
-        ws.onBinary { _, buffer in
-            relay.send(Data(buffer.readableBytesView))
-        }
-        ws.onClose.whenComplete { _ in
+        // An async upgrade handler does not run on the socket's event loop, and the socket only
+        // accepts its handlers there: anywhere else the server stops with a precondition failure.
+        do {
+            try await ws.eventLoop.submit {
+                ws.onBinary { _, buffer in
+                    relay.send(Data(buffer.readableBytesView))
+                }
+                ws.onClose.whenComplete { _ in
+                    relay.close()
+                    Task {
+                        await browser.viewerLeft()
+                        await ctx.access.audit.record(ownerID: owner, action: "browser.view", detail: "closed the live window")
+                    }
+                }
+            }.get()
+        } catch {
             relay.close()
-            Task {
-                await browser.viewerLeft()
-                await ctx.access.audit.record(ownerID: owner, action: "browser.view", detail: "closed the live window")
-            }
+            await browser.viewerLeft()
+            return
         }
+        await ctx.access.audit.record(ownerID: owner, action: "browser.view", detail: "opened the live window")
     })
 }
