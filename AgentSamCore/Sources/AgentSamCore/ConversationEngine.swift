@@ -125,6 +125,8 @@ public actor ConversationEngine {
         var responseID: UUID
         /// The user spoke this message: a ```details part of the reply is shown but not spoken.
         var spoken: Bool = false
+        /// Who the reply is for, recorded on missions Ada starts during it.
+        var launchedBy: String = "Ada"
     }
 
     /// Marks every unfinished step as finished with the given state.
@@ -153,7 +155,7 @@ public actor ConversationEngine {
 
     private func drive(conversationID: UUID, ownerID: String, userMessage: ConversationMessage, responseID: UUID, launchedBy: String, language: String) async {
         defer { running[conversationID] = nil }
-        let ref = ResponseRef(conversationID: conversationID, ownerID: ownerID, responseID: responseID, spoken: userMessage.spoken)
+        let ref = ResponseRef(conversationID: conversationID, ownerID: ownerID, responseID: responseID, spoken: userMessage.spoken, launchedBy: launchedBy)
         let es = language == "es"
         let writing = es ? "Redactando la respuesta" : "Writing the answer"
         do {
@@ -468,7 +470,9 @@ public actor ConversationEngine {
         // Only tools offered in this request may run, and each runs by the family it was offered from.
         let workstation = await workstation(ownerID: ref?.ownerID)
         let mcpTools = await access?.mcp?.toolDefs() ?? []
-        let offeredTools = OfferedTools.direct(connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedAccess: access != nil, hasWorkstation: workstation != nil, mcpTools: mcpTools)
+        // Handing work to a task needs a user-owned reply to show its progress in.
+        let taskTools = ref == nil ? [] : TaskTools.definitions(catalog: SkillTeams.catalog(await skills.enabled()))
+        let offeredTools = OfferedTools.direct(connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedAccess: access != nil, hasWorkstation: workstation != nil, mcpTools: mcpTools, taskTools: taskTools)
         let tools = offeredTools.definitions
         let offered = offeredTools.names
         let system = ConversationPrompts.directResponseSystem(coordinator: coordinator, context: context, connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedTools: access != nil, store: promptStore, language: language)
@@ -479,6 +483,7 @@ public actor ConversationEngine {
         var messages = Self.chatTurns(from: history.dropLast(), images: photoInput.history)
         messages.append(.user(text, images: photoInput.current))
         var runs = 0
+        var tasks = 0
         let replyCap = await replySpendCap(ownerID: ref?.ownerID)
         var overCap = false
         for round in 0..<Self.maxToolRounds {
@@ -531,6 +536,15 @@ public actor ConversationEngine {
                     if !outcome.wroteFiles.isEmpty { writtenFiles.append(contentsOf: outcome.wroteFiles) }
                 case .skill:
                     outcome = await SkillTools.run(call: call, skills: skills)
+                case .task:
+                    tasks += 1
+                    if tasks > TaskTools.maxPerReply {
+                        outcome = .failure("Task limit reached for this reply (\(TaskTools.maxPerReply)). Finish with what you have.")
+                    } else if let ref {
+                        outcome = await startTask(call: call, coordinator: coordinator, context: context, language: language, ref: ref)
+                    } else {
+                        outcome = .failure("Tasks need a user-owned conversation.")
+                    }
                 case .trigger:
                     let owner = ref?.ownerID
                     let conversations = self.conversations
@@ -767,6 +781,59 @@ public actor ConversationEngine {
         let reply = try await complete(coordinator: coordinator, system: system, messages: Self.chatTurns(from: history.dropLast()) + [.user(turn)], tools: nil, maxTokens: context.spoken ? Self.voiceMaxTokens : nil)
         if reply.message.content?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false { return reply.message.content ?? "" }
         return missions.compactMap(\.finalReport).joined(separator: "\n\n")
+    }
+
+    /// Runs one `start_task` call to the end: picks the skill's team (or Ada alone), launches the
+    /// mission, shows its progress on the reply, and returns its report to Ada's loop.
+    private func startTask(call: APIToolCall, coordinator: AgentProfile, context: ConversationPromptContext, language: String, ref: ResponseRef) async -> ToolOutcome {
+        let request: TaskTools.Request
+        switch TaskTools.request(from: call) {
+        case .failure(let error): return .failure(error.message)
+        case .success(let valid): request = valid
+        }
+        let es = language == "es"
+        let team: Team
+        let skillName: String
+        if let skill = request.skill {
+            let skillList = await skills.enabled()
+            let selected = await skillTeams(for: ConversationDecision(action: .useSkill, skillIDs: [skill]), skills: skillList, teams: await store.loadTeams(), coordinator: coordinator, providers: await store.loadProviders())
+            guard let first = selected.first else {
+                let known = skillList.map(\.id).joined(separator: ", ")
+                return .failure("No enabled skill \"\(skill)\" can run (unknown, or its specialists have no provider key). Enabled skills: \(known.isEmpty ? "none" : known). Leave skill out to work on it yourself.")
+            }
+            team = first
+            skillName = skillList.first { $0.teamID == first.id }?.name ?? first.name
+        } else {
+            var solo = Self.soloTeam(coordinator: coordinator, language: language, store: promptStore)
+            if let existing = await store.team(id: Self.soloTeamID) { solo.createdAt = existing.createdAt }
+            await store.saveTeam(solo)
+            team = solo
+            skillName = es ? "Ada sola" : "Ada working alone"
+        }
+        let label = team.id == Self.soloTeamID
+            ? (es ? "Trabajando en ello yo sola" : "Working on it myself")
+            : (es ? "Trabajando con especialistas: \(team.name)" : "Working with specialists: \(team.name)")
+        let ada = AgentActivity(agentID: coordinator.id, agentName: "Ada", summary: request.reason ?? label, state: "working")
+        _ = try? await conversations.updateMessage(id: ref.conversationID, ownerID: ref.ownerID, messageID: ref.responseID) { message in
+            if !message.teamIDs.contains(team.id) { message.teamIDs.append(team.id) }
+            message.activity = [ada]
+        }
+        await beginStep(label, in: ref)
+        do {
+            let mission = try await runMission(team: team, objective: request.objective, context: context.missionHandoff, launchedBy: ref.launchedBy, language: language, conversationID: ref.conversationID, ownerID: ref.ownerID, projectName: context.projectName)
+            _ = try? await conversations.updateMessage(id: ref.conversationID, ownerID: ref.ownerID, messageID: ref.responseID) { message in
+                if !message.missionIDs.contains(mission.id) { message.missionIDs.append(mission.id) }
+            }
+            let finished = try await monitor(missions: [mission], teams: [team], conversationID: ref.conversationID, ownerID: ref.ownerID, responseID: ref.responseID, ada: ada)
+            guard let done = finished.first else { return .failure("The task's mission disappeared before it finished.") }
+            CostMeter.current?.add(done.totalCostUSD)
+            await beginStep(es ? "Revisando el resultado" : "Checking the result", in: ref)
+            return TaskTools.result(mission: done, skillName: skillName, files: await store.deliverables(missionID: done.id))
+        } catch is CancellationError {
+            return .failure("The task was stopped.")
+        } catch {
+            return .failure("The task could not start: \(error.localizedDescription)")
+        }
     }
 
     private func runMission(team: Team, objective: String, context: String?, launchedBy: String, language: String, conversationID: UUID, ownerID: String, projectName: String) async throws -> Mission {

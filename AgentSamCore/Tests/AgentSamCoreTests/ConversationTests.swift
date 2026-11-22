@@ -750,6 +750,56 @@ final class ConversationTests: XCTestCase {
         await engine.shutdown()
     }
 
+    func testAdaHandsWorkToATaskMidReplyAndFinishesWithItsResult() async throws {
+        let store = MissionStore(root: directory)
+        await store.saveProviders([provider])
+        let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
+        try keys.set("test-key", for: provider.keyAccount)
+        let conversations = ConversationStore(root: directory)
+        let memory = WorkspaceMemoryStore(root: directory)
+        let root = directory!
+        let engine = engine(store, conversations, memory, keys: keys, completion: { _, _, _, system, messages, tools in
+            if system.contains("Summarize only durable") { return LLMReply(message: .assistant("## Notes"), inputTokens: 0, outputTokens: 0, model: "stub") }
+            if system.contains("Decide how to handle") { return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub") }
+            let toolResults = messages.filter { $0.role == "tool" }.compactMap(\.content)
+            if toolResults.isEmpty {
+                XCTAssertTrue(tools?.contains { $0.function.name == "start_task" } ?? false)
+                // A bad skill name fails and lists what exists; then Ada works on it herself.
+                return LLMReply(message: APIMessage(role: "assistant", content: nil, tool_calls: [
+                    APIToolCall(id: "t1", function: .init(name: "start_task", arguments: #"{"objective":"Review all 40 files and write review.md","skill":"no-such-skill"}"#)),
+                    APIToolCall(id: "t2", function: .init(name: "start_task", arguments: #"{"objective":"Review all 40 files and write review.md","reason":"This needs a full review"}"#)),
+                    APIToolCall(id: "t3", function: .init(name: "start_task", arguments: #"{"objective":"One more"}"#)),
+                ]), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
+            XCTAssertTrue(toolResults[0].contains("No enabled skill"), toolResults[0])
+            XCTAssertTrue(toolResults[1].contains("Task finished"), toolResults[1])
+            XCTAssertTrue(toolResults[1].contains("Reviewed 40 files"), toolResults[1])
+            XCTAssertTrue(toolResults[2].contains("Task limit reached"), toolResults[2])
+            return LLMReply(message: .assistant("The review is done: see review.md."), inputTokens: 0, outputTokens: 0, model: "stub")
+        }, missionRunner: { team, objective, _, launchedBy, _ in
+            XCTAssertEqual(team.id, ConversationEngine.soloTeamID)
+            XCTAssertEqual(objective, "Review all 40 files and write review.md")
+            XCTAssertEqual(launchedBy, "Owner")
+            let store = MissionStore(root: root)
+            var mission = await store.createMission(team: team, objective: objective)
+            mission.status = .completed
+            mission.phase = .done
+            mission.finalReport = "Reviewed 40 files."
+            await store.saveMission(mission)
+            return mission
+        })
+        let conversation = try await conversations.create(ownerID: "owner")
+        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Review every file in this project", launchedBy: "Owner", language: "en")
+        let result = try await finishedConversation(conversations, id: conversation.id)
+        let answer = try XCTUnwrap(result.messages.last)
+        XCTAssertEqual(answer.status, .complete)
+        XCTAssertEqual(answer.text, "The review is done: see review.md.")
+        XCTAssertEqual(answer.missionIDs.count, 1, "the task's mission is linked to the reply")
+        XCTAssertEqual(answer.teamIDs, [ConversationEngine.soloTeamID])
+        XCTAssertTrue(answer.steps.contains { $0.label == "Working on it myself" })
+        await engine.shutdown()
+    }
+
     func testSoloRunsAsAMissionWithAdaAsWorkerAndProducesFiles() async throws {
         let store = MissionStore(root: directory)
         await store.saveProviders([provider])
@@ -1013,7 +1063,7 @@ final class ConversationTests: XCTestCase {
     }
 
     func testEveryDirectToolHasAFriendlyStepLabel() {
-        let names = (ChatWorkspaceTools.definitions + TriggerTools.definitions + ExtendedWorkspaceTools.definitions + ConversationMissionTools.definitions + WorkstationTools.definitions).map(\.function.name)
+        let names = (ChatWorkspaceTools.definitions + TriggerTools.definitions + TaskTools.definitions(catalog: "") + ExtendedWorkspaceTools.definitions + ConversationMissionTools.definitions + WorkstationTools.definitions).map(\.function.name)
             + ConnectorHub.readOnlyToolNames.filter { !$0.hasPrefix("cloudflare_") }
             + ["gmail_draft", "gmail_send", "github_write_file", "github_comment", "googleads_set_status", "googleads_set_budget", "googleads_mutate"]
         for name in names {
@@ -1027,7 +1077,7 @@ final class ConversationTests: XCTestCase {
     func testEveryToolHasOneCatalogEntryWithTheRightAccess() {
         let everything = ConnectorPermissions(sendEmail: true, createDraft: true, dnsWrite: true, githubWrite: true, adsWrite: true)
         let connectorNames = Set(ConnectorHub.providers.flatMap { $0.toolDefs(permissions: everything) }.map(\.function.name))
-        let workspaceNames = Set((ChatWorkspaceTools.definitions + TriggerTools.definitions + ExtendedWorkspaceTools.definitions + ConversationMissionTools.definitions + SkillTools.definitions + MemoryTools.definitions + WorkstationTools.definitions).map(\.function.name))
+        let workspaceNames = Set((ChatWorkspaceTools.definitions + TriggerTools.definitions + TaskTools.definitions(catalog: "") + ExtendedWorkspaceTools.definitions + ConversationMissionTools.definitions + SkillTools.definitions + MemoryTools.definitions + WorkstationTools.definitions).map(\.function.name))
         let catalogNames = ToolCatalog.specs.map(\.name)
         XCTAssertEqual(catalogNames.count, Set(catalogNames).count, "a tool is listed twice in the catalog")
         XCTAssertEqual(Set(catalogNames), connectorNames.union(workspaceNames), "the catalog and the tool definitions disagree")
