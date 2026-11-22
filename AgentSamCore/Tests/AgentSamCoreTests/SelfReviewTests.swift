@@ -55,7 +55,8 @@ final class SelfReviewTests: XCTestCase {
         XCTAssertTrue(text.contains("gmail_send denied, chat \"Invoices\""), text)
         XCTAssertTrue(text.contains("$0.42"), text)
         XCTAssertFalse(text.contains("web_fetch"), "older than the window")
-        XCTAssertFalse(text.contains("Try again"), "scheduled messages are not corrections")
+        XCTAssertFalse(text.contains("before finishing.\", the user wrote \"Try again\""), "scheduled messages are not corrections")
+        XCTAssertTrue(text.contains("reply failed after the user wrote \"Try again\""), text)
     }
 
     func testEmptyPeriodSaysSo() {
