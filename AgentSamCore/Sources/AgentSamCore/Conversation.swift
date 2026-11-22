@@ -60,6 +60,8 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
     /// For Ada's replies: one short line per tool call she made, so later turns know what she
     /// already looked at, changed or asked approval for. Not shown in the chat.
     public var toolLog: [String]
+    /// For a run a trigger started: what happened (an email, a webhook call). Nil otherwise.
+    public var trigger: TriggerEvent?
 
     public init(
         id: UUID = UUID(),
@@ -79,7 +81,8 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
         spoken: Bool = false,
         speech: String? = nil,
         completedAt: Date? = nil,
-        toolLog: [String] = []
+        toolLog: [String] = [],
+        trigger: TriggerEvent? = nil
     ) {
         self.id = id
         self.role = role
@@ -99,10 +102,11 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
         self.speech = speech
         self.completedAt = completedAt
         self.toolLog = toolLog
+        self.trigger = trigger
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, role, text, createdAt, status, missionIDs, teamIDs, proposal, activity, steps, quickReplies, fileIDs, scheduled, photos, spoken, speech, completedAt, toolLog
+        case id, role, text, createdAt, status, missionIDs, teamIDs, proposal, activity, steps, quickReplies, fileIDs, scheduled, photos, spoken, speech, completedAt, toolLog, trigger
     }
 
     /// Older conversations on disk predate `steps`, `quickReplies`, and `completedAt`.
@@ -126,6 +130,7 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
         speech = try c.decodeIfPresent(String.self, forKey: .speech)
         completedAt = try c.decodeIfPresent(Date.self, forKey: .completedAt)
         toolLog = try c.decodeIfPresent([String].self, forKey: .toolLog) ?? []
+        trigger = try c.decodeIfPresent(TriggerEvent.self, forKey: .trigger)
     }
 
     /// Trims, de-duplicates, and caps quick replies so model output can't flood the UI.
@@ -216,27 +221,67 @@ public struct ConversationSchedule: Codable, Hashable, Sendable {
     public var createdAt: Date
     public var lastRunAt: Date?
     public var nextRunAt: Date
+    /// When set, the schedule fires at this local time on these days, and `intervalMinutes` is unused.
+    public var at: ScheduleTime?
+    /// Failed runs in a row. After `pauseAfterFailures` the schedule pauses itself.
+    public var failures: Int?
+    public var pausedAt: Date?
+    public var pauseReason: String?
 
-    public init(prompt: String, intervalMinutes: Int, language: String = "en", createdAt: Date = Date(), lastRunAt: Date? = nil, nextRunAt: Date? = nil) {
+    public static let pauseAfterFailures = 3
+
+    public init(prompt: String, intervalMinutes: Int, language: String = "en", createdAt: Date = Date(), lastRunAt: Date? = nil, nextRunAt: Date? = nil, at: ScheduleTime? = nil, timeZone: TimeZone = TimeZone(identifier: "UTC")!) {
         self.prompt = prompt
-        self.intervalMinutes = intervalMinutes
+        self.intervalMinutes = at == nil ? intervalMinutes : 1440
         self.language = language.lowercased().hasPrefix("es") ? "es" : "en"
         self.createdAt = createdAt
         self.lastRunAt = lastRunAt
-        self.nextRunAt = nextRunAt ?? Date().addingTimeInterval(TimeInterval(intervalMinutes) * 60)
+        self.at = at
+        if let nextRunAt {
+            self.nextRunAt = nextRunAt
+        } else if let at {
+            self.nextRunAt = at.next(after: createdAt, in: timeZone)
+        } else {
+            self.nextRunAt = createdAt.addingTimeInterval(TimeInterval(intervalMinutes) * 60)
+        }
     }
 
     /// Normalizes model or client input into a valid schedule, or explains why it can't be.
-    public static func validate(prompt: String, intervalMinutes: Int, language: String = "en") -> ConversationSchedule? {
+    /// With `at`, the interval is ignored and the first run is the next matching local time.
+    public static func validate(prompt: String, intervalMinutes: Int?, language: String = "en", at: ScheduleTime? = nil, timeZone: TimeZone = TimeZone(identifier: "UTC")!, now: Date = Date()) -> ConversationSchedule? {
         let clean = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !clean.isEmpty, clean.count <= 4_000 else { return nil }
-        guard allowedIntervals.contains(intervalMinutes) else { return nil }
-        return ConversationSchedule(prompt: clean, intervalMinutes: intervalMinutes, language: language)
+        if let at {
+            return ConversationSchedule(prompt: clean, intervalMinutes: 1440, language: language, createdAt: now, at: at, timeZone: timeZone)
+        }
+        guard let intervalMinutes, allowedIntervals.contains(intervalMinutes) else { return nil }
+        return ConversationSchedule(prompt: clean, intervalMinutes: intervalMinutes, language: language, createdAt: now)
+    }
+
+    /// The next due time after a run at `date`.
+    public func next(after date: Date, in timeZone: TimeZone) -> Date {
+        at?.next(after: date, in: timeZone) ?? date.addingTimeInterval(TimeInterval(intervalMinutes) * 60)
+    }
+
+    public var isPaused: Bool { pausedAt != nil }
+
+    mutating func recordOutcome(succeeded: Bool, now: Date = Date()) {
+        if succeeded {
+            failures = nil
+            return
+        }
+        let count = (failures ?? 0) + 1
+        failures = count
+        if count >= Self.pauseAfterFailures {
+            pausedAt = now
+            pauseReason = "Paused after \(count) failed runs in a row."
+        }
     }
 
     /// The human interval label shown in the chat and UI.
     public var intervalLabel: String {
-        switch intervalMinutes {
+        if let at { return at.label }
+        return switch intervalMinutes {
         case 1440: "daily"
         case 720: "every 12 hours"
         case 360: "every 6 hours"
@@ -262,8 +307,10 @@ public struct Conversation: Codable, Identifiable, Hashable, Sendable {
     /// The person's IANA time zone (for example "America/Los_Angeles"), from the last message their
     /// browser sent. Scheduled runs reuse it. Nil until a client reports one.
     public var timeZone: String?
+    /// Events that wake the chat: new matching email, or a call to its webhook.
+    public var triggers: [ConversationTrigger]
 
-    public init(id: UUID = UUID(), ownerID: String, title: String = "New conversation", projectName: String = "Personal", createdAt: Date = Date(), updatedAt: Date = Date(), messages: [ConversationMessage] = [], schedule: ConversationSchedule? = nil, archivedAt: Date? = nil, timeZone: String? = nil) {
+    public init(id: UUID = UUID(), ownerID: String, title: String = "New conversation", projectName: String = "Personal", createdAt: Date = Date(), updatedAt: Date = Date(), messages: [ConversationMessage] = [], schedule: ConversationSchedule? = nil, archivedAt: Date? = nil, timeZone: String? = nil, triggers: [ConversationTrigger] = []) {
         self.id = id
         self.ownerID = ownerID
         self.title = title
@@ -274,14 +321,18 @@ public struct Conversation: Codable, Identifiable, Hashable, Sendable {
         self.schedule = schedule
         self.archivedAt = archivedAt
         self.timeZone = timeZone
+        self.triggers = triggers
     }
+
+    /// The person's time zone for schedules, UTC until their browser reports one.
+    public var zone: TimeZone { timeZone.flatMap(TimeZone.init(identifier:)) ?? TimeZone(identifier: "UTC")! }
 
     public var summary: ConversationSummary {
         ConversationSummary(id: id, title: title, projectName: projectName, updatedAt: updatedAt, running: messages.contains { $0.status == .running }, archivedAt: archivedAt)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, ownerID, title, projectName, createdAt, updatedAt, messages, schedule, archivedAt, timeZone
+        case id, ownerID, title, projectName, createdAt, updatedAt, messages, schedule, archivedAt, timeZone, triggers
     }
 
     /// Older conversations on disk predate `schedule` and `archivedAt`.
@@ -297,6 +348,7 @@ public struct Conversation: Codable, Identifiable, Hashable, Sendable {
         schedule = try c.decodeIfPresent(ConversationSchedule.self, forKey: .schedule)
         archivedAt = try c.decodeIfPresent(Date.self, forKey: .archivedAt)
         timeZone = try c.decodeIfPresent(String.self, forKey: .timeZone)
+        triggers = try c.decodeIfPresent([ConversationTrigger].self, forKey: .triggers) ?? []
     }
 }
 

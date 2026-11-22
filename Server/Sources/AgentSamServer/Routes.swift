@@ -82,6 +82,8 @@ func routes(_ app: Application, ctx: ServerContext) {
         }
     }
 
+    webhookRoutes(app, ctx: ctx)
+
     let api = app.grouped("api").grouped(AuthMiddleware(ctx: ctx))
     let adminAPI = api.grouped(RequireAdminMiddleware())
 

@@ -8,6 +8,8 @@ public enum ToolFamily: Sendable, Equatable {
     case extended
     /// Files of missions linked to this conversation (`ConversationMissionTools`).
     case mission
+    /// Events that wake the conversation: new email, webhook calls (`TriggerTools`).
+    case trigger
     /// Saving procedures as skills (`SkillTools`).
     case skill
     /// Remembering and forgetting facts on request (`MemoryTools`).
@@ -52,6 +54,7 @@ public struct OfferedTools: Sendable {
         OfferedTools([
             (.connector, connectorTools),
             (.chat, ChatWorkspaceTools.definitions),
+            (.trigger, TriggerTools.definitions),
             (.extended, hasExtendedAccess ? ExtendedWorkspaceTools.definitions : []),
             (.mission, hasLinkedMissions ? ConversationMissionTools.definitions : []),
             (.skill, SkillTools.definitions),
@@ -113,6 +116,8 @@ public enum ToolCatalog {
         ToolSpec("run_program", .write, en: "Running the program", es: "Ejecutando el programa"),
         ToolSpec("chat_schedule_run", .write, en: "Scheduling recurring work", es: "Programando el trabajo recurrente"),
         ToolSpec("chat_schedule_cancel", .write, en: "Cancelling the schedule", es: "Cancelando la programación"),
+        ToolSpec("chat_trigger_add", .write, en: "Setting up a trigger", es: "Configurando un disparador"),
+        ToolSpec("chat_trigger_remove", .write, en: "Removing a trigger", es: "Quitando un disparador"),
         ToolSpec("chat_patch_file", .write, en: "Editing a file", es: "Editando un archivo"),
         ToolSpec("project_patch_file", .write, en: "Editing a file", es: "Editando un archivo"),
         ToolSpec("chat_move_file", .write, en: "Moving a file", es: "Moviendo un archivo"),

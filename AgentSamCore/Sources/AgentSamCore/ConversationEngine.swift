@@ -64,7 +64,7 @@ public actor ConversationEngine {
     }
 
     @discardableResult
-    public func send(conversationID: UUID, ownerID: String, text rawText: String, launchedBy: String, language: String, scheduled: Bool = false, photos: [PhotoAttachment] = [], spoken: Bool = false, timeZone: String? = nil) async throws -> Conversation {
+    public func send(conversationID: UUID, ownerID: String, text rawText: String, launchedBy: String, language: String, scheduled: Bool = false, photos: [PhotoAttachment] = [], spoken: Bool = false, timeZone: String? = nil, trigger: TriggerEvent? = nil) async throws -> Conversation {
         let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         let photos = Array(photos.prefix(ConversationPhotoStore.maxPerMessage))
         guard !text.isEmpty || !photos.isEmpty else { throw ConversationError.emptyMessage }
@@ -74,7 +74,7 @@ public actor ConversationEngine {
         guard !conversation.messages.contains(where: { $0.status == .running }) else { throw ConversationError.alreadyRunning }
         if let timeZone { _ = try? await conversations.setTimeZone(id: conversationID, ownerID: ownerID, timeZone: timeZone) }
         let lang = language.lowercased().hasPrefix("es") ? "es" : "en"
-        let userMessage = ConversationMessage(role: .user, text: text, scheduled: scheduled, photos: photos, spoken: spoken)
+        let userMessage = ConversationMessage(role: .user, text: text, scheduled: scheduled || trigger != nil, photos: photos, spoken: spoken, trigger: trigger)
         let choosing = lang == "es" ? "Eligiendo la mejor forma de ayudar" : "Choosing how to help"
         let pending = ConversationMessage(role: .assistant, text: "", status: .running, activity: [AgentActivity(agentID: UUID(), agentName: "Ada", summary: choosing, state: "working")], steps: [MessageStep(label: choosing)])
         _ = try await conversations.append(id: conversationID, ownerID: ownerID, message: userMessage)
@@ -91,6 +91,13 @@ public actor ConversationEngine {
     }
 
     public func isRunning(_ id: UUID) -> Bool { running[id] != nil }
+
+    /// Waits for the conversation's current reply to finish, then returns how that response ended.
+    public func waitForReply(conversationID: UUID, ownerID: String, responseID: UUID) async -> ConversationMessageStatus? {
+        if let task = running[conversationID] { await task.value }
+        let conversation = try? await conversations.get(id: conversationID, ownerID: ownerID)
+        return conversation?.messages.first { $0.id == responseID }?.status
+    }
 
     public func stop(conversationID: UUID, ownerID: String, language: String) async {
         running[conversationID]?.cancel()
@@ -173,7 +180,7 @@ public actor ConversationEngine {
             let workspaceMemory = await memory.state(ownerID: ownerID)
             let memoryText = workspaceMemory.promptText
             let currentKnowledge = await knowledge?.refresh(ownerID: ownerID)
-            let context = await promptContext(conversation: conversation, history: history, memory: memoryText, knowledge: currentKnowledge?.promptSummary ?? "", scheduled: userMessage.scheduled, spoken: userMessage.spoken, personName: userMessage.scheduled ? nil : launchedBy)
+            let context = await promptContext(conversation: conversation, history: history, memory: memoryText, knowledge: currentKnowledge?.promptSummary ?? "", scheduled: userMessage.scheduled, spoken: userMessage.spoken, personName: userMessage.scheduled ? nil : launchedBy, event: userMessage.trigger)
             // Photos: only Ada's direct reply looks at them. Routing, missions, and consolidation get a
             // note that they exist, which is enough to pick DIRECT and keeps those calls cheap.
             let canSee = providers.first(where: { $0.id == coordinator.providerID }).map { VisionSupport.accepts(provider: $0, model: coordinator.model) } ?? true
@@ -524,6 +531,21 @@ public actor ConversationEngine {
                     if !outcome.wroteFiles.isEmpty { writtenFiles.append(contentsOf: outcome.wroteFiles) }
                 case .skill:
                     outcome = await SkillTools.run(call: call, skills: skills)
+                case .trigger:
+                    let owner = ref?.ownerID
+                    let conversations = self.conversations
+                    let sink = owner.map { owner in
+                        TriggerTools.Sink(
+                            add: { trigger in
+                                (try? await conversations.addTrigger(id: conversationID, ownerID: owner, trigger: trigger)) ?? .failure(.invalid("The trigger could not be saved."))
+                            },
+                            remove: { id in
+                                (try? await conversations.removeTrigger(id: conversationID, ownerID: owner, triggerID: id)) ?? .failure(.notFound)
+                            },
+                            gmailConnected: offered.contains("gmail_search")
+                        )
+                    }
+                    outcome = await TriggerTools.run(call: call, sink: sink, language: language)
                 case .memory:
                     outcome = await MemoryTools.run(call: call, memory: memory, ownerID: ref?.ownerID)
                 case .mission:
@@ -765,7 +787,7 @@ public actor ConversationEngine {
         return mission
     }
 
-    private func promptContext(conversation: Conversation, history: [ConversationMessage], memory: String, knowledge: String, scheduled: Bool, spoken: Bool = false, personName: String? = nil) async -> ConversationPromptContext {
+    private func promptContext(conversation: Conversation, history: [ConversationMessage], memory: String, knowledge: String, scheduled: Bool, spoken: Bool = false, personName: String? = nil, event: TriggerEvent? = nil) async -> ConversationPromptContext {
         let prior = Array(history.dropLast())
         var seen = Set<UUID>()
         var ids: [UUID] = []
@@ -803,7 +825,9 @@ public actor ConversationEngine {
             spoken: spoken,
             timeZoneID: conversation.timeZone,
             personName: personName,
-            approvals: approvals
+            approvals: approvals,
+            triggers: conversation.triggers,
+            event: event
         )
     }
 

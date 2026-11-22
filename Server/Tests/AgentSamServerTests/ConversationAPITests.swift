@@ -272,6 +272,67 @@ final class ConversationAPITests: XCTestCase {
         })
     }
 
+    func testSetTimeSchedulesAndTriggerRoutes() async throws {
+        let conversation = try await createConversation()
+        let id = conversation.id.uuidString
+        try await app.test(.PUT, "api/conversations/\(id)/schedule", beforeRequest: { req in
+            self.authorize(&req)
+            try req.content.encode(ScheduleSetBody(prompt: "Morning digest", at: "08:00", days: "weekdays", timeZone: "Europe/Madrid"), as: .json)
+        }, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok, res.body.string)
+            let saved = try res.content.decode(Conversation.self)
+            XCTAssertEqual(saved.schedule?.at?.label, "weekdays at 08:00")
+            XCTAssertEqual(saved.timeZone, "Europe/Madrid")
+        })
+        try await app.test(.PUT, "api/conversations/\(id)/schedule", beforeRequest: { req in
+            self.authorize(&req)
+            try req.content.encode(ScheduleSetBody(prompt: "Morning digest", at: "8am"), as: .json)
+        }, afterResponse: { res async in
+            XCTAssertEqual(res.status, .badRequest)
+        })
+        // Gmail triggers need Gmail connected.
+        try await app.test(.POST, "api/conversations/\(id)/triggers", beforeRequest: { req in
+            self.authorize(&req)
+            try req.content.encode(TriggerAddBody(kind: "gmail", prompt: "File it", query: "from:billing@example.com"), as: .json)
+        }, afterResponse: { res async in
+            XCTAssertEqual(res.status, .badRequest)
+        })
+        var token = ""
+        var triggerID = ""
+        try await app.test(.POST, "api/conversations/\(id)/triggers", beforeRequest: { req in
+            self.authorize(&req)
+            try req.content.encode(TriggerAddBody(kind: "webhook", prompt: "Tell me how the deploy went"), as: .json)
+        }, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok, res.body.string)
+            let trigger = try XCTUnwrap(try res.content.decode(Conversation.self).triggers.first)
+            token = try XCTUnwrap(trigger.token)
+            triggerID = trigger.id.uuidString
+        })
+        // The webhook needs no login, only the secret address.
+        try await app.test(.POST, "api/hooks/\(String(repeating: "a", count: 64))", afterResponse: { res async in
+            XCTAssertEqual(res.status, .notFound)
+        })
+        try await app.test(.POST, "api/hooks/\(token)", beforeRequest: { req in
+            req.headers.contentType = .json
+            req.body = ByteBuffer(string: #"{"status":"ok"}"#)
+        }, afterResponse: { res async in
+            XCTAssertEqual(res.status, .accepted, res.body.string)
+        })
+        try await app.test(.GET, "api/conversations/\(id)", beforeRequest: authorize, afterResponse: { res async throws in
+            let stored = try res.content.decode(Conversation.self)
+            let run = try XCTUnwrap(stored.messages.first { $0.role == .user })
+            XCTAssertEqual(run.text, "Tell me how the deploy went")
+            XCTAssertTrue(run.trigger?.data.contains(#"{"status":"ok"}"#) ?? false)
+        })
+        try await app.test(.DELETE, "api/conversations/\(id)/triggers/\(triggerID)", beforeRequest: authorize, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok, res.body.string)
+            XCTAssertTrue(try res.content.decode(Conversation.self).triggers.isEmpty)
+        })
+        try await app.test(.POST, "api/hooks/\(token)", afterResponse: { res async in
+            XCTAssertEqual(res.status, .notFound)
+        })
+    }
+
     func testConversationVoiceUsesPersistentConversationOwnership() async throws {
         let conversation = try await createConversation()
         try await app.test(.POST, "api/conversations/\(conversation.id.uuidString)/transcribe", beforeRequest: { req in
