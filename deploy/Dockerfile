@@ -48,6 +48,10 @@ RUN apt-get update \
 RUN apt-get update \
     && apt-get install -y --no-install-recommends bubblewrap \
     && rm -rf /var/lib/apt/lists/*
+# ssh client for Ada's workstation over SSH (AGENTSAM_WORKSTATION_SSH)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openssh-client \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /build/Server/.build/release/AgentSamServer .
 # SwiftPM resource bundles. Bundle.module resolves them next to the executable on Linux;

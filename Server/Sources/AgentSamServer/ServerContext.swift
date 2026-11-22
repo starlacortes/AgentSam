@@ -68,7 +68,25 @@ struct ServerContext: Sendable {
             rs256Signer: GoogleRS256.sign
         )
         let connectors = ConnectorHub(store: store, keyRing: keyRing, google: google)
-        let access = ConversationAccess(root: store.root)
+        let accounts = AccountStore(dataDir: store.root)
+        let workstationConfig = WorkstationConfig.fromEnvironment()
+        let access = ConversationAccess(
+            root: store.root,
+            workstation: workstationConfig.enabled ? Workstation(config: workstationConfig, dataDir: store.root) : nil,
+            workstationOwner: { owner in
+                // Ada's machine is the server itself, so only admins (and the shared server token) may use it.
+                if owner == "shared-server-token" { return true }
+                guard let id = UUID(uuidString: owner), let user = await accounts.user(id: id) else { return false }
+                return user.role == .admin && !user.disabled
+            },
+            mcp: MCPRegistry(root: store.root, keyRing: keyRing)
+        )
+        if let problem = workstationConfig.problem { print(problem) }
+        if let ssh = workstationConfig.ssh, workstationConfig.enabled {
+            print("Workstation access is on: Ada can run approved commands on \(ssh.destination) over SSH.")
+        } else if workstationConfig.enabled {
+            print("Workstation access is on: Ada can run approved commands on this machine (home \(workstationConfig.home.path)).")
+        }
         let prompts = PromptStore(
             builtins: PromptStore.builtins,
             fileURL: store.root.appendingPathComponent("prompts.json")
@@ -139,7 +157,6 @@ struct ServerContext: Sendable {
             print(" Set AGENTSAM_TOKEN to pin a token for the iPhone app.")
             print("=================================================================")
         }
-        let accounts = AccountStore(dataDir: store.root)
         let provisioning = ProvisioningStore(
             dataDir: store.root,
             secrets: keyRing,

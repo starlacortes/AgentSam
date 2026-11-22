@@ -19,6 +19,19 @@ export const PERMISSION_TOOL_LABELS: Record<string, string> = {
   cloudflare_dns_update: 'Change DNS records',
   cloudflare_dns_delete: 'Delete DNS records',
   cloudflare_purge_cache: 'Purge the Cloudflare cache',
+  workstation_run: 'Run commands on her workstation',
+  workstation_start_job: 'Start background jobs on her workstation',
+}
+
+const WORKSTATION_TOOLS = new Set(['workstation_run', 'workstation_start_job'])
+
+/** A comma-separated list input that keeps what the person is typing, trailing commas included. */
+function ListInput({ value, placeholder, disabled, onChange }: { value: string[]; placeholder: string; disabled: boolean; onChange: (items: string[]) => void }) {
+  const [text, setText] = useState(value.join(', '))
+  return <input type="text" placeholder={placeholder} disabled={disabled} value={text} onChange={(event) => {
+    setText(event.target.value)
+    onChange(event.target.value.split(',').map((item) => item.trim()).filter(Boolean))
+  }} />
 }
 
 const APPROVAL_MINUTES = [15, 60, 240, 720, 1440]
@@ -112,7 +125,9 @@ export function PermissionsPanel() {
             <label>{t('At most per day')}<input type="number" min={1} max={1000} placeholder={t('No limit')} disabled={!editable} value={rule.maxPerDay ?? ''} onChange={(event) => setField({ maxPerDay: numberOrUndefined(event.target.value) })} /></label>
             {tool === 'googleads_set_budget' ? <label>{t('Largest daily budget')}<input type="number" min={0} step="0.01" placeholder={t('No limit')} disabled={!editable} value={rule.maxAmount ?? ''} onChange={(event) => setField({ maxAmount: numberOrUndefined(event.target.value) })} /></label> : null}
             {tool === 'github_write_file' ? <label>{t('Only branches starting with')}<input type="text" placeholder="claude/" disabled={!editable} value={rule.branchPrefix ?? ''} onChange={(event) => setField({ branchPrefix: event.target.value || undefined })} /></label> : null}
-            {tool === 'gmail_send' ? <label>{t('Only to these addresses or @domains')}<input type="text" placeholder="me@example.com, @mycompany.com" disabled={!editable} value={(rule.allowedRecipients ?? []).join(', ')} onChange={(event) => setField({ allowedRecipients: event.target.value.split(',').map((item) => item.trim()).filter(Boolean) })} /></label> : null}
+            {tool === 'gmail_send' ? <label>{t('Only to these addresses or @domains')}<ListInput placeholder="me@example.com, @mycompany.com" disabled={!editable} value={rule.allowedRecipients ?? []} onChange={(items) => setField({ allowedRecipients: items.length ? items : undefined })} /></label> : null}
+            {WORKSTATION_TOOLS.has(tool) ? <label>{t('Only commands starting with')}<ListInput placeholder="pacman -Q, systemctl status, journalctl" disabled={!editable} value={rule.commandPrefixes ?? []} onChange={(items) => setField({ commandPrefixes: items.length ? items : undefined })} /></label> : null}
+            {WORKSTATION_TOOLS.has(tool) && !(rule.commandPrefixes ?? []).length ? <p className="co-proposal-warning">{t('With no prefixes, Ada can run any command on her workstation without asking.')}</p> : null}
           </div> : null}
         </div>
       })}

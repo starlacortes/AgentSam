@@ -221,7 +221,7 @@ export interface AgentActionRequest {
   ownerID: string
   conversationID: string
   missionID?: string
-  kind: 'connectorWrite' | 'fileDelete'
+  kind: 'connectorWrite' | 'fileDelete' | 'workstation' | 'mcpCall'
   title: string
   detail: string
   toolName: string
@@ -443,6 +443,26 @@ export interface BatchDetail {
   batch: PublicBatch
 }
 
+export interface MCPToolView {
+  name: string
+  exposedName: string
+  description: string
+  readOnlyHint: boolean
+  read: boolean
+}
+
+export interface MCPServerView {
+  id: string
+  name: string
+  slug: string
+  url: string
+  enabled: boolean
+  hasToken: boolean
+  tools: MCPToolView[]
+  lastRefreshed?: string
+  lastError?: string
+}
+
 export type PermissionMode = 'ask' | 'allow' | 'never'
 
 export interface PermissionRule {
@@ -451,6 +471,7 @@ export interface PermissionRule {
   maxAmount?: number
   branchPrefix?: string
   allowedRecipients?: string[]
+  commandPrefixes?: string[]
 }
 
 export interface PermissionPolicy {
@@ -467,4 +488,5 @@ export interface PermissionsView {
   tools: string[]
   canEdit: boolean
   spentTodayUSD: number
+  workstation?: boolean
 }

@@ -737,3 +737,23 @@
 .remembered-list li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 12px; }
 .remembered-form { display: flex; gap: 8px; margin-top: 8px; }
 .remembered-form input { flex: 1; min-width: 0; }
+
+/* MCP servers */
+.mcp-servers { margin-top: 14px; }
+.mcp-servers p { color: var(--mut); font-size: 11px; margin-top: 2px; }
+.mcp-servers p.danger { color: var(--danger, #d66); }
+.mcp-list, .mcp-tools { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 6px; }
+.mcp-list > li { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 12px; min-width: 0; }
+.mcp-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.mcp-head > div:first-child { min-width: 0; overflow-wrap: anywhere; }
+.mcp-actions { display: flex; align-items: center; gap: 8px; }
+.mcp-tools { margin-top: 8px; }
+.mcp-tools label { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.mcp-form { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.mcp-form input { flex: 1 1 160px; min-width: 0; }
+
+/* Ada's workstation */
+.workstation-card { margin-bottom: 14px; }
+.workstation-card p { color: var(--mut); font-size: 11px; margin-top: 2px; }
+.workstation-key .row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.workstation-key code { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 11px; }

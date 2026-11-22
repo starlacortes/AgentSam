@@ -482,6 +482,8 @@ final class ConversationAPITests: XCTestCase {
             XCTAssertTrue(view.canEdit)
             XCTAssertTrue(view.policy.rules.isEmpty)
             XCTAssertTrue(view.tools.contains("gmail_send"))
+            XCTAssertFalse(view.workstation, "the workstation is off unless AGENTSAM_WORKSTATION=1")
+            XCTAssertFalse(view.tools.contains("workstation_run"))
         })
         let policy = PermissionPolicy(rules: ["gmail_draft": PermissionRule(mode: .allow, maxPerDay: 5), "run_terminal": PermissionRule(mode: .allow)], approvalMinutes: 720)
         try await app.test(.PUT, "api/access/permissions", beforeRequest: { req in
@@ -509,6 +511,31 @@ final class ConversationAPITests: XCTestCase {
             req.headers.bearerAuthorization = BearerAuthorization(token: memberToken)
             try req.content.encode(policy, as: .json)
         }, afterResponse: { res async in XCTAssertEqual(res.status, .forbidden) })
+    }
+
+    func testMCPServersAndWorkstationAreAdminOnly() async throws {
+        try await app.test(.GET, "api/mcp/servers", beforeRequest: authorize, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok, res.body.string)
+            XCTAssertEqual(try res.content.decode([MCPServerView].self).count, 0)
+        })
+        try await app.test(.POST, "api/mcp/servers", beforeRequest: { req in
+            self.authorize(&req)
+            try req.content.encode(MCPServerAddBody(name: "x", url: "http://example.test/mcp", token: nil), as: .json)
+        }, afterResponse: { res async in
+            XCTAssertEqual(res.status, .badRequest, "plain HTTP to another machine is refused")
+        })
+        try await app.test(.GET, "api/access/workstation", beforeRequest: authorize, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok)
+            XCTAssertFalse(try res.content.decode(WorkstationView.self).enabled)
+        })
+        let accounts = try XCTUnwrap(app.storage[ServerContextKey.self]).accounts
+        let member = try await accounts.createUser(email: "member-mcp@example.com", name: "Member", role: .member, passwordHash: try await Passwords.hash("member test password"))
+        let (_, memberToken) = try await accounts.createAPIToken(userID: member.id, name: "Member token")
+        for path in ["api/mcp/servers", "api/access/workstation"] {
+            try await app.test(.GET, path, beforeRequest: { req in
+                req.headers.bearerAuthorization = BearerAuthorization(token: memberToken)
+            }, afterResponse: { res async in XCTAssertEqual(res.status, .forbidden, path) })
+        }
     }
 
     func testWorkspaceKnowledgeDiscoversRefreshesAndExportsDocuments() async throws {

@@ -17,6 +17,21 @@ struct PermissionsView: Content {
     var tools: [String]
     var canEdit: Bool
     var spentTodayUSD: Double
+    /// True when the workstation is on and this person may use it, so its rules are shown.
+    var workstation: Bool
+}
+
+/// The workstation as admins see it: where it runs and the public key to install there.
+struct WorkstationView: Content {
+    var enabled: Bool
+    var location: String
+    var ssh: String?
+    var publicKey: String?
+}
+
+struct WorkstationTestView: Content {
+    var ok: Bool
+    var output: String
 }
 
 struct UploadedProjectFile: Content {
@@ -109,12 +124,15 @@ func accessRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
     }
 
     @Sendable func permissionsView(owner: String, canEdit: Bool) async -> PermissionsView {
-        PermissionsView(
+        var workstation = false
+        if let machine = ctx.access.workstation, await machine.enabled { workstation = await ctx.access.workstationOwner(owner) }
+        return PermissionsView(
             policy: await ctx.access.permissions.policy(ownerID: owner),
             usageToday: await ctx.access.permissions.usageToday(ownerID: owner),
-            tools: PermissionStore.ruleTools.sorted(),
+            tools: PermissionStore.ruleTools.sorted().filter { workstation || !WorkstationTools.names.contains($0) } + (await ctx.access.mcp?.writeToolNames() ?? []),
             canEdit: canEdit,
-            spentTodayUSD: await ctx.access.spend.today(ownerID: owner)
+            spentTodayUSD: await ctx.access.spend.today(ownerID: owner),
+            workstation: workstation
         )
     }
 
@@ -131,6 +149,24 @@ func accessRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
         let policy = try req.decodeJSON(PermissionPolicy.self)
         await ctx.access.permissions.save(ownerID: principal.conversationOwnerID, policy: policy)
         return try req.json(await permissionsView(owner: principal.conversationOwnerID, canEdit: true))
+    }
+
+    api.get("access", "workstation") { req async throws -> Response in
+        let principal = try req.requirePrincipal()
+        guard principal.isAdmin else { throw Abort(.forbidden, reason: "Only admins can see Ada's workstation.") }
+        guard let machine = ctx.access.workstation, await machine.enabled else {
+            return try req.json(WorkstationView(enabled: false, location: "", ssh: nil, publicKey: nil))
+        }
+        return try req.json(WorkstationView(enabled: true, location: await machine.location, ssh: machine.config.ssh?.destination, publicKey: await machine.publicKey()))
+    }
+
+    api.post("access", "workstation", "test") { req async throws -> Response in
+        let principal = try req.requirePrincipal()
+        guard principal.isAdmin else { throw Abort(.forbidden, reason: "Only admins can test Ada's workstation.") }
+        guard let machine = ctx.access.workstation, await machine.enabled else { throw Abort(.notFound, reason: "Workstation access is off on this server.") }
+        let outcome = await machine.status()
+        await ctx.access.audit.record(ownerID: principal.conversationOwnerID, action: "workstation.test", detail: outcome.succeeded ? "ok" : "failed")
+        return try req.json(WorkstationTestView(ok: outcome.succeeded, output: String(outcome.resultText.prefix(8_000))))
     }
 
     api.get("access", "audit") { req async throws -> Response in
@@ -162,6 +198,31 @@ func accessRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
                 }
                 let call = APIToolCall(id: action.id.uuidString, function: .init(name: action.toolName, arguments: raw))
                 let outcome = await ctx.connectors.run(call: call, scope: action.toolScope, approved: true)
+                await ctx.access.actions.finish(ownerID: conversation.ownerID, id: id, result: outcome.resultText, succeeded: outcome.succeeded)
+            case .workstation:
+                guard let machine = ctx.access.workstation, await ctx.access.workstationOwner(conversation.ownerID) else {
+                    await ctx.access.actions.finish(ownerID: conversation.ownerID, id: id, result: "Workstation access is off on this server. Nothing ran.", succeeded: false)
+                    break
+                }
+                guard await ctx.access.actions.consumeApproved(ownerID: conversation.ownerID, id: id) != nil,
+                      let raw = action.arguments.objectValue?["raw"]?.stringValue else {
+                    throw Abort(.conflict, reason: "The workstation command could not be started.")
+                }
+                // Commands can take minutes, so they finish in the background; the card shows "executing" until then.
+                let owner = conversation.ownerID
+                let actions = ctx.access.actions
+                let tool = action.toolName
+                Task {
+                    let outcome = await WorkstationTools.execute(toolName: tool, rawArguments: raw, workstation: machine)
+                    await actions.finish(ownerID: owner, id: id, result: outcome.resultText, succeeded: outcome.succeeded)
+                }
+            case .mcpCall:
+                guard let mcp = ctx.access.mcp,
+                      await ctx.access.actions.consumeApproved(ownerID: conversation.ownerID, id: id) != nil,
+                      let raw = action.arguments.objectValue?["raw"]?.stringValue else {
+                    throw Abort(.conflict, reason: "The MCP tool call could not be started.")
+                }
+                let outcome = await mcp.call(action.toolName, rawArguments: raw)
                 await ctx.access.actions.finish(ownerID: conversation.ownerID, id: id, result: outcome.resultText, succeeded: outcome.succeeded)
             case .fileDelete:
                 guard await ctx.access.actions.consumeApproved(ownerID: conversation.ownerID, id: id) != nil,

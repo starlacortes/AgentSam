@@ -275,7 +275,7 @@ public actor HostAccessStore {
 }
 
 public struct AgentActionRequest: Codable, Identifiable, Hashable, Sendable {
-    public enum Kind: String, Codable, Sendable { case connectorWrite, fileDelete }
+    public enum Kind: String, Codable, Sendable { case connectorWrite, fileDelete, workstation, mcpCall }
     public enum Status: String, Codable, Sendable { case pending, approved, executing, completed, denied, expired, failed }
     public enum FileScope: String, Codable, Sendable { case conversation, project }
 
@@ -327,8 +327,17 @@ public struct ConversationAccess: Sendable {
     public let terminal: WorkspaceTerminal
     public let permissions: PermissionStore
     public let spend: SpendLedger
+    /// Ada's own machine, when the server operator turned it on.
+    public let workstation: Workstation?
+    /// Whether this conversation owner may use the workstation (admins and the server token).
+    public let workstationOwner: @Sendable (String) async -> Bool
+    /// MCP servers an admin connected; their tools are offered in every conversation with access.
+    public let mcp: MCPRegistry?
 
-    public init(root: URL) {
+    public init(root: URL, workstation: Workstation? = nil, workstationOwner: @escaping @Sendable (String) async -> Bool = { _ in false }, mcp: MCPRegistry? = nil) {
+        self.mcp = mcp
+        self.workstation = workstation
+        self.workstationOwner = workstationOwner
         spend = SpendLedger(root: root)
         let audit = AccessAuditLog(root: root)
         self.audit = audit
@@ -436,7 +445,7 @@ public actor AgentActionCenter {
         action.status = succeeded ? .completed : .failed
         action.result = String(result.prefix(4_000))
         save(action)
-        Task { await audit.record(ownerID: ownerID, action: action.kind == .connectorWrite ? "connector.executed" : "file.deletion.finished", detail: "\(action.toolName): \(action.status.rawValue)") }
+        Task { await audit.record(ownerID: ownerID, action: Self.finishedAuditAction(action.kind), detail: "\(action.toolName): \(action.status.rawValue)") }
     }
 
     /// Keeps a record of a write a standing permission ran without a card, so it shows in the chat
@@ -448,8 +457,17 @@ public actor AgentActionCenter {
         record.status = succeeded ? .completed : .failed
         record.result = String(result.prefix(4_000))
         save(record)
-        Task { await audit.record(ownerID: record.ownerID, action: "connector.executed", detail: "\(record.toolName): \(record.status.rawValue) (standing permission)") }
+        Task { await audit.record(ownerID: record.ownerID, action: Self.finishedAuditAction(record.kind), detail: "\(record.toolName): \(record.status.rawValue) (standing permission)") }
         return record
+    }
+
+    static func finishedAuditAction(_ kind: AgentActionRequest.Kind) -> String {
+        switch kind {
+        case .connectorWrite: return "connector.executed"
+        case .fileDelete: return "file.deletion.finished"
+        case .workstation: return "workstation.executed"
+        case .mcpCall: return "mcp.executed"
+        }
     }
 
     public func awaitConnectorApproval(missionID: UUID, call: APIToolCall, scope: ToolScope?, lifetime: TimeInterval = 15 * 60) async -> String {

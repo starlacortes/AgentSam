@@ -16,6 +16,8 @@ import { PeoplePage } from './PeoplePage'
 import { ProvidersPage } from './ProvidersPage'
 import { PermissionsPanel } from '../components/PermissionsPanel'
 import { PushAlertsCard } from '../components/PushAlertsCard'
+import { MCPServersPanel } from '../components/MCPServersPanel'
+import { WorkstationCard } from '../components/WorkstationCard'
 import { RememberedPanel } from '../components/RememberedPanel'
 
 export type SettingsSection = 'connections' | 'permissions' | 'memory' | 'preferences' | 'account' | 'providers' | 'people' | 'folders'
@@ -58,7 +60,7 @@ export function SettingsPage() {
       </nav>
       <section className="settings-body">
         {current.id === 'connections' ? <ConnectionsSettings /> : null}
-        {current.id === 'permissions' ? <SectionHead title={t('What Ada can do alone')} lede={t('Choose which actions Ada may take without asking, and the limits that keep them small.')}><PushAlertsCard /><PermissionsPanel /></SectionHead> : null}
+        {current.id === 'permissions' ? <SectionHead title={t('What Ada can do alone')} lede={t('Choose which actions Ada may take without asking, and the limits that keep them small.')}><PushAlertsCard />{isAdmin ? <WorkstationCard /> : null}<PermissionsPanel /></SectionHead> : null}
         {current.id === 'memory' ? <MemorySettings /> : null}
         {current.id === 'preferences' ? <PreferenceSettings /> : null}
         {current.id === 'account' ? <AccountPage /> : null}
@@ -86,6 +88,7 @@ function SectionHead({ title, lede, children }: { title: string; lede: string; c
 
 function ConnectionsSettings() {
   const { t } = useI18n()
+  const { isAdmin } = useAuth()
   const [params, setParams] = useSearchParams()
   const [connectors, setConnectors] = useState<ConnectorStatus[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -97,6 +100,7 @@ function ConnectionsSettings() {
       <ErrorBanner message={error} />
       {connectedName ? <div className="notice row"><span style={{ flex: 1 }}>{t('{name} is connected.', { name: connectedName })}</span><button className="pill" onClick={() => setParams({})}>{t('Dismiss')}</button></div> : null}
       {!connectors ? <Spinner /> : <div className="settings-cards">{connectors.map((connector) => <ConnectorCard key={connector.id} connector={connector} onChange={(updated) => setConnectors((list) => (list ?? []).map((item) => item.id === updated.id ? updated : item))} />)}</div>}
+      {isAdmin ? <MCPServersPanel /> : null}
       <div className="co-safety-note"><Icon name="shield" /><p>{t('External writes need your one-use approval unless a rule under What Ada can do alone allows them. Connector permissions still apply. Read tools do not need approval.')}</p></div>
     </SectionHead>
   )
