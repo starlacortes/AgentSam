@@ -181,6 +181,11 @@ export const es: Record<string, string> = {
   // Settings (providers) page
   'Server settings': 'Configuración del servidor',
   'Model providers': 'Proveedores de modelos',
+  'Vision model': 'Modelo de visión',
+  'Used when a message has photos attached. Leave on automatic to use Ada\'s own model, or the image processor if hers cannot see.': 'Se usa cuando un mensaje incluye fotos. Déjalo en automático para usar el modelo de Ada, o el procesador de imágenes si el suyo no puede ver.',
+  'Automatic': 'Automático',
+  'Vision model saved.': 'Modelo de visión guardado.',
+  'Save vision model': 'Guardar modelo de visión',
   'Keys are stored on the server and shared by every mission. They can be replaced or removed here, but never read back.':
     'Las claves se guardan en el servidor y las comparten todas las misiones. Se pueden reemplazar o eliminar aquí, pero nunca se pueden leer.',
   'Add provider': 'Añadir proveedor',

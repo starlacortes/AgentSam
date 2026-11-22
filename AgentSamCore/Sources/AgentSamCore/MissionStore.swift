@@ -63,6 +63,25 @@ public actor MissionStore {
         }
     }
 
+    // MARK: Vision model
+
+    /// The model that looks at attached photos. Nil means Ada's own model is used when it can see,
+    /// else the built-in image processor provider when it has a key.
+    public func loadVisionModel() -> VisionModelSetting? {
+        let url = root.appendingPathComponent("vision-model.json")
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? Self.decoder.decode(VisionModelSetting.self, from: data)
+    }
+
+    public func saveVisionModel(_ setting: VisionModelSetting?) {
+        let url = root.appendingPathComponent("vision-model.json")
+        guard let setting, let data = try? Self.encoder.encode(setting) else {
+            try? FileManager.default.removeItem(at: url)
+            return
+        }
+        try? data.write(to: url, options: .atomic)
+    }
+
     // MARK: Connectors
 
     public func loadConnectorConfigs() -> [ConnectorConfig] {

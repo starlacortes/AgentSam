@@ -27,6 +27,21 @@ public enum ConversationCompactor {
     Continue from your most recent tool results.]
     """
 
+    /// One line per dropped tool call, so the model still knows what it already did.
+    static func digest(of dropped: [[APIMessage]], maxLines: Int = 25) -> String {
+        var lines: [String] = []
+        for message in dropped.flatMap({ $0 }) {
+            for call in message.tool_calls ?? [] {
+                let arguments = call.function.arguments.replacingOccurrences(of: "\n", with: " ")
+                lines.append("- \(call.function.name) \(arguments.count > 80 ? String(arguments.prefix(80)) + "…" : arguments)")
+            }
+        }
+        guard !lines.isEmpty else { return "" }
+        let shown = lines.suffix(maxLines)
+        let omitted = lines.count - shown.count
+        return "\nTool calls already made in the trimmed turns" + (omitted > 0 ? " (last \(shown.count) of \(lines.count))" : "") + ":\n" + shown.joined(separator: "\n")
+    }
+
     /// Valid-JSON stand-in for the arguments of an already-executed tool call.
     static let stubbedArguments = #"{"__trimmed__":"see the file in the workspace"}"#
 
@@ -104,13 +119,14 @@ public enum ConversationCompactor {
 
         var result = head
         if firstKept > 0 {
+            let notice = trimmedNotice + digest(of: Array(turns[..<firstKept]))
             // Merge the notice into the last kept user message: Anthropic
             // rejects consecutive same-role messages.
             if let lastIndex = result.indices.last, result[lastIndex].role == "user" {
                 let existing = result[lastIndex].content ?? ""
-                result[lastIndex].content = existing + (existing.isEmpty ? "" : "\n\n") + trimmedNotice
+                result[lastIndex].content = existing + (existing.isEmpty ? "" : "\n\n") + notice
             } else {
-                result.append(.user(trimmedNotice))
+                result.append(.user(notice))
             }
         }
         for turn in turns[firstKept...] {

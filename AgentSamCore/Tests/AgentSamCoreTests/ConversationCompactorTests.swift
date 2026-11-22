@@ -171,3 +171,19 @@ final class ConversationCompactorTests: XCTestCase {
         XCTAssertLessThanOrEqual(ConversationCompactor.size(outcome.messages), 1_000)
     }
 }
+
+final class ModelLimitsTests: XCTestCase {
+    func testBudgetScalesWithWindowAndIsCapped() {
+        XCTAssertEqual(ModelLimits.conversationBudget(model: "mystery-model"), 76_800)
+        XCTAssertEqual(ModelLimits.conversationBudget(model: "claude-sonnet-4-5"), 120_000)
+        XCTAssertEqual(ModelLimits.conversationBudget(model: "deepseek-v4-pro"), ModelLimits.maxBudgetTokens)
+        XCTAssertEqual(ModelLimits.conversationBudget(model: "mixtral-8x7b"), ModelLimits.minBudgetTokens)
+    }
+
+    func testTrimNoticeListsDroppedToolCalls() {
+        let call = APIToolCall(id: "1", function: .init(name: "chat_write_file", arguments: #"{"path":"a.md"}"#))
+        let dropped = [[APIMessage(role: "assistant", content: nil, tool_calls: [call])]]
+        XCTAssertTrue(ConversationCompactor.digest(of: dropped).contains("chat_write_file"))
+        XCTAssertEqual(ConversationCompactor.digest(of: []), "")
+    }
+}
