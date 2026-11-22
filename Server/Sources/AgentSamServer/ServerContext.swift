@@ -137,7 +137,9 @@ struct ServerContext: Sendable {
         let conversations = ConversationStore(root: store.root)
         let memory = WorkspaceMemoryStore(root: store.root)
         let skills = SkillStore(root: store.root)
-        let knowledge = WorkspaceKnowledgeStore(store: store, conversations: conversations, connectors: connectors, keyRing: keyRing, includeExtendedTools: true, skills: skills)
+        let knowledge = WorkspaceKnowledgeStore(store: store, conversations: conversations, connectors: connectors, keyRing: keyRing, includeExtendedTools: true, skills: skills,
+            machines: WorkspaceMachines(workstation: workstationConfig, browser: browserConfig, mayUse: access.workstationOwner, permissions: access.permissions)
+        )
         let chatWorkspace = ChatWorkspaceStore(root: store.root)
         let conversationEngine = ConversationEngine(
             store: store,

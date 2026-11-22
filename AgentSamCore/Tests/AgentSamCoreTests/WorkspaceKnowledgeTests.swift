@@ -70,6 +70,69 @@ final class WorkspaceKnowledgeTests: XCTestCase {
         XCTAssertEqual(daily.refreshCount, 3)
     }
 
+    private func capabilities(_ knowledge: WorkspaceKnowledgeStore, owner: String) async throws -> String {
+        let state = await knowledge.refresh(ownerID: owner, force: true)
+        return try XCTUnwrap(state.documents.first { $0.id == .capabilities }?.markdown)
+    }
+
+    private func knowledgeStore(machines: WorkspaceMachines?) -> WorkspaceKnowledgeStore {
+        let store = MissionStore(root: directory)
+        let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
+        let hub = ConnectorHub(store: store, keyRing: keys, google: GoogleOAuth(clientID: "", clientSecret: ""))
+        return WorkspaceKnowledgeStore(store: store, conversations: ConversationStore(root: directory), connectors: hub, keyRing: keys, includeExtendedTools: true, machines: machines)
+    }
+
+    func testCapabilitiesSayWorkstationAndBrowserAreOffWhenTheServerHasNone() async throws {
+        let machines = WorkspaceMachines(workstation: WorkstationConfig(enabled: false, home: directory), browser: BrowserConfig(enabled: false), mayUse: { _ in true })
+        let text = try await capabilities(knowledgeStore(machines: machines), owner: "admin")
+        XCTAssertTrue(text.contains("## Workstation\n- Off on this server."))
+        XCTAssertTrue(text.contains("## Browser\n- Off on this server."))
+        XCTAssertFalse(text.contains("workstation_status"))
+    }
+
+    func testCapabilitiesDescribeTheSSHWorkstationAndLiveBrowserForAdmins() async throws {
+        let ssh = SSHTarget(destination: "ada@kokofast.example", port: 2222, hostKey: "ssh-ed25519 AAAAnever-document-this-host-key")
+        let workstation = WorkstationConfig(enabled: true, home: directory, ssh: ssh)
+        let env = ["AGENTSAM_BROWSER": "1", "AGENTSAM_BROWSER_VNC_PASSWORD": "never-document-this-password"]
+        let browser = BrowserConfig.fromEnvironment(env, workstation: workstation)
+        XCTAssertTrue(browser.enabled)
+        let permissions = PermissionStore(root: directory)
+        _ = await permissions.save(ownerID: "admin", policy: PermissionPolicy(rules: [
+            "workstation_run": PermissionRule(mode: .allow, commandPrefixes: ["pacman -Q", "systemctl status"]),
+        ]))
+        let machines = WorkspaceMachines(workstation: workstation, browser: browser, mayUse: { $0 == "admin" }, permissions: permissions)
+        let knowledge = knowledgeStore(machines: machines)
+
+        let text = try await capabilities(knowledge, owner: "admin")
+        XCTAssertTrue(text.contains("`ada@kokofast.example` (port 2222), reached over SSH"))
+        for tool in WorkstationTools.names { XCTAssertTrue(text.contains("`\(tool)`"), tool) }
+        XCTAssertTrue(text.contains("`workstation_run`: runs without a card only for single commands starting with `pacman -Q`, `systemctl status`"))
+        XCTAssertTrue(text.contains("`workstation_start_job`: asks every time"))
+        XCTAssertTrue(text.contains("## Browser\n- On: a real Chromium window"))
+        XCTAssertTrue(text.contains("`ada-browser.service`"))
+        XCTAssertTrue(text.contains("Open Ada’s browser"))
+        XCTAssertTrue(text.contains("stops after 15 minutes"))
+        XCTAssertTrue(text.contains("Ada cannot drive it yet"))
+        XCTAssertFalse(text.contains("never-document-this"))
+        // The prompt cuts each document; the machines must survive the cut.
+        let summary = await knowledge.state(ownerID: "admin").promptSummary
+        XCTAssertTrue(summary.contains("Ada cannot drive it yet"))
+
+        let member = try await capabilities(knowledge, owner: "member")
+        XCTAssertTrue(member.contains("only admins can use them"))
+        XCTAssertFalse(member.contains("kokofast"))
+        XCTAssertFalse(member.contains("workstation_run"))
+    }
+
+    func testCapabilitiesSayWhyTheBrowserIsOffOnAnSSHWorkstation() async throws {
+        let workstation = WorkstationConfig(enabled: true, home: directory, ssh: SSHTarget(destination: "ada@kokofast.example"))
+        let machines = WorkspaceMachines(workstation: workstation, browser: BrowserConfig(enabled: false), mayUse: { _ in true })
+        let text = try await capabilities(knowledgeStore(machines: machines), owner: "admin")
+        XCTAssertTrue(text.contains("`ada@kokofast.example`, reached over SSH"))
+        XCTAssertTrue(text.contains("`workstation_run`: asks every time"))
+        XCTAssertTrue(text.contains("Off on this server (AGENTSAM_BROWSER is not set)"))
+    }
+
     func testPromptContextCarriesKnowledgeIntoMissionHandoff() {
         let context = ConversationPromptContext(
             projectName: "Launch",

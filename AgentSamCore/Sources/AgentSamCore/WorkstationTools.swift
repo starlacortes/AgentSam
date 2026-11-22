@@ -15,13 +15,13 @@ public enum WorkstationTools {
         return [
             APIToolDef(
                 name: "workstation_status",
-                description: "See the state of your own Linux workstation (the machine you run on): OS, uptime, disk, memory, failed services, package counts and whether sudo works without a password. Runs at once and changes nothing.",
+                description: "See the state of your Linux workstation (capabilities.md says which machine it is): OS, uptime, disk, memory, failed services, package counts and whether sudo works without a password. Runs at once and changes nothing.",
                 parameters: .object([("type", .string("object")), ("properties", .object([]))])
             ),
             APIToolDef(
                 name: "workstation_run",
                 description: """
-                Run a shell command on your own Linux workstation, outside the sandbox, as the server's user: \
+                Run a shell command on your own Linux workstation, outside the sandbox, as the workstation's user: \
                 install or update packages, manage systemd services, edit config, check logs. It changes a real \
                 machine, so unless a standing permission allows the command it creates an approval card and \
                 nothing runs until the user approves; the output then appears under approval requests on a later \

@@ -55,6 +55,26 @@ public struct WorkspaceKnowledge: Codable, Hashable, Sendable {
     }
 }
 
+/// The machines the server lets Ada use, so her knowledge can say what she has and what is off.
+/// Only configuration goes in: knowing it never connects to the machine.
+public struct WorkspaceMachines: Sendable {
+    /// The workstation configuration, also when it is off.
+    public var workstation: WorkstationConfig
+    /// The live browser configuration, also when it is off.
+    public var browser: BrowserConfig
+    /// Whether this owner may use the workstation and the browser (admins only).
+    public var mayUse: @Sendable (String) async -> Bool
+    /// Standing permissions, to say which commands run without a card.
+    public var permissions: PermissionStore?
+
+    public init(workstation: WorkstationConfig, browser: BrowserConfig, mayUse: @escaping @Sendable (String) async -> Bool, permissions: PermissionStore? = nil) {
+        self.workstation = workstation
+        self.browser = browser
+        self.mayUse = mayUse
+        self.permissions = permissions
+    }
+}
+
 private struct WorkspaceKnowledgeMetadata: Codable, Sendable {
     var ownerID: String
     var fingerprint: String
@@ -81,6 +101,7 @@ public actor WorkspaceKnowledgeStore {
     private let keyRing: KeyRing
     private let includeExtendedTools: Bool
     private let skills: SkillStore
+    private let machines: WorkspaceMachines?
     private var refreshing: Set<String> = []
 
     private nonisolated var directory: URL {
@@ -88,7 +109,8 @@ public actor WorkspaceKnowledgeStore {
             .appendingPathComponent("knowledge", isDirectory: true)
     }
 
-    public init(store: MissionStore, conversations: ConversationStore, connectors: ConnectorHub, keyRing: KeyRing, includeExtendedTools: Bool = false, skills: SkillStore? = nil) {
+    public init(store: MissionStore, conversations: ConversationStore, connectors: ConnectorHub, keyRing: KeyRing, includeExtendedTools: Bool = false, skills: SkillStore? = nil, machines: WorkspaceMachines? = nil) {
+        self.machines = machines
         self.skills = skills ?? SkillStore(root: store.root)
         self.root = store.root
         self.store = store
@@ -235,13 +257,66 @@ public actor WorkspaceKnowledgeStore {
         }
         let activeTools = await connectors.toolDefs()
         return [
-            WorkspaceKnowledgeDraft(id: .capabilities, title: title(for: .capabilities), markdown: capabilitiesDocument(skills: skillList, providers: providers)),
+            WorkspaceKnowledgeDraft(id: .capabilities, title: title(for: .capabilities), markdown: capabilitiesDocument(skills: skillList, providers: providers, machines: await machinesSection(ownerID: ownerID))),
             WorkspaceKnowledgeDraft(id: .connections, title: title(for: .connections), markdown: connectionsDocument(statuses: statuses, activeTools: activeTools)),
             WorkspaceKnowledgeDraft(id: .projects, title: title(for: .projects), markdown: projectsDocument(chats: chats)),
         ]
     }
 
-    private func capabilitiesDocument(skills: [Skill], providers: [ProviderConfig]) -> String {
+    /// What Ada can do on her workstation and in her browser, for this owner. Written before the long
+    /// lists so the prompt's per-document cut never drops it.
+    private func machinesSection(ownerID: String) async -> [String] {
+        guard let machines else { return [] }
+        let workstation = machines.workstation
+        let browser = machines.browser
+        var lines = ["", "## Workstation"]
+        guard workstation.enabled else {
+            lines.append("- Off on this server. Ada has no Linux machine to run commands on, and the workstation_* tools are not offered.")
+            lines += ["", "## Browser", "- Off on this server. Ada has no browser window; web_search and web_fetch (the Web connection) read public pages only."]
+            return lines
+        }
+        guard await machines.mayUse(ownerID) else {
+            lines.append("- The server has a workstation and may have a live browser, but only admins can use them, so they are not available in this person's chats.")
+            return lines
+        }
+        if let ssh = workstation.ssh {
+            let port = ssh.port == 22 ? "" : " (port \(ssh.port))"
+            lines.append("- On: Ada's workstation is the Linux machine `\(Self.inline(ssh.destination))`\(port), reached over SSH from the server. It is not the machine the server runs on.")
+            if let directory = ssh.directory { lines.append("- Commands start in `\(Self.inline(directory))` unless a directory is given.") }
+            lines.append("- She works there as that SSH user. sudo works only where that user's sudoers allow it without a password; workstation_status shows whether it does.")
+        } else {
+            lines.append("- On: Ada's workstation is the machine the server runs on (home `\(Self.inline(workstation.home.path))`), outside the sandbox.")
+        }
+        lines.append("- Tools: `workstation_status`, `workstation_jobs` and `workstation_job` only look; `workstation_stop_job` stops a job she started; `workstation_run` and `workstation_start_job` change the machine.")
+        let policy = await machines.permissions?.policy(ownerID: ownerID)
+        let runRules = WorkstationTools.approvalNames.sorted().map { name -> String in
+            guard let rule = policy?.rules[name] else { return "`\(name)`: asks every time (approval card)" }
+            switch rule.mode {
+            case .ask: return "`\(name)`: asks every time (approval card)"
+            case .never: return "`\(name)`: never allowed by the person's settings"
+            case .allow:
+                let paused = policy?.paused == true ? ", but automatic actions are paused, so it asks" : ""
+                if let prefixes = rule.commandPrefixes {
+                    return "`\(name)`: runs without a card only for single commands starting with " + prefixes.map { "`\(Self.inline($0, limit: 80))`" }.joined(separator: ", ") + "; anything else asks" + paused
+                }
+                return "`\(name)`: runs without a card" + (rule.maxPerDay.map { " up to \($0) times a day" } ?? "") + paused
+            }
+        }
+        lines.append("- Permissions: " + runRules.joined(separator: "; ") + ".")
+        lines += ["", "## Browser"]
+        if browser.enabled {
+            lines.append("- On: a real Chromium window runs on the workstation as the systemd service `\(Self.inline(browser.service))`, and admins can watch and use it live in the web app (chat menu, \"Open Ada’s browser\").")
+            lines.append("- It starts when someone opens the window and stops after \(Int(browser.idleSeconds / 60)) minutes with nobody watching. Each start is a fresh profile with no accounts signed in, erased when it stops.")
+            lines.append("- Ada cannot drive it yet: there are no browser tools, so she cannot click, type or read pages in it herself. She can point the person to the window, and check the service with `workstation_run` (for example `systemctl status \(Self.inline(browser.service))`). To read the web herself she uses web_search and web_fetch.")
+        } else if workstation.ssh == nil {
+            lines.append("- Off: the live browser needs a workstation over SSH, and this one is the server's own machine.")
+        } else {
+            lines.append("- Off on this server (AGENTSAM_BROWSER is not set). Ada has no browser window; web_search and web_fetch read public pages only.")
+        }
+        return lines
+    }
+
+    private func capabilitiesDocument(skills: [Skill], providers: [ProviderConfig], machines: [String] = []) -> String {
         var lines = [
             "# Workspace capabilities",
             "",
@@ -258,6 +333,7 @@ public actor WorkspaceKnowledgeStore {
                 lines.append("- **\(Self.inline(provider.name))** (`\(provider.id)`): \(keyState). Models: \(models).")
             }
         }
+        lines += machines
         lines += ["", "## Direct chat tools"]
         var directTools = ChatWorkspaceTools.definitions + TriggerTools.definitions + SkillTools.definitions + MemoryTools.definitions
         if includeExtendedTools { directTools += ExtendedWorkspaceTools.definitions }
