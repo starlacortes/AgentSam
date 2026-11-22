@@ -190,7 +190,7 @@ final class WorkstationTests: XCTestCase {
         let sleeper = try XCTUnwrap(jobs.first { $0.label == "remote-sleeper" })
         let stopped = await ws.stopJob(id: sleeper.id)
         XCTAssertTrue(stopped.resultText.contains("Stopped"), stopped.resultText)
-        let gone = await ws.run(command: "kill -0 \(sleeper.pid) 2>/dev/null && echo still-alive || echo really-stopped", directory: nil, timeout: 5)
+        let gone = await ws.run(command: "if \(Workstation.alive(sleeper.pid)); then echo still-alive; else echo really-stopped; fi", directory: nil, timeout: 5)
         XCTAssertTrue(gone.resultText.contains("really-stopped"), gone.resultText)
         #endif
     }

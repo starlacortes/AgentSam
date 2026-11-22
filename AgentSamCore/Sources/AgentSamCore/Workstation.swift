@@ -226,6 +226,11 @@ public actor Workstation {
         }
     }
 
+    /// A shell test that is true while the process runs (not a zombie).
+    static func alive(_ pid: Int32) -> String {
+        "{ kill -0 \(pid) 2>/dev/null && ! grep -qs '^State:[[:space:]]*Z' /proc/\(pid)/status; }"
+    }
+
     /// `cd` into the requested directory on the SSH machine, or stop with a clear message.
     static func remoteCD(_ requested: String?, home: String?) -> String {
         let raw = requested?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -344,7 +349,8 @@ public actor Workstation {
         guard var job = jobs[id] else { return .failure("No workstation job has that ID.") }
         if job.remote == true {
             let file = "\"$HOME\"/.ada-jobs/\(id.uuidString)"
-            let script = "if kill -0 \(job.pid) 2>/dev/null; then echo __ADA_RUNNING; elif [ -f \(file).exit ]; then echo \"__ADA_EXIT $(cat \(file).exit)\"; else echo __ADA_GONE; fi\ntail -c \(tailCharacters) \(file).log 2>/dev/null"
+            // The exit file wins: an unreaped job (a zombie, where nothing reaps orphans) still answers kill -0.
+            let script = "if [ -f \(file).exit ]; then echo \"__ADA_EXIT $(cat \(file).exit)\"; elif \(Self.alive(job.pid)); then echo __ADA_RUNNING; else echo __ADA_GONE; fi\ntail -c \(tailCharacters) \(file).log 2>/dev/null"
             let outcome = await execute(script: script, directory: nil, timeout: 30)
             guard outcome.succeeded || outcome.resultText.contains("__ADA_") else { return .failure("Could not reach \(location): \(outcome.resultText.prefix(500))") }
             var lines = outcome.resultText.components(separatedBy: "\n")
