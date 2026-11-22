@@ -1098,7 +1098,7 @@ final class ConversationTests: XCTestCase {
         try keys.set("test-key", for: provider.keyAccount)
         let conversations = ConversationStore(root: directory)
         let memory = WorkspaceMemoryStore(root: directory)
-        let large = String(repeating: "x", count: 90_000)
+        let large = String(repeating: "x", count: 400_000) // ≈100k tokens, past the default model budget
         let arguments = #"{"path":"large.txt","content":""}"#.replacingOccurrences(of: "\"content\":\"\"", with: "\"content\":\"\(large)\"")
         let engine = engine(store, conversations, memory, keys: keys) { _, _, _, system, messages, _ in
             if system.contains("Summarize only durable") {
