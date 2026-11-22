@@ -158,10 +158,12 @@ public actor ChatWorkspaceStore {
 /// File and code tools Ada can use directly in chat. Files land in the conversation's private
 /// workspace; code runs in a fresh sandbox under the conversation's folder with a hard timeout.
 public enum ChatWorkspaceTools {
-    public static let maxRunsPerTurn = 4
+    public static let maxRunsPerTurn = 12
     public static let maxSourceBytes = 60_000
     public static let maxStdinBytes = 10_000
-    public static let runTimeout: TimeInterval = 20
+    public static let runTimeout: TimeInterval = 60
+    /// Seconds a terminal command may run.
+    public static let terminalTimeout: TimeInterval = 120
     public static let maxOutputCharacters = 12_000
 
     public static var definitions: [APIToolDef] {
@@ -204,7 +206,7 @@ public enum ChatWorkspaceTools {
                 Run code in a fresh, OS-sandboxed folder and return its output. The program can read this \
                 conversation's workspace files at ../<path> but cannot change them, and it cannot see the home \
                 folder or server data. Nothing it writes is saved; use chat_write_file for files. Languages: "js" \
-                (Node.js), "python", and "c" (compiled and run with gcc). Limits: 20-second timeout, 60,000-character source, 12,000 characters of output, and 4 program or \
+                (Node.js), "python", and "c" (compiled and run with gcc). Limits: 60-second timeout, 60,000-character source, 12,000 characters of output, and 12 program or \
                 terminal runs per reply. Use it to compute, verify, or demonstrate: run the program you wrote, or a \
                 quick check, and report the actual output.
                 """,
@@ -225,7 +227,7 @@ public enum ChatWorkspaceTools {
             ),
             APIToolDef(
                 name: "chat_schedule_run",
-                description: "Schedule this conversation to run a prompt automatically on a timer, so work you would otherwise repeat on request (an hourly refresh, a daily digest, a periodic check) happens without the user asking each time. The platform sends the prompt for the user; you run it with your normal tools each time it fires.",
+                description: "Schedule this conversation to run a prompt automatically, either every N minutes or at a set local time on chosen days (\"weekdays at 08:00\"), so work you would otherwise repeat on request (an hourly refresh, a morning digest, a periodic check) happens without the user asking each time. The platform sends the prompt for the user; you run it with your normal tools each time it fires. A chat has one schedule; setting it again replaces it. It pauses itself after 3 failed runs in a row. To react to new email or a webhook instead, use chat_trigger_add.",
                 parameters: .object([
                     ("type", .string("object")),
                     ("properties", .object([
@@ -233,10 +235,12 @@ public enum ChatWorkspaceTools {
                         ("intervalMinutes", .object([
                             ("type", .string("integer")),
                             ("enum", .array([.number(15), .number(30), .number(60), .number(360), .number(720), .number(1440)])),
-                            ("description", .string("How often to run: 15 or 30 minutes, 60 (hourly), 360 (every 6 hours), 720 (every 12 hours), or 1440 (daily)")),
+                            ("description", .string("How often to run: 15 or 30 minutes, 60 (hourly), 360 (every 6 hours), 720 (every 12 hours), or 1440 (daily). Leave out when you give `at`")),
                         ])),
+                        ("at", .object([("type", .string("string")), ("description", .string("A local time of day in 24-hour HH:MM, e.g. \"08:00\", in the user's time zone. Use this instead of intervalMinutes for set times"))])),
+                        ("days", .object([("type", .string("string")), ("description", .string("With `at`: \"every day\" (default), \"weekdays\", \"weekends\", or days such as \"mon,wed,fri\""))])),
                     ])),
-                    ("required", .array([.string("prompt"), .string("intervalMinutes")])),
+                    ("required", .array([.string("prompt")])),
                 ])
             ),
             APIToolDef(
@@ -264,11 +268,19 @@ public enum ChatWorkspaceTools {
         let args = AgentTools.arguments(of: call)
         switch call.function.name {
         case "chat_schedule_run":
-            guard let prompt = args["prompt"]?.stringValue,
-                  let rawInterval = args["intervalMinutes"]?.numberValue.map({ Int($0) }) ?? args["intervalMinutes"]?.stringValue.flatMap(Int.init) else {
-                return .failure("chat_schedule_run requires prompt and intervalMinutes.")
+            let rawInterval = args["intervalMinutes"]?.numberValue.map({ Int($0) }) ?? args["intervalMinutes"]?.stringValue.flatMap(Int.init)
+            let rawAt = args["at"]?.stringValue.flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0 }
+            guard let prompt = args["prompt"]?.stringValue, rawInterval != nil || rawAt != nil else {
+                return .failure("chat_schedule_run requires prompt and either intervalMinutes or at.")
             }
-            guard let next = ConversationSchedule.validate(prompt: prompt, intervalMinutes: rawInterval) else {
+            var at: ScheduleTime?
+            if let rawAt {
+                guard let parsed = ScheduleTime.parse(time: rawAt, days: args["days"]?.stringValue) else {
+                    return .failure("Invalid schedule time. Give at as 24-hour HH:MM (e.g. 08:00) and days as every day, weekdays, weekends, or a list like mon,wed,fri.")
+                }
+                at = parsed
+            }
+            guard let next = ConversationSchedule.validate(prompt: prompt, intervalMinutes: rawInterval, at: at, timeZone: timeZone) else {
                 return .failure("Invalid schedule. The prompt must be non-empty (under 4,000 characters) and intervalMinutes must be one of \(ConversationSchedule.allowedIntervals.map(String.init).joined(separator: ", ")).")
             }
             guard let sink = schedule else {

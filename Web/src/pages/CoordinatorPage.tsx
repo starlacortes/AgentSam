@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, errorMessage, uploadPhoto, uploadProjectFile } from '../api/client'
-import type { AgentActionRequest, ArchiveSettings, ConnectorStatus, Conversation, ConversationSummary, GuideState, MissionDetail, ProviderStatus } from '../api/types'
+import type { AgentActionRequest, ArchiveSettings, ConnectorStatus, Conversation, ConversationSummary, GuideState, MissionDetail, ProviderStatus, BrowserView } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { AgentWorkroom } from '../components/coordinator/AgentWorkroom'
 import { CoordinatorSidebar } from '../components/coordinator/CoordinatorSidebar'
@@ -13,6 +13,7 @@ import { Guide } from '../components/coordinator/Guide'
 import { Icon } from '../components/coordinator/Icon'
 import { VoiceMode, type VoicePartial, type VoiceReply } from '../components/coordinator/VoiceMode'
 import { PopMenu, type PopMenuItem } from '../components/coordinator/PopMenu'
+import { BrowserWindow } from '../components/coordinator/BrowserWindow'
 import { ErrorBanner, Spinner } from '../components/ui'
 import { useI18n } from '../i18n'
 import { canvasForFinishedFiles, connectorLabel, pollDelay, shouldPoll, workspaceFileSource, wroteFreshFiles, browserTimeZone } from '../lib/coordinator'
@@ -71,6 +72,8 @@ export function CoordinatorPage() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [voiceOpen, setVoiceOpen] = useState(false)
   const [scheduleOpen, setScheduleOpen] = useState(false)
+  const [browserAvailable, setBrowserAvailable] = useState(false)
+  const [browserOpen, setBrowserOpen] = useState(false)
   const [archiveSettings, setArchiveSettings] = useState<ArchiveSettings | null>(null)
   const [retentionFor, setRetentionFor] = useState<string | null>(null)
   const [archivedOpen, setArchivedOpen] = useState(false)
@@ -119,6 +122,11 @@ export function CoordinatorPage() {
     setDraft(readStored(key) ?? '')
   }, [id])
   useEffect(() => { writeStored(draftKey.current, draft) }, [draft])
+  // Ada's browser is offered to admins, and only when the server has one.
+  useEffect(() => {
+    if (!isAdmin) return
+    void api<BrowserView>('browser').then((view) => setBrowserAvailable(view.available)).catch(() => setBrowserAvailable(false))
+  }, [isAdmin])
 
   // A new chat starts with a fresh panel, kept open if it was.
   useEffect(() => { setCanvas((current) => current ? { tab: current.tab, source: null, missionID: null } : null) }, [id])
@@ -578,8 +586,9 @@ export function CoordinatorPage() {
 
   // Less-used chat actions sit behind one "more" button so the header stays calm.
   const chatMenu: PopMenuItem[] = [
-    ...(conversation && !conversation.schedule ? [{ label: t('Set a recurring schedule'), icon: 'refresh' as const, disabled: running, onSelect: () => setScheduleOpen(true) }] : []),
+    ...(conversation && !conversation.schedule && !conversation.triggers?.length ? [{ label: t('Automate this chat'), icon: 'refresh' as const, disabled: running, onSelect: () => setScheduleOpen(true) }] : []),
     { label: t('Connections'), icon: 'plug', note: t(connectorLabel(gmail)), onSelect: () => navigate('/settings/connections') },
+    ...(browserAvailable ? [{ label: t('Open Ada’s browser'), icon: 'monitor' as const, onSelect: () => setBrowserOpen(true) }] : []),
     { label: t('Open the guide'), icon: 'info', onSelect: () => void restartGuide().catch((err) => setError(errorMessage(err))) },
     ...(conversation ? [{ label: t('Delete conversation'), icon: 'trash' as const, danger: true, disabled: running, onSelect: () => void remove() }] : []),
   ]
@@ -599,7 +608,7 @@ export function CoordinatorPage() {
         <div className="co-chat-heading"><span>{t(conversation?.projectName ?? projectName)} <span className="co-path-separator">/</span></span><h1>{conversation?.title ?? t('New conversation')}</h1></div>
         <div className="co-header-actions">
           {conversation?.archivedAt ? <button className="co-archived-pill" title={t('Restore this chat to the sidebar')} onClick={() => void api<Conversation>(`conversations/${conversation.id}/archive`, { method: 'DELETE' }).then(restored).catch((err) => setError(errorMessage(err)))}><Icon name="archive" size={13} /><span>{t('Archived')}</span><b>{t('Restore')}</b></button> : null}
-          {conversation?.schedule ? <button className="co-icon-button co-schedule-toggle active" aria-label={t('Recurring schedule on — open settings')} aria-pressed title={t('Recurring schedule')} onClick={() => setScheduleOpen(true)}><Icon name="refresh" size={16} /></button> : null}
+          {conversation?.schedule || conversation?.triggers?.length ? <button className="co-icon-button co-schedule-toggle active" aria-label={t('Automation on — open settings')} aria-pressed title={t('Automation')} onClick={() => setScheduleOpen(true)}><Icon name="refresh" size={16} /></button> : null}
           <button className={`co-icon-button co-canvas-toggle ${canvas ? 'active' : ''}`} aria-label={canvas ? t('Hide preview and console') : t('Show preview and console')} aria-pressed={Boolean(canvas)} title={t('Preview & console')} onClick={() => canvas ? setCanvas(null) : openCanvas({ tab: missionIDs.length ? 'console' : 'preview' })}><Icon name="panel" size={16} /></button>
           <button className="co-voice-button" onClick={() => setVoiceOpen(true)} disabled={sending}><Icon name="mic" size={15} /><span>{t('Voice')}</span></button>
           <PopMenu label={t('More chat options')} icon="more" className="co-chat-menu" items={chatMenu} />
@@ -634,7 +643,8 @@ export function CoordinatorPage() {
       void archiveNow(chatID)
     }} /> : null}
     {archivedOpen ? <ArchivedChats settings={archiveSettings} onSettings={setArchiveSettings} onRestored={restored} onClose={() => setArchivedOpen(false)} onOpen={(chatID) => { setArchivedOpen(false); navigate(`/chats/${chatID}`) }} /> : null}
-    {scheduleOpen && conversation ? <ScheduleModal conversation={conversation} onUpdated={updateProposal} onClose={() => setScheduleOpen(false)} /> : null}
+    {browserOpen ? <BrowserWindow onClose={() => setBrowserOpen(false)} /> : null}
+    {scheduleOpen && conversation ? <ScheduleModal conversation={conversation} gmailConnected={Boolean(gmail?.configured)} onUpdated={updateProposal} onClose={() => setScheduleOpen(false)} /> : null}
     {guide && (!guide.completed || searchParams.get('guide') === '1') ? <Guide onFinish={finishGuide} /> : null}
     {voiceOpen ? <VoiceMode onSend={sendMessage} onTranscribe={transcribeVoice} onClose={() => setVoiceOpen(false)} activity={liveActivity} /> : null}
   </div>

@@ -151,6 +151,44 @@ public struct GmailConnector: ConnectorToolProvider {
         }
     }
 
+    // MARK: Triggers
+
+    /// The newest emails for a Gmail trigger's search, from the last two days. Sender, subject and
+    /// snippet are fetched only for messages not in `seen`; a nil `seen` (the first check) fetches
+    /// none, since those emails only get recorded.
+    public func recentEmails(query: String, seen: Set<String>?, runtime: ConnectorRuntime) async throws -> [TriggerEmail] {
+        guard let token = try await runtime.googleTokens(for: .gmail).accessToken() else {
+            throw ConnectorError("Gmail connector is not connected.")
+        }
+        let headers = ["Authorization": "Bearer \(token)"]
+        guard let url = ConnectorHTTP.url(Self.apiBase, "/users/me/messages", query: [
+            URLQueryItem(name: "q", value: "(\(query)) newer_than:2d"),
+            URLQueryItem(name: "maxResults", value: "20"),
+        ]) else { throw ConnectorError("Bad Gmail URL.") }
+        let object = try ConnectorHTTP.jsonObject(try await ConnectorHTTP.request(runtime.session, url: url, headers: headers))
+        let ids = (object["messages"] as? [[String: Any]] ?? []).compactMap { $0["id"] as? String }
+        var emails: [TriggerEmail] = []
+        for id in ids {
+            guard let seen, !seen.contains(id),
+                  let encoded = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+                  let detailURL = ConnectorHTTP.url(Self.apiBase, "/users/me/messages/\(encoded)", query: [
+                      URLQueryItem(name: "format", value: "metadata"),
+                      URLQueryItem(name: "metadataHeaders", value: "From"),
+                      URLQueryItem(name: "metadataHeaders", value: "Subject"),
+                  ]),
+                  let detail = try? ConnectorHTTP.jsonObject(try await ConnectorHTTP.request(runtime.session, url: detailURL, headers: headers)) else {
+                emails.append(TriggerEmail(id: id, from: "", subject: "", snippet: ""))
+                continue
+            }
+            let messageHeaders = (detail["payload"] as? [String: Any])?["headers"] as? [[String: Any]] ?? []
+            func header(_ name: String) -> String {
+                messageHeaders.first(where: { ($0["name"] as? String)?.lowercased() == name.lowercased() })?["value"] as? String ?? ""
+            }
+            emails.append(TriggerEmail(id: id, from: header("From"), subject: header("Subject"), snippet: (detail["snippet"] as? String ?? "").replacingOccurrences(of: "\n", with: " ")))
+        }
+        return emails
+    }
+
     // MARK: API calls
 
     private func search(query: String, maxResults: Int, headers: [String: String], runtime: ConnectorRuntime) async throws -> String {

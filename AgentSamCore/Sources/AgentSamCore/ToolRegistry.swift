@@ -8,8 +8,18 @@ public enum ToolFamily: Sendable, Equatable {
     case extended
     /// Files of missions linked to this conversation (`ConversationMissionTools`).
     case mission
+    /// Handing a larger job to a background mission mid-reply (`TaskTools`).
+    case task
+    /// Events that wake the conversation: new email, webhook calls (`TriggerTools`).
+    case trigger
     /// Saving procedures as skills (`SkillTools`).
     case skill
+    /// Remembering and forgetting facts on request (`MemoryTools`).
+    case memory
+    /// Ada's own Linux machine (`WorkstationTools`): admins only, when the server turns it on.
+    case workstation
+    /// Tools of MCP servers an admin connected (`MCPRegistry`). Reads the admin marked run at once; the rest need approval.
+    case mcp
     /// External services through `ConnectorHub`. Reads run at once; writes need an approval.
     case connector
     /// A mission worker's files, programs and `finish` in the mission workspace (`AgentTools`).
@@ -44,13 +54,18 @@ public struct OfferedTools: Sendable {
     public func family(of name: String) -> ToolFamily? { families[name] }
 
     /// Ada's direct-reply tools. Extended tools need workspace access; mission tools need a linked mission.
-    public static func direct(connectorTools: [APIToolDef], hasLinkedMissions: Bool, hasExtendedAccess: Bool) -> OfferedTools {
+    public static func direct(connectorTools: [APIToolDef], hasLinkedMissions: Bool, hasExtendedAccess: Bool, hasWorkstation: Bool = false, mcpTools: [APIToolDef] = [], taskTools: [APIToolDef] = []) -> OfferedTools {
         OfferedTools([
             (.connector, connectorTools),
             (.chat, ChatWorkspaceTools.definitions),
+            (.trigger, TriggerTools.definitions),
+            (.task, taskTools),
             (.extended, hasExtendedAccess ? ExtendedWorkspaceTools.definitions : []),
             (.mission, hasLinkedMissions ? ConversationMissionTools.definitions : []),
             (.skill, SkillTools.definitions),
+            (.memory, MemoryTools.definitions),
+            (.workstation, hasWorkstation ? WorkstationTools.definitions : []),
+            (.mcp, mcpTools),
         ])
     }
 
@@ -114,6 +129,9 @@ public enum ToolCatalog {
         ToolSpec("run_program", .write, en: "Running the program", es: "Ejecutando el programa"),
         ToolSpec("chat_schedule_run", .write, en: "Scheduling recurring work", es: "Programando el trabajo recurrente"),
         ToolSpec("chat_schedule_cancel", .write, en: "Cancelling the schedule", es: "Cancelando la programación"),
+        ToolSpec("start_task", .write, en: "Handing this to a task", es: "Pasando esto a una tarea"),
+        ToolSpec("chat_trigger_add", .write, en: "Setting up a trigger", es: "Configurando un disparador"),
+        ToolSpec("chat_trigger_remove", .write, en: "Removing a trigger", es: "Quitando un disparador"),
         ToolSpec("chat_patch_file", .write, en: "Editing a file", es: "Editando un archivo"),
         ToolSpec("project_patch_file", .write, en: "Editing a file", es: "Editando un archivo"),
         ToolSpec("chat_move_file", .write, en: "Moving a file", es: "Moviendo un archivo"),
@@ -142,6 +160,14 @@ public enum ToolCatalog {
         ToolSpec("googleads_set_budget", .approval, en: "Preparing a Google Ads change", es: "Preparando un cambio en Google Ads"),
         ToolSpec("googleads_mutate", .approval, en: "Preparing a Google Ads change", es: "Preparando un cambio en Google Ads"),
         ToolSpec("skill_save", .write, en: "Saving a procedure", es: "Guardando un procedimiento"),
+        ToolSpec("memory_remember", .write, en: "Remembering that", es: "Recordándolo"),
+        ToolSpec("memory_forget", .write, en: "Forgetting that", es: "Olvidándolo"),
+        ToolSpec("workstation_status", .read, en: "Checking the workstation", es: "Revisando la estación de trabajo"),
+        ToolSpec("workstation_run", .approval, en: "Preparing a workstation command", es: "Preparando un comando en la estación"),
+        ToolSpec("workstation_start_job", .approval, en: "Preparing a workstation job", es: "Preparando una tarea en la estación"),
+        ToolSpec("workstation_job", .read, en: "Checking a workstation job", es: "Revisando una tarea de la estación"),
+        ToolSpec("workstation_jobs", .read, en: "Listing workstation jobs", es: "Revisando las tareas de la estación"),
+        ToolSpec("workstation_stop_job", .write, en: "Stopping a workstation job", es: "Deteniendo una tarea de la estación"),
         ToolSpec("cloudflare_dns_create", .approval, en: "Preparing a DNS change", es: "Preparando un cambio de DNS"),
         ToolSpec("cloudflare_dns_update", .approval, en: "Preparing a DNS change", es: "Preparando un cambio de DNS"),
         ToolSpec("cloudflare_dns_delete", .approval, en: "Preparing a DNS change", es: "Preparando un cambio de DNS"),

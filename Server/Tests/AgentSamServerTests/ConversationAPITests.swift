@@ -272,6 +272,67 @@ final class ConversationAPITests: XCTestCase {
         })
     }
 
+    func testSetTimeSchedulesAndTriggerRoutes() async throws {
+        let conversation = try await createConversation()
+        let id = conversation.id.uuidString
+        try await app.test(.PUT, "api/conversations/\(id)/schedule", beforeRequest: { req in
+            self.authorize(&req)
+            try req.content.encode(ScheduleSetBody(prompt: "Morning digest", at: "08:00", days: "weekdays", timeZone: "Europe/Madrid"), as: .json)
+        }, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok, res.body.string)
+            let saved = try res.content.decode(Conversation.self)
+            XCTAssertEqual(saved.schedule?.at?.label, "weekdays at 08:00")
+            XCTAssertEqual(saved.timeZone, "Europe/Madrid")
+        })
+        try await app.test(.PUT, "api/conversations/\(id)/schedule", beforeRequest: { req in
+            self.authorize(&req)
+            try req.content.encode(ScheduleSetBody(prompt: "Morning digest", at: "8am"), as: .json)
+        }, afterResponse: { res async in
+            XCTAssertEqual(res.status, .badRequest)
+        })
+        // Gmail triggers need Gmail connected.
+        try await app.test(.POST, "api/conversations/\(id)/triggers", beforeRequest: { req in
+            self.authorize(&req)
+            try req.content.encode(TriggerAddBody(kind: "gmail", prompt: "File it", query: "from:billing@example.com"), as: .json)
+        }, afterResponse: { res async in
+            XCTAssertEqual(res.status, .badRequest)
+        })
+        var token = ""
+        var triggerID = ""
+        try await app.test(.POST, "api/conversations/\(id)/triggers", beforeRequest: { req in
+            self.authorize(&req)
+            try req.content.encode(TriggerAddBody(kind: "webhook", prompt: "Tell me how the deploy went"), as: .json)
+        }, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok, res.body.string)
+            let trigger = try XCTUnwrap(try res.content.decode(Conversation.self).triggers.first)
+            token = try XCTUnwrap(trigger.token)
+            triggerID = trigger.id.uuidString
+        })
+        // The webhook needs no login, only the secret address.
+        try await app.test(.POST, "api/hooks/\(String(repeating: "a", count: 64))", afterResponse: { res async in
+            XCTAssertEqual(res.status, .notFound)
+        })
+        try await app.test(.POST, "api/hooks/\(token)", beforeRequest: { req in
+            req.headers.contentType = .json
+            req.body = ByteBuffer(string: #"{"status":"ok"}"#)
+        }, afterResponse: { res async in
+            XCTAssertEqual(res.status, .accepted, res.body.string)
+        })
+        try await app.test(.GET, "api/conversations/\(id)", beforeRequest: authorize, afterResponse: { res async throws in
+            let stored = try res.content.decode(Conversation.self)
+            let run = try XCTUnwrap(stored.messages.first { $0.role == .user })
+            XCTAssertEqual(run.text, "Tell me how the deploy went")
+            XCTAssertTrue(run.trigger?.data.contains(#"{"status":"ok"}"#) ?? false)
+        })
+        try await app.test(.DELETE, "api/conversations/\(id)/triggers/\(triggerID)", beforeRequest: authorize, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok, res.body.string)
+            XCTAssertTrue(try res.content.decode(Conversation.self).triggers.isEmpty)
+        })
+        try await app.test(.POST, "api/hooks/\(token)", afterResponse: { res async in
+            XCTAssertEqual(res.status, .notFound)
+        })
+    }
+
     func testConversationVoiceUsesPersistentConversationOwnership() async throws {
         let conversation = try await createConversation()
         try await app.test(.POST, "api/conversations/\(conversation.id.uuidString)/transcribe", beforeRequest: { req in
@@ -473,6 +534,75 @@ final class ConversationAPITests: XCTestCase {
         try await app.test(.DELETE, "api/access/host-grants/\(id.uuidString)", beforeRequest: authorize, afterResponse: { res async in
             XCTAssertEqual(res.status, .ok, res.body.string)
         })
+    }
+
+    func testStandingPermissionsAreAdminEditableAndOwnerScoped() async throws {
+        try await app.test(.GET, "api/access/permissions", beforeRequest: authorize, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok, res.body.string)
+            let view = try res.content.decode(PermissionsView.self)
+            XCTAssertTrue(view.canEdit)
+            XCTAssertTrue(view.policy.rules.isEmpty)
+            XCTAssertTrue(view.tools.contains("gmail_send"))
+            XCTAssertFalse(view.workstation, "the workstation is off unless AGENTSAM_WORKSTATION=1")
+            XCTAssertFalse(view.tools.contains("workstation_run"))
+        })
+        let policy = PermissionPolicy(rules: ["gmail_draft": PermissionRule(mode: .allow, maxPerDay: 5), "run_terminal": PermissionRule(mode: .allow)], approvalMinutes: 720)
+        try await app.test(.PUT, "api/access/permissions", beforeRequest: { req in
+            self.authorize(&req)
+            try req.content.encode(policy, as: .json)
+        }, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok, res.body.string)
+            let view = try res.content.decode(PermissionsView.self)
+            XCTAssertEqual(view.policy.rules["gmail_draft"], PermissionRule(mode: .allow, maxPerDay: 5))
+            XCTAssertNil(view.policy.rules["run_terminal"], "only write tools can have a rule")
+            XCTAssertEqual(view.policy.approvalMinutes, 720)
+        })
+        let accounts = try XCTUnwrap(app.storage[ServerContextKey.self]).accounts
+        let member = try await accounts.createUser(email: "member-perms@example.com", name: "Member", role: .member, passwordHash: try await Passwords.hash("member test password"))
+        let (_, memberToken) = try await accounts.createAPIToken(userID: member.id, name: "Member token")
+        try await app.test(.GET, "api/access/permissions", beforeRequest: { req in
+            req.headers.bearerAuthorization = BearerAuthorization(token: memberToken)
+        }, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok)
+            let view = try res.content.decode(PermissionsView.self)
+            XCTAssertFalse(view.canEdit)
+            XCTAssertTrue(view.policy.rules.isEmpty, "rules belong to the admin who set them")
+        })
+        try await app.test(.PUT, "api/access/permissions", beforeRequest: { req in
+            req.headers.bearerAuthorization = BearerAuthorization(token: memberToken)
+            try req.content.encode(policy, as: .json)
+        }, afterResponse: { res async in XCTAssertEqual(res.status, .forbidden) })
+    }
+
+    func testMCPServersAndWorkstationAreAdminOnly() async throws {
+        try await app.test(.GET, "api/mcp/servers", beforeRequest: authorize, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok, res.body.string)
+            XCTAssertEqual(try res.content.decode([MCPServerView].self).count, 0)
+        })
+        try await app.test(.POST, "api/mcp/servers", beforeRequest: { req in
+            self.authorize(&req)
+            try req.content.encode(MCPServerAddBody(name: "x", url: "http://example.test/mcp", token: nil), as: .json)
+        }, afterResponse: { res async in
+            XCTAssertEqual(res.status, .badRequest, "plain HTTP to another machine is refused")
+        })
+        try await app.test(.GET, "api/mcp/catalog", beforeRequest: authorize, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok, res.body.string)
+            let catalog = try res.content.decode([MCPSuggestionView].self)
+            XCTAssertEqual(catalog.count, MCPSuggestion.catalog.count)
+            XCTAssertTrue(catalog.allSatisfy { !$0.added && $0.url.hasPrefix("https://") })
+        })
+        try await app.test(.GET, "api/access/workstation", beforeRequest: authorize, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok)
+            XCTAssertFalse(try res.content.decode(WorkstationView.self).enabled)
+        })
+        let accounts = try XCTUnwrap(app.storage[ServerContextKey.self]).accounts
+        let member = try await accounts.createUser(email: "member-mcp@example.com", name: "Member", role: .member, passwordHash: try await Passwords.hash("member test password"))
+        let (_, memberToken) = try await accounts.createAPIToken(userID: member.id, name: "Member token")
+        for path in ["api/mcp/servers", "api/mcp/catalog", "api/access/workstation"] {
+            try await app.test(.GET, path, beforeRequest: { req in
+                req.headers.bearerAuthorization = BearerAuthorization(token: memberToken)
+            }, afterResponse: { res async in XCTAssertEqual(res.status, .forbidden, path) })
+        }
     }
 
     func testWorkspaceKnowledgeDiscoversRefreshesAndExportsDocuments() async throws {

@@ -35,7 +35,7 @@ public actor WorkspaceTerminal {
         guard let plan = plan(command: command, root: base, directory: directory, protecting: protecting) else {
             return .failure("The persistent terminal is unavailable (\(OSSandbox.unavailableReason ?? "unknown reason")): it needs bubblewrap on Linux or sandbox-exec on macOS. No command was run.")
         }
-        let output = (try? CodeRunner.execute(plan, in: directory, stdin: "", environment: environment(root: base), timeout: 30)) ?? .failure("The terminal could not start.")
+        let output = (try? CodeRunner.execute(plan, in: directory, stdin: "", environment: environment(root: base), timeout: ChatWorkspaceTools.terminalTimeout)) ?? .failure("The terminal could not start.")
         let marker = "\n__AGENTSAM_CWD__"
         guard let range = output.resultText.range(of: marker, options: .backwards) else { return output }
         let current = String(output.resultText[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)

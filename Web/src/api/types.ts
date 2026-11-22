@@ -150,6 +150,14 @@ export interface ConversationMessage {
   /** For a reply to a spoken message: the part read aloud; the rest of `text` is on-screen detail. */
   speech?: string
   completedAt?: string
+  /** For a run a trigger started: what happened. */
+  trigger?: TriggerEvent
+}
+
+export interface TriggerEvent {
+  triggerID: string
+  kind: 'gmail' | 'webhook'
+  data: string
 }
 
 export interface MessageStep {
@@ -184,7 +192,34 @@ export interface ConversationSchedule {
   createdAt: string
   lastRunAt?: string
   nextRunAt: string
+  /** Set times: runs at hour:minute on these ISO weekdays (1 = Monday; empty = every day). */
+  at?: ScheduleTime
+  failures?: number
+  pausedAt?: string
+  pauseReason?: string
 }
+
+export interface ScheduleTime {
+  hour: number
+  minute: number
+  weekdays: number[]
+}
+
+/** Something that wakes the chat: new email matching a Gmail search, or a call to its webhook. */
+export interface ConversationTrigger {
+  id: string
+  kind: 'gmail' | 'webhook'
+  prompt: string
+  language: string
+  query?: string
+  token?: string
+  createdAt: string
+  lastFiredAt?: string
+  failures?: number
+  pausedAt?: string
+  pauseReason?: string
+}
+
 
 export function intervalLabel(minutes: number): string {
   return { 15: 'every 15 minutes', 30: 'every 30 minutes', 60: 'hourly', 360: 'every 6 hours', 720: 'every 12 hours', 1440: 'daily' }[minutes] ?? `every ${minutes} minutes`
@@ -195,6 +230,8 @@ export interface Conversation extends ConversationSummary {
   createdAt: string
   messages: ConversationMessage[]
   schedule?: ConversationSchedule
+  triggers?: ConversationTrigger[]
+  timeZone?: string
 }
 
 export interface HostFolderGrant {
@@ -221,7 +258,7 @@ export interface AgentActionRequest {
   ownerID: string
   conversationID: string
   missionID?: string
-  kind: 'connectorWrite' | 'fileDelete'
+  kind: 'connectorWrite' | 'fileDelete' | 'workstation' | 'mcpCall'
   title: string
   detail: string
   toolName: string
@@ -234,6 +271,8 @@ export interface AgentActionRequest {
   createdAt: string
   expiresAt: string
   result?: string
+  /** Ran without a card because a standing permission allowed it. */
+  automatic?: boolean
 }
 
 export interface WorkspaceMemory {
@@ -243,6 +282,14 @@ export interface WorkspaceMemory {
   updatedAt?: string
   compactionCount: number
   pendingEntries: number
+  pinned?: PinnedMemory[]
+}
+
+export interface PinnedMemory {
+  id: string
+  text: string
+  createdAt: string
+  origin: 'ada' | 'person'
 }
 
 export type WorkspaceKnowledgeDocumentID = 'capabilities' | 'connections' | 'projects'
@@ -353,6 +400,11 @@ export interface ProviderStatus {
   hasKey: boolean
 }
 
+export interface VisionModelSetting {
+  providerID: string
+  model: string
+}
+
 export interface TeamTemplate {
   id: string
   name: string
@@ -431,4 +483,73 @@ export interface PublicBatch {
 
 export interface BatchDetail {
   batch: PublicBatch
+}
+
+export interface MCPToolView {
+  name: string
+  exposedName: string
+  description: string
+  readOnlyHint: boolean
+  read: boolean
+}
+
+export interface MCPServerView {
+  id: string
+  name: string
+  slug: string
+  url: string
+  enabled: boolean
+  hasToken: boolean
+  tools: MCPToolView[]
+  lastRefreshed?: string
+  lastError?: string
+}
+
+export interface MCPSuggestionView {
+  id: string
+  name: string
+  url: string
+  detail: string
+  added: boolean
+}
+
+export type PermissionMode = 'ask' | 'allow' | 'never'
+
+export interface PermissionRule {
+  mode: PermissionMode
+  maxPerDay?: number
+  maxAmount?: number
+  branchPrefix?: string
+  allowedRecipients?: string[]
+  commandPrefixes?: string[]
+}
+
+export interface PermissionPolicy {
+  paused: boolean
+  rules: { [tool: string]: PermissionRule }
+  approvalMinutes: number
+  dailySpendCapUSD?: number
+  replySpendCapUSD?: number
+}
+
+export interface PermissionsView {
+  policy: PermissionPolicy
+  usageToday: { [tool: string]: number }
+  tools: string[]
+  canEdit: boolean
+  spentTodayUSD: number
+  workstation?: boolean
+}
+
+/** Ada's live browser on her workstation, as GET /api/browser reports it. */
+export interface BrowserView {
+  available: boolean
+  state?: 'running' | 'stopped' | 'unreachable' | null
+  idleMinutes?: number | null
+}
+
+/** What POST /api/browser/start returns: the state and what the viewer needs to connect. */
+export interface BrowserSessionView {
+  state: string
+  password: string
 }

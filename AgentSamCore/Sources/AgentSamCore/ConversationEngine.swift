@@ -17,7 +17,6 @@ public actor ConversationEngine {
     private let promptStore: PromptStore
     private let access: ConversationAccess?
     private let skills: SkillStore
-    private let directContextBudgetTokens = 20_000
     /// Output cap for spoken replies written without tools (team summaries, the last answer after the tool
     /// budget). A backstop only: the voice style asks for about 60 spoken words plus optional on-screen detail.
     /// Turns that offer tools are not capped, because a capped tool call (a file write) would be cut off.
@@ -64,7 +63,7 @@ public actor ConversationEngine {
     }
 
     @discardableResult
-    public func send(conversationID: UUID, ownerID: String, text rawText: String, launchedBy: String, language: String, scheduled: Bool = false, photos: [PhotoAttachment] = [], spoken: Bool = false, timeZone: String? = nil) async throws -> Conversation {
+    public func send(conversationID: UUID, ownerID: String, text rawText: String, launchedBy: String, language: String, scheduled: Bool = false, photos: [PhotoAttachment] = [], spoken: Bool = false, timeZone: String? = nil, trigger: TriggerEvent? = nil) async throws -> Conversation {
         let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         let photos = Array(photos.prefix(ConversationPhotoStore.maxPerMessage))
         guard !text.isEmpty || !photos.isEmpty else { throw ConversationError.emptyMessage }
@@ -74,18 +73,30 @@ public actor ConversationEngine {
         guard !conversation.messages.contains(where: { $0.status == .running }) else { throw ConversationError.alreadyRunning }
         if let timeZone { _ = try? await conversations.setTimeZone(id: conversationID, ownerID: ownerID, timeZone: timeZone) }
         let lang = language.lowercased().hasPrefix("es") ? "es" : "en"
-        let userMessage = ConversationMessage(role: .user, text: text, scheduled: scheduled, photos: photos, spoken: spoken)
+        let userMessage = ConversationMessage(role: .user, text: text, scheduled: scheduled || trigger != nil, photos: photos, spoken: spoken, trigger: trigger)
         let choosing = lang == "es" ? "Eligiendo la mejor forma de ayudar" : "Choosing how to help"
         let pending = ConversationMessage(role: .assistant, text: "", status: .running, activity: [AgentActivity(agentID: UUID(), agentName: "Ada", summary: choosing, state: "working")], steps: [MessageStep(label: choosing)])
         _ = try await conversations.append(id: conversationID, ownerID: ownerID, message: userMessage)
         let result = try await conversations.append(id: conversationID, ownerID: ownerID, message: pending)
         running[conversationID] = Task {
-            await self.drive(conversationID: conversationID, ownerID: ownerID, userMessage: userMessage, responseID: pending.id, launchedBy: launchedBy, language: lang)
+            // Every model call made for this reply adds its estimated cost to one meter.
+            let meter = CostMeter()
+            await CostMeter.$current.withValue(meter) {
+                await self.drive(conversationID: conversationID, ownerID: ownerID, userMessage: userMessage, responseID: pending.id, launchedBy: launchedBy, language: lang)
+            }
+            await self.access?.spend.add(ownerID: ownerID, usd: meter.total)
         }
         return result
     }
 
     public func isRunning(_ id: UUID) -> Bool { running[id] != nil }
+
+    /// Waits for the conversation's current reply to finish, then returns how that response ended.
+    public func waitForReply(conversationID: UUID, ownerID: String, responseID: UUID) async -> ConversationMessageStatus? {
+        if let task = running[conversationID] { await task.value }
+        let conversation = try? await conversations.get(id: conversationID, ownerID: ownerID)
+        return conversation?.messages.first { $0.id == responseID }?.status
+    }
 
     public func stop(conversationID: UUID, ownerID: String, language: String) async {
         running[conversationID]?.cancel()
@@ -113,6 +124,8 @@ public actor ConversationEngine {
         var responseID: UUID
         /// The user spoke this message: a ```details part of the reply is shown but not spoken.
         var spoken: Bool = false
+        /// Who the reply is for, recorded on missions Ada starts during it.
+        var launchedBy: String = "Ada"
     }
 
     /// Marks every unfinished step as finished with the given state.
@@ -141,11 +154,21 @@ public actor ConversationEngine {
 
     private func drive(conversationID: UUID, ownerID: String, userMessage: ConversationMessage, responseID: UUID, launchedBy: String, language: String) async {
         defer { running[conversationID] = nil }
-        let ref = ResponseRef(conversationID: conversationID, ownerID: ownerID, responseID: responseID, spoken: userMessage.spoken)
+        let ref = ResponseRef(conversationID: conversationID, ownerID: ownerID, responseID: responseID, spoken: userMessage.spoken, launchedBy: launchedBy)
         let es = language == "es"
         let writing = es ? "Redactando la respuesta" : "Writing the answer"
         do {
             guard let conversation = try await conversations.get(id: conversationID, ownerID: ownerID) else { return }
+            if let notice = await dailyCapNotice(ownerID: ownerID, language: language) {
+                _ = try await conversations.updateMessage(id: conversationID, ownerID: ownerID, messageID: responseID) { message in
+                    message.text = notice
+                    message.status = .complete
+                    message.activity = []
+                    Self.settleSteps(&message.steps, as: "done")
+                    message.completedAt = Date()
+                }
+                return
+            }
             let allTeams = await store.loadTeams()
             // Any team saved on disk (for example through the API) becomes a skill the first time it
             // is seen. The solo team is Ada's own roster and is never a skill.
@@ -156,15 +179,18 @@ public actor ConversationEngine {
             let catalog = SkillTeams.catalog(skillList)
             let history = conversation.messages.filter { $0.status != .running && (!$0.text.isEmpty || !$0.photos.isEmpty) }
             let workspaceMemory = await memory.state(ownerID: ownerID)
-            let memoryText = workspaceMemory.enabled ? workspaceMemory.markdown : ""
+            let memoryText = workspaceMemory.promptText
             let currentKnowledge = await knowledge?.refresh(ownerID: ownerID)
-            let context = await promptContext(conversation: conversation, history: history, memory: memoryText, knowledge: currentKnowledge?.promptSummary ?? "", scheduled: userMessage.scheduled, spoken: userMessage.spoken, personName: userMessage.scheduled ? nil : launchedBy)
+            let context = await promptContext(conversation: conversation, history: history, memory: memoryText, knowledge: currentKnowledge?.promptSummary ?? "", scheduled: userMessage.scheduled, spoken: userMessage.spoken, personName: userMessage.scheduled ? nil : launchedBy, event: userMessage.trigger)
             // Photos: only Ada's direct reply looks at them. Routing, missions, and consolidation get a
             // note that they exist, which is enough to pick DIRECT and keeps those calls cheap.
-            let canSee = providers.first(where: { $0.id == coordinator.providerID }).map { VisionSupport.accepts(provider: $0, model: coordinator.model) } ?? true
+            // Photos go to the configured vision model when there is one; otherwise Ada's own model looks.
+            let replyCoordinator = await visionCoordinator(for: coordinator, providers: providers, hasPhotos: !userMessage.photos.isEmpty)
+            // A model chosen as the vision model is trusted to see, whatever its family name suggests.
+            let canSee = replyCoordinator != coordinator || providers.first(where: { $0.id == replyCoordinator.providerID }).map { VisionSupport.accepts(provider: $0, model: replyCoordinator.model) } ?? true
             let userText = Self.textWithPhotoNote(userMessage)
             let photoInput = canSee ? photoInputs(conversationID: conversationID, current: userMessage, history: history) : PhotoInputs()
-            let directText = Self.directText(for: userMessage, canSee: canSee, model: coordinator.model, language: language)
+            let directText = Self.directText(for: userMessage, canSee: canSee, model: replyCoordinator.model, language: language)
             // Voice fast path: a quick spoken question goes straight to Ada's direct reply, skipping the
             // routing call that otherwise runs before she writes a word.
             var decision: ConversationDecision?
@@ -211,6 +237,7 @@ public actor ConversationEngine {
                     message.missionIDs = missionIDs
                 }
                 let finished = try await monitor(missions: [mission], teams: [solo], conversationID: conversationID, ownerID: ownerID, responseID: responseID, ada: activity[0])
+                for run in finished { CostMeter.current?.add(run.totalCostUSD) }
                 await beginStep(es ? "Redactando la respuesta" : "Writing the answer", in: ref)
                 responseText = try await consolidate(userText: userText, missions: finished, coordinator: coordinator, context: context, history: history, language: language)
                 activity = finished.flatMap { mission in
@@ -221,7 +248,7 @@ public actor ConversationEngine {
                 let selected = await skillTeams(for: decision, skills: skillList, teams: allTeams, coordinator: coordinator, providers: providers)
                 if selected.isEmpty {
                     await beginStep(writing, in: ref)
-                    responseText = try await directAnswer(userText: directText, photos: photoInput, coordinator: coordinator, context: context, history: history, language: language, ref: ref, conversationID: conversationID, writtenFiles: &writtenFiles, toolLog: &toolLog)
+                    responseText = try await directAnswer(userText: directText, photos: photoInput, coordinator: replyCoordinator, context: context, history: history, language: language, ref: ref, conversationID: conversationID, writtenFiles: &writtenFiles, toolLog: &toolLog)
                 } else {
                     let rationale = shortSummary(decision?.rationale ?? decision?.message, fallback: language == "es" ? "Coordinando especialistas" : "Coordinating specialists")
                     activity[0].summary = rationale
@@ -250,6 +277,7 @@ public actor ConversationEngine {
                         return selected.compactMap { team in launched.first(where: { $0.teamID == team.id }) }
                     }
                     let finished = try await monitor(missions: routed, teams: selected, conversationID: conversationID, ownerID: ownerID, responseID: responseID, ada: activity[0])
+                    for run in finished { CostMeter.current?.add(run.totalCostUSD) }
                     await beginStep(es ? "Combinando los resultados" : "Combining the results", in: ref)
                     responseText = try await consolidate(userText: userText, missions: finished, coordinator: coordinator, context: context, history: history, language: language)
                     activity = finished.flatMap { mission in
@@ -267,7 +295,7 @@ public actor ConversationEngine {
                 // Teams are no longer proposed to people; an older stored prompt that still asks to
                 // propose one gets a direct answer instead.
                 await beginStep(writing, in: ref)
-                responseText = try await directAnswer(userText: directText, photos: photoInput, coordinator: coordinator, context: context, history: history, language: language, ref: ref, conversationID: conversationID, writtenFiles: &writtenFiles, toolLog: &toolLog)
+                responseText = try await directAnswer(userText: directText, photos: photoInput, coordinator: replyCoordinator, context: context, history: history, language: language, ref: ref, conversationID: conversationID, writtenFiles: &writtenFiles, toolLog: &toolLog)
             }
 
             if decision?.action != .clarify {
@@ -345,6 +373,27 @@ public actor ConversationEngine {
         return selected
     }
 
+    /// Ada's profile for a reply that carries photos: the vision model chosen in settings, or the
+    /// image processor provider when Ada's own model cannot see and that provider has a key.
+    /// Without photos, or with no usable choice, Ada keeps her own model.
+    private func visionCoordinator(for ada: AgentProfile, providers: [ProviderConfig], hasPhotos: Bool) async -> AgentProfile {
+        guard hasPhotos else { return ada }
+        var target: VisionModelSetting? = await store.loadVisionModel()
+        if target == nil {
+            let adaCanSee = providers.first(where: { $0.id == ada.providerID }).map { VisionSupport.accepts(provider: $0, model: ada.model) } ?? true
+            if adaCanSee { return ada }
+            if let fallback = providers.first(where: { $0.id == "image-processor" }) {
+                target = VisionModelSetting(providerID: fallback.id, model: fallback.defaultModel ?? fallback.models.first ?? "")
+            }
+        }
+        guard let target, let provider = providers.first(where: { $0.id == target.providerID }),
+              keyRing.get(provider.keyAccount) != nil, !target.model.isEmpty else { return ada }
+        var vision = ada
+        vision.providerID = provider.id
+        vision.model = target.model
+        return vision
+    }
+
     private func coordinator(providers: [ProviderConfig]) throws -> AgentProfile {
         guard !providers.isEmpty else { throw ConversationError.noProvider }
         var ada = AgentProfile.rosterTemplates[0]
@@ -402,7 +451,7 @@ public actor ConversationEngine {
         return "\(call.function.name) \(shortArguments) → \(result)"
     }
 
-    static func chatTurns(from history: [ConversationMessage], limit: Int = 24, characters: Int = 6_000, images: [UUID: [APIImage]] = [:]) -> [APIMessage] {
+    static func chatTurns(from history: [ConversationMessage], limit: Int = 40, characters: Int = 6_000, images: [UUID: [APIImage]] = [:]) -> [APIMessage] {
         var turns: [APIMessage] = []
         for message in history.suffix(limit) {
             let role = message.role == .user ? "user" : "assistant"
@@ -437,12 +486,16 @@ public actor ConversationEngine {
     }
 
     /// Model calls with tools in one direct reply before Ada must answer without them.
-    static let maxToolRounds = 8
+    static let maxToolRounds = 20
 
     private func directAnswer(userText: String, photos photoInput: PhotoInputs = PhotoInputs(), coordinator: AgentProfile, context: ConversationPromptContext, history: [ConversationMessage], language: String, ref: ResponseRef? = nil, conversationID: UUID, writtenFiles: inout [String], toolLog: inout [String]) async throws -> String {
         let connectorTools = await connectors?.toolDefs(readOnly: access == nil) ?? []
         // Only tools offered in this request may run, and each runs by the family it was offered from.
-        let offeredTools = OfferedTools.direct(connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedAccess: access != nil)
+        let workstation = await workstation(ownerID: ref?.ownerID)
+        let mcpTools = await access?.mcp?.toolDefs() ?? []
+        // Handing work to a task needs a user-owned reply to show its progress in.
+        let taskTools = ref == nil ? [] : TaskTools.definitions(catalog: SkillTeams.catalog(await skills.enabled()))
+        let offeredTools = OfferedTools.direct(connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedAccess: access != nil, hasWorkstation: workstation != nil, mcpTools: mcpTools, taskTools: taskTools)
         let tools = offeredTools.definitions
         let offered = offeredTools.names
         let system = ConversationPrompts.directResponseSystem(coordinator: coordinator, context: context, connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedTools: access != nil, store: promptStore, language: language)
@@ -453,10 +506,14 @@ public actor ConversationEngine {
         var messages = Self.chatTurns(from: history.dropLast(), images: photoInput.history)
         messages.append(.user(text, images: photoInput.current))
         var runs = 0
+        var tasks = 0
+        let summaries = ConversationCompactor.SummaryState()
+        let replyCap = await replySpendCap(ownerID: ref?.ownerID)
+        var overCap = false
         for round in 0..<Self.maxToolRounds {
             try Task.checkCancellation()
             let stream = streamer(for: ref)
-            let reply = try await completeDirect(coordinator: coordinator, system: system, messages: messages, tools: tools, contextAllowance: allowance, onDelta: stream?.handler)
+            let reply = try await completeDirect(coordinator: coordinator, system: system, messages: messages, tools: tools, contextAllowance: allowance, summaries: summaries, onDelta: stream?.handler)
             messages.append(reply.message)
             let calls = reply.message.tool_calls ?? []
             if calls.isEmpty { return reply.message.content ?? "" }
@@ -472,7 +529,7 @@ public actor ConversationEngine {
                     if call.function.name == "run_program" {
                         runs += 1
                         if runs > ChatWorkspaceTools.maxRunsPerTurn {
-                            outcome = .failure("Program and terminal run limit reached for this reply (4).")
+                            outcome = .failure("Program and terminal run limit reached for this reply (\(ChatWorkspaceTools.maxRunsPerTurn)).")
                         } else {
                             outcome = await ChatWorkspaceTools.run(call: call, workspace: workspace, conversationID: conversationID)
                         }
@@ -495,7 +552,7 @@ public actor ConversationEngine {
                     let isTerminal = call.function.name == "run_terminal" || call.function.name == "project_terminal"
                     if isTerminal { runs += 1 }
                     if isTerminal && runs > ChatWorkspaceTools.maxRunsPerTurn {
-                        outcome = .failure("Program and terminal run limit reached for this reply (4).")
+                        outcome = .failure("Program and terminal run limit reached for this reply (\(ChatWorkspaceTools.maxRunsPerTurn)).")
                     } else {
                         let project = ProjectScope(ownerID: ref?.ownerID ?? "", projectName: context.projectName)
                         outcome = await ExtendedWorkspaceTools.run(call: call, workspace: workspace, conversationID: conversationID, project: project, terminal: access.terminal, hosts: access.hosts, actions: access.actions, audit: access.audit)
@@ -503,20 +560,102 @@ public actor ConversationEngine {
                     if !outcome.wroteFiles.isEmpty { writtenFiles.append(contentsOf: outcome.wroteFiles) }
                 case .skill:
                     outcome = await SkillTools.run(call: call, skills: skills)
+                case .task:
+                    tasks += 1
+                    if tasks > TaskTools.maxPerReply {
+                        outcome = .failure("Task limit reached for this reply (\(TaskTools.maxPerReply)). Finish with what you have.")
+                    } else if let ref {
+                        outcome = await startTask(call: call, coordinator: coordinator, context: context, language: language, ref: ref)
+                    } else {
+                        outcome = .failure("Tasks need a user-owned conversation.")
+                    }
+                case .trigger:
+                    let owner = ref?.ownerID
+                    let conversations = self.conversations
+                    let sink = owner.map { owner in
+                        TriggerTools.Sink(
+                            add: { trigger in
+                                (try? await conversations.addTrigger(id: conversationID, ownerID: owner, trigger: trigger)) ?? .failure(.invalid("The trigger could not be saved."))
+                            },
+                            remove: { id in
+                                (try? await conversations.removeTrigger(id: conversationID, ownerID: owner, triggerID: id)) ?? .failure(.notFound)
+                            },
+                            gmailConnected: offered.contains("gmail_search")
+                        )
+                    }
+                    outcome = await TriggerTools.run(call: call, sink: sink, language: language)
+                case .memory:
+                    outcome = await MemoryTools.run(call: call, memory: memory, ownerID: ref?.ownerID)
                 case .mission:
                     outcome = await ConversationMissionTools.run(call: call, store: store, allowedMissionIDs: Set(context.missionIDs))
+                case .workstation:
+                    guard let workstation, let access, let ref else { outcome = .failure("Workstation access is not available here."); break }
+                    guard WorkstationTools.approvalNames.contains(call.function.name) else {
+                        outcome = await WorkstationTools.run(call: call, workstation: workstation)
+                        break
+                    }
+                    runs += 1
+                    if runs > ChatWorkspaceTools.maxRunsPerTurn {
+                        outcome = .failure("Program and terminal run limit reached for this reply (\(ChatWorkspaceTools.maxRunsPerTurn)).")
+                        break
+                    }
+                    let command = (AgentTools.arguments(of: call)["command"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !command.isEmpty else { outcome = .failure("A command is required. Nothing ran."); break }
+                    let shown = command.count > 80 ? String(command.prefix(77)) + "…" : command
+                    outcome = await gatedWrite(
+                        call: call, kind: .workstation, access: access, ownerID: ref.ownerID, conversationID: conversationID,
+                        title: "Run on the workstation: \(shown)", ranTitle: "Ran on the workstation: \(shown)", detail: "Ada wants to run this on her Linux workstation, outside the sandbox. Nothing has run yet."
+                    ) {
+                        await WorkstationTools.execute(toolName: call.function.name, rawArguments: call.function.arguments, workstation: workstation)
+                    }
+                case .mcp:
+                    guard let mcp = access?.mcp else { outcome = .failure("MCP servers are not available here."); break }
+                    if await mcp.isReadOnly(call.function.name) {
+                        outcome = await mcp.call(call.function.name, rawArguments: call.function.arguments)
+                    } else if let access, let ref {
+                        outcome = await gatedWrite(
+                            call: call, kind: .mcpCall, access: access, ownerID: ref.ownerID, conversationID: conversationID,
+                            title: "Approve \(call.function.name)", ranTitle: "Ran \(call.function.name) automatically", detail: "Ada wants to call a tool on a connected MCP server. Review the exact arguments. Nothing has been sent yet."
+                        ) {
+                            await mcp.call(call.function.name, rawArguments: call.function.arguments)
+                        }
+                    } else {
+                        outcome = .failure("A user-owned conversation is required to approve MCP tool calls.")
+                    }
                 case .connector:
                     guard let connectors else { outcome = .failure("No connector is available for this tool."); break }
                     if ConnectorHub.readOnlyToolNames.contains(call.function.name) {
                         outcome = await connectors.run(call: call, readOnly: true)
                     } else if let ref {
+                        let decision = await access?.permissions.decide(ownerID: ref.ownerID, toolName: call.function.name, arguments: AgentTools.arguments(of: call)) ?? .ask(nil)
+                        if case .deny(let reason) = decision {
+                            outcome = .failure(reason)
+                            break
+                        }
+                        if case .allow = decision {
+                            let result = await connectors.run(call: call, approved: true)
+                            let record = AgentActionRequest(
+                                ownerID: ref.ownerID, conversationID: conversationID, kind: .connectorWrite,
+                                title: "Ran \(call.function.name) automatically", detail: "Your standing permission for this tool allowed it without an approval card.",
+                                toolName: call.function.name, arguments: .object([("raw", .string(call.function.arguments))])
+                            )
+                            await access?.actions.recordAutomatic(record, result: result.resultText, succeeded: result.succeeded)
+                            outcome = result.succeeded
+                                ? ToolOutcome(resultText: "Ran without an approval card because the user's standing permission allows it.\n\n" + result.resultText)
+                                : result
+                            break
+                        }
+                        var reason: String?
+                        if case .ask(let why) = decision { reason = why }
+                        let lifetime = await access?.permissions.approvalLifetime(ownerID: ref.ownerID) ?? 15 * 60
                         let action = AgentActionRequest(
                             ownerID: ref.ownerID, conversationID: conversationID, kind: .connectorWrite,
-                            title: "Approve \(call.function.name)", detail: "Ada requested an external connector write. Review the exact arguments. Nothing has been sent or changed yet.",
-                            toolName: call.function.name, arguments: .object([("raw", .string(call.function.arguments))])
+                            title: "Approve \(call.function.name)", detail: "Ada requested an external connector write. Review the exact arguments. Nothing has been sent or changed yet." + (reason.map { " " + $0 } ?? ""),
+                            toolName: call.function.name, arguments: .object([("raw", .string(call.function.arguments))]), lifetime: lifetime
                         )
                         if let saved = await access?.actions.request(action) {
-                            outcome = ToolOutcome(resultText: "Approval requested (\(saved.id.uuidString)). Do not retry this write. Tell the user to review the approval card; the external action has not happened. The outcome will appear under approval requests in your context on a later turn.")
+                            let why = reason.map { " \($0)" } ?? ""
+                            outcome = ToolOutcome(resultText: "Approval requested (\(saved.id.uuidString)).\(why) The user sees the approval card with the exact action and approves or denies it there; this is the routine flow. Do not retry this write, do not explain approvals or point the user to the card, and do not ask whether to go ahead. Nothing has run yet; the outcome will appear under approval requests in your context on a later turn.")
                         } else {
                             outcome = .failure("Connector approvals are not available. No external write was performed.")
                         }
@@ -527,6 +666,11 @@ public actor ConversationEngine {
                 messages.append(.tool(id: call.id, content: String(outcome.resultText.prefix(32_000)), isError: !outcome.succeeded))
                 if toolLog.count < Self.maxToolLogEntries { toolLog.append(Self.toolLogLine(call: call, outcome: outcome)) }
             }
+            // The reply's spending limit stops further tool rounds; Ada answers with what she has.
+            if let replyCap, (CostMeter.current?.total ?? 0) >= replyCap {
+                overCap = true
+                break
+            }
             // Warn before the budget runs out, so Ada can wrap up instead of being cut off mid-task.
             let left = Self.maxToolRounds - round - 1
             if left > 0, left <= 2, let last = messages.indices.last, messages[last].role == "tool" {
@@ -535,10 +679,16 @@ public actor ConversationEngine {
             await beginStep(language == "es" ? "Redactando la respuesta" : "Writing the answer", in: ref)
         }
         // The tool budget is spent. Say so, or some models keep "calling" tools by writing the calls as text.
-        messages.append(.user(language == "es"
-            ? "Ya no quedan pasos de herramientas para esta respuesta. Responde ahora con lo que ya sabes, sin llamar a herramientas, y di qué falta si no pudiste terminar."
-            : "No tool steps are left for this reply. Answer now with what you already have, without calling any tools, and say what is still missing if you could not finish."))
-        let final = try await completeDirect(coordinator: coordinator, system: system, messages: messages, tools: nil, maxTokens: context.spoken ? Self.voiceMaxTokens : nil, contextAllowance: allowance, onDelta: streamer(for: ref)?.handler)
+        if overCap {
+            messages.append(.user(language == "es"
+                ? "Esta respuesta alcanzó el límite de gasto que fijó la persona. Responde ahora con lo que ya sabes, sin llamar a herramientas, y di qué falta y que puede pedirte que continúes."
+                : "This reply reached the spending limit the person set. Answer now with what you already have, without calling any tools, and say what is still missing and that they can ask you to continue."))
+        } else {
+            messages.append(.user(language == "es"
+                ? "Ya no quedan pasos de herramientas para esta respuesta. Responde ahora con lo que ya sabes, sin llamar a herramientas, y di qué falta si no pudiste terminar."
+                : "No tool steps are left for this reply. Answer now with what you already have, without calling any tools, and say what is still missing if you could not finish."))
+        }
+        let final = try await completeDirect(coordinator: coordinator, system: system, messages: messages, tools: nil, maxTokens: context.spoken ? Self.voiceMaxTokens : nil, contextAllowance: allowance, summaries: summaries, onDelta: streamer(for: ref)?.handler)
         let answer = final.message.content ?? ""
         if answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return language == "es"
@@ -546,6 +696,60 @@ public actor ConversationEngine {
                 : "I used all the tool steps for this reply before finishing. Ask me to continue and I will pick up from here."
         }
         return answer
+    }
+
+    /// The workstation, when the server turned it on and this owner may use it.
+    private func workstation(ownerID: String?) async -> Workstation? {
+        guard let ownerID, let access, let workstation = access.workstation, await workstation.enabled, await access.workstationOwner(ownerID) else { return nil }
+        return workstation
+    }
+
+    /// A call that changes something outside the workspace: refused, run under a standing
+    /// permission, or turned into an approval card that runs `execute` once approved.
+    private func gatedWrite(call: APIToolCall, kind: AgentActionRequest.Kind, access: ConversationAccess, ownerID: String, conversationID: UUID, title: String, ranTitle: String, detail: String, execute: () async -> ToolOutcome) async -> ToolOutcome {
+        let raw: JSONValue = .object([("raw", .string(call.function.arguments))])
+        let decision = await access.permissions.decide(ownerID: ownerID, toolName: call.function.name, arguments: AgentTools.arguments(of: call))
+        switch decision {
+        case .deny(let reason):
+            return .failure(reason)
+        case .allow:
+            let result = await execute()
+            let record = AgentActionRequest(
+                ownerID: ownerID, conversationID: conversationID, kind: kind,
+                title: ranTitle,
+                detail: "Your standing permission for this tool allowed it without an approval card.",
+                toolName: call.function.name, arguments: raw
+            )
+            await access.actions.recordAutomatic(record, result: result.resultText, succeeded: result.succeeded)
+            return result.succeeded ? ToolOutcome(resultText: "Ran without an approval card because the user's standing permission allows it.\n\n" + result.resultText) : result
+        case .ask(let reason):
+            let lifetime = await access.permissions.approvalLifetime(ownerID: ownerID)
+            let action = AgentActionRequest(
+                ownerID: ownerID, conversationID: conversationID, kind: kind,
+                title: title, detail: detail + (reason.map { " " + $0 } ?? ""),
+                toolName: call.function.name, arguments: raw, lifetime: lifetime
+            )
+            let saved = await access.actions.request(action)
+            let why = reason.map { " \($0)" } ?? ""
+            return ToolOutcome(resultText: "Approval requested (\(saved.id.uuidString)).\(why) The user sees the approval card with the exact action and approves or denies it there; this is the routine flow. Do not retry this call, do not explain approvals or point the user to the card, and do not ask whether to go ahead. Nothing has run yet; the outcome will appear under approval requests in your context on a later turn.")
+        }
+    }
+
+    /// The owner's per-reply spending limit, if one is set.
+    private func replySpendCap(ownerID: String?) async -> Double? {
+        guard let ownerID, let access else { return nil }
+        return await access.permissions.policy(ownerID: ownerID).replySpendCapUSD
+    }
+
+    /// The reply to send instead of working when today's estimated spend has reached the owner's cap.
+    private func dailyCapNotice(ownerID: String, language: String) async -> String? {
+        guard let access, let cap = await access.permissions.policy(ownerID: ownerID).dailySpendCapUSD else { return nil }
+        let spent = await access.spend.today(ownerID: ownerID)
+        guard spent >= cap else { return nil }
+        let amount = String(format: "%.2f", cap)
+        return language == "es"
+            ? "Hoy ya alcancé el límite de gasto diario de $\(amount), así que no empecé este trabajo. El límite se reinicia a medianoche (UTC), o un administrador puede subirlo en Ajustes, en Lo que Ada puede hacer sola."
+            : "I've reached today's spending limit of $\(amount), so I didn't start on this. It resets at midnight UTC, or an admin can raise it in Settings under What Ada can do alone."
     }
 
     /// The result for a call to a tool that was not offered: names the closest real tools so the
@@ -603,6 +807,59 @@ public actor ConversationEngine {
         return missions.compactMap(\.finalReport).joined(separator: "\n\n")
     }
 
+    /// Runs one `start_task` call to the end: picks the skill's team (or Ada alone), launches the
+    /// mission, shows its progress on the reply, and returns its report to Ada's loop.
+    private func startTask(call: APIToolCall, coordinator: AgentProfile, context: ConversationPromptContext, language: String, ref: ResponseRef) async -> ToolOutcome {
+        let request: TaskTools.Request
+        switch TaskTools.request(from: call) {
+        case .failure(let error): return .failure(error.message)
+        case .success(let valid): request = valid
+        }
+        let es = language == "es"
+        let team: Team
+        let skillName: String
+        if let skill = request.skill {
+            let skillList = await skills.enabled()
+            let selected = await skillTeams(for: ConversationDecision(action: .useSkill, skillIDs: [skill]), skills: skillList, teams: await store.loadTeams(), coordinator: coordinator, providers: await store.loadProviders())
+            guard let first = selected.first else {
+                let known = skillList.map(\.id).joined(separator: ", ")
+                return .failure("No enabled skill \"\(skill)\" can run (unknown, or its specialists have no provider key). Enabled skills: \(known.isEmpty ? "none" : known). Leave skill out to work on it yourself.")
+            }
+            team = first
+            skillName = skillList.first { $0.teamID == first.id }?.name ?? first.name
+        } else {
+            var solo = Self.soloTeam(coordinator: coordinator, language: language, store: promptStore)
+            if let existing = await store.team(id: Self.soloTeamID) { solo.createdAt = existing.createdAt }
+            await store.saveTeam(solo)
+            team = solo
+            skillName = es ? "Ada sola" : "Ada working alone"
+        }
+        let label = team.id == Self.soloTeamID
+            ? (es ? "Trabajando en ello yo sola" : "Working on it myself")
+            : (es ? "Trabajando con especialistas: \(team.name)" : "Working with specialists: \(team.name)")
+        let ada = AgentActivity(agentID: coordinator.id, agentName: "Ada", summary: request.reason ?? label, state: "working")
+        _ = try? await conversations.updateMessage(id: ref.conversationID, ownerID: ref.ownerID, messageID: ref.responseID) { message in
+            if !message.teamIDs.contains(team.id) { message.teamIDs.append(team.id) }
+            message.activity = [ada]
+        }
+        await beginStep(label, in: ref)
+        do {
+            let mission = try await runMission(team: team, objective: request.objective, context: context.missionHandoff, launchedBy: ref.launchedBy, language: language, conversationID: ref.conversationID, ownerID: ref.ownerID, projectName: context.projectName)
+            _ = try? await conversations.updateMessage(id: ref.conversationID, ownerID: ref.ownerID, messageID: ref.responseID) { message in
+                if !message.missionIDs.contains(mission.id) { message.missionIDs.append(mission.id) }
+            }
+            let finished = try await monitor(missions: [mission], teams: [team], conversationID: ref.conversationID, ownerID: ref.ownerID, responseID: ref.responseID, ada: ada)
+            guard let done = finished.first else { return .failure("The task's mission disappeared before it finished.") }
+            CostMeter.current?.add(done.totalCostUSD)
+            await beginStep(es ? "Revisando el resultado" : "Checking the result", in: ref)
+            return TaskTools.result(mission: done, skillName: skillName, files: await store.deliverables(missionID: done.id))
+        } catch is CancellationError {
+            return .failure("The task was stopped.")
+        } catch {
+            return .failure("The task could not start: \(error.localizedDescription)")
+        }
+    }
+
     private func runMission(team: Team, objective: String, context: String?, launchedBy: String, language: String, conversationID: UUID, ownerID: String, projectName: String) async throws -> Mission {
         if let missionOverride { return try await missionOverride(team, objective, context, launchedBy, language) }
         var mission = await store.createMission(team: team, objective: objective, sourceName: "Ada conversation", inputContext: context, outputLanguage: language)
@@ -621,7 +878,7 @@ public actor ConversationEngine {
         return mission
     }
 
-    private func promptContext(conversation: Conversation, history: [ConversationMessage], memory: String, knowledge: String, scheduled: Bool, spoken: Bool = false, personName: String? = nil) async -> ConversationPromptContext {
+    private func promptContext(conversation: Conversation, history: [ConversationMessage], memory: String, knowledge: String, scheduled: Bool, spoken: Bool = false, personName: String? = nil, event: TriggerEvent? = nil) async -> ConversationPromptContext {
         let prior = Array(history.dropLast())
         var seen = Set<UUID>()
         var ids: [UUID] = []
@@ -659,7 +916,9 @@ public actor ConversationEngine {
             spoken: spoken,
             timeZoneID: conversation.timeZone,
             personName: personName,
-            approvals: approvals
+            approvals: approvals,
+            triggers: conversation.triggers,
+            event: event
         )
     }
 
@@ -718,18 +977,26 @@ public actor ConversationEngine {
     private func complete(coordinator: AgentProfile, system: String, messages: [APIMessage], tools: [APIToolDef]?, maxTokens: Int? = nil, onDelta: TextDeltaHandler? = nil) async throws -> LLMReply {
         let registry = ProviderRegistry(providers: await store.loadProviders())
         guard let provider = registry.provider(id: coordinator.providerID) else { throw ConversationError.noProvider }
+        let reply: LLMReply
         if let completionOverride {
-            return try await completionOverride(provider, keyRing.get(provider.keyAccount) ?? "", coordinator, system, messages, tools)
+            reply = try await completionOverride(provider, keyRing.get(provider.keyAccount) ?? "", coordinator, system, messages, tools)
+        } else {
+            reply = try await client.complete(provider: provider, key: keyRing.get(provider.keyAccount) ?? "", model: coordinator.model, system: system, messages: messages, tools: tools, temperature: coordinator.temperature, maxTokens: maxTokens, onDelta: onDelta)
         }
-        return try await client.complete(provider: provider, key: keyRing.get(provider.keyAccount) ?? "", model: coordinator.model, system: system, messages: messages, tools: tools, temperature: coordinator.temperature, maxTokens: maxTokens, onDelta: onDelta)
+        CostMeter.current?.add(reply)
+        return reply
     }
 
-    private func completeDirect(coordinator: AgentProfile, system: String, messages: [APIMessage], tools: [APIToolDef]?, maxTokens: Int? = nil, contextAllowance: Int = 0, onDelta: TextDeltaHandler? = nil) async throws -> LLMReply {
-        var budget = directContextBudgetTokens + contextAllowance
+    private func completeDirect(coordinator: AgentProfile, system: String, messages: [APIMessage], tools: [APIToolDef]?, maxTokens: Int? = nil, contextAllowance: Int = 0, summaries: ConversationCompactor.SummaryState = .init(), onDelta: TextDeltaHandler? = nil) async throws -> LLMReply {
+        var budget = ModelLimits.conversationBudget(model: coordinator.model) + contextAllowance
         var overflowRetries = 0
         var messages = messages
         while true {
-            let compacted = ConversationCompactor.compact(messages: messages, budgetTokens: budget)
+            let compacted = await ConversationCompactor.compact(messages: messages, budgetTokens: budget, summarizer: { previous, transcript in
+                let request = ConversationCompactor.summaryRequest(previous: previous, transcript: transcript)
+                let reply = try? await self.complete(coordinator: coordinator, system: ConversationCompactor.summarySystem, messages: [.user(request)], tools: nil, maxTokens: 900)
+                return reply?.message.content
+            }, state: summaries)
             do {
                 return try await complete(coordinator: coordinator, system: system, messages: compacted.messages, tools: tools, maxTokens: maxTokens, onDelta: onDelta)
             } catch let error as LLMError where error.isContextOverflow {

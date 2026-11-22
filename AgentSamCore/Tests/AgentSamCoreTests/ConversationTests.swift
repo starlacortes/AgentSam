@@ -368,15 +368,17 @@ final class ConversationTests: XCTestCase {
         let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, workspace: workspace, keyRing: keys, missions: MissionEngine(store: store, keyRing: keys), access: access, completion: { _, _, _, system, messages, _ in
             if system.contains("Decide how to handle") { return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub") }
             if messages.allSatisfy({ $0.role != "tool" }) {
-                let calls = (0..<5).map { index in
+                let limit = ChatWorkspaceTools.maxRunsPerTurn
+                let calls = (0...limit).map { index in
                     APIToolCall(id: "terminal-\(index)", function: .init(name: "run_terminal", arguments: #"{"command":"true"}"#))
                 } + [APIToolCall(id: "files", function: .init(name: "project_list_files", arguments: "{}"))]
                 return LLMReply(message: APIMessage(role: "assistant", content: nil, tool_calls: calls), inputTokens: 0, outputTokens: 0, model: "stub")
             }
             let outputs = messages.filter { $0.role == "tool" }.compactMap(\.content)
-            XCTAssertEqual(outputs.count, 6)
-            XCTAssertTrue(outputs[4].contains("run limit reached"), outputs[4])
-            XCTAssertTrue(outputs[5].contains("shared project workspace is empty"), outputs[5])
+            let limit = ChatWorkspaceTools.maxRunsPerTurn
+            XCTAssertEqual(outputs.count, limit + 2)
+            XCTAssertTrue(outputs[limit].contains("run limit reached"), outputs[limit])
+            XCTAssertTrue(outputs[limit + 1].contains("shared project workspace is empty"), outputs[limit + 1])
             return LLMReply(message: .assistant("The execution cap leaves file tools available."), inputTokens: 0, outputTokens: 0, model: "stub")
         })
         _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Run checks and inspect the project", launchedBy: "Owner", language: "en")
@@ -748,6 +750,56 @@ final class ConversationTests: XCTestCase {
         await engine.shutdown()
     }
 
+    func testAdaHandsWorkToATaskMidReplyAndFinishesWithItsResult() async throws {
+        let store = MissionStore(root: directory)
+        await store.saveProviders([provider])
+        let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
+        try keys.set("test-key", for: provider.keyAccount)
+        let conversations = ConversationStore(root: directory)
+        let memory = WorkspaceMemoryStore(root: directory)
+        let root = directory!
+        let engine = engine(store, conversations, memory, keys: keys, completion: { _, _, _, system, messages, tools in
+            if system.contains("Summarize only durable") { return LLMReply(message: .assistant("## Notes"), inputTokens: 0, outputTokens: 0, model: "stub") }
+            if system.contains("Decide how to handle") { return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub") }
+            let toolResults = messages.filter { $0.role == "tool" }.compactMap(\.content)
+            if toolResults.isEmpty {
+                XCTAssertTrue(tools?.contains { $0.function.name == "start_task" } ?? false)
+                // A bad skill name fails and lists what exists; then Ada works on it herself.
+                return LLMReply(message: APIMessage(role: "assistant", content: nil, tool_calls: [
+                    APIToolCall(id: "t1", function: .init(name: "start_task", arguments: #"{"objective":"Review all 40 files and write review.md","skill":"no-such-skill"}"#)),
+                    APIToolCall(id: "t2", function: .init(name: "start_task", arguments: #"{"objective":"Review all 40 files and write review.md","reason":"This needs a full review"}"#)),
+                    APIToolCall(id: "t3", function: .init(name: "start_task", arguments: #"{"objective":"One more"}"#)),
+                ]), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
+            XCTAssertTrue(toolResults[0].contains("No enabled skill"), toolResults[0])
+            XCTAssertTrue(toolResults[1].contains("Task finished"), toolResults[1])
+            XCTAssertTrue(toolResults[1].contains("Reviewed 40 files"), toolResults[1])
+            XCTAssertTrue(toolResults[2].contains("Task limit reached"), toolResults[2])
+            return LLMReply(message: .assistant("The review is done: see review.md."), inputTokens: 0, outputTokens: 0, model: "stub")
+        }, missionRunner: { team, objective, _, launchedBy, _ in
+            XCTAssertEqual(team.id, ConversationEngine.soloTeamID)
+            XCTAssertEqual(objective, "Review all 40 files and write review.md")
+            XCTAssertEqual(launchedBy, "Owner")
+            let store = MissionStore(root: root)
+            var mission = await store.createMission(team: team, objective: objective)
+            mission.status = .completed
+            mission.phase = .done
+            mission.finalReport = "Reviewed 40 files."
+            await store.saveMission(mission)
+            return mission
+        })
+        let conversation = try await conversations.create(ownerID: "owner")
+        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Review every file in this project", launchedBy: "Owner", language: "en")
+        let result = try await finishedConversation(conversations, id: conversation.id)
+        let answer = try XCTUnwrap(result.messages.last)
+        XCTAssertEqual(answer.status, .complete)
+        XCTAssertEqual(answer.text, "The review is done: see review.md.")
+        XCTAssertEqual(answer.missionIDs.count, 1, "the task's mission is linked to the reply")
+        XCTAssertEqual(answer.teamIDs, [ConversationEngine.soloTeamID])
+        XCTAssertTrue(answer.steps.contains { $0.label == "Working on it myself" })
+        await engine.shutdown()
+    }
+
     func testSoloRunsAsAMissionWithAdaAsWorkerAndProducesFiles() async throws {
         let store = MissionStore(root: directory)
         await store.saveProviders([provider])
@@ -1011,7 +1063,7 @@ final class ConversationTests: XCTestCase {
     }
 
     func testEveryDirectToolHasAFriendlyStepLabel() {
-        let names = (ChatWorkspaceTools.definitions + ExtendedWorkspaceTools.definitions + ConversationMissionTools.definitions).map(\.function.name)
+        let names = (ChatWorkspaceTools.definitions + TriggerTools.definitions + TaskTools.definitions(catalog: "") + ExtendedWorkspaceTools.definitions + ConversationMissionTools.definitions + WorkstationTools.definitions).map(\.function.name)
             + ConnectorHub.readOnlyToolNames.filter { !$0.hasPrefix("cloudflare_") }
             + ["gmail_draft", "gmail_send", "github_write_file", "github_comment", "googleads_set_status", "googleads_set_budget", "googleads_mutate"]
         for name in names {
@@ -1025,7 +1077,7 @@ final class ConversationTests: XCTestCase {
     func testEveryToolHasOneCatalogEntryWithTheRightAccess() {
         let everything = ConnectorPermissions(sendEmail: true, createDraft: true, dnsWrite: true, githubWrite: true, adsWrite: true)
         let connectorNames = Set(ConnectorHub.providers.flatMap { $0.toolDefs(permissions: everything) }.map(\.function.name))
-        let workspaceNames = Set((ChatWorkspaceTools.definitions + ExtendedWorkspaceTools.definitions + ConversationMissionTools.definitions + SkillTools.definitions + AgentTools.workerTools).map(\.function.name))
+        let workspaceNames = Set((ChatWorkspaceTools.definitions + TriggerTools.definitions + TaskTools.definitions(catalog: "") + ExtendedWorkspaceTools.definitions + ConversationMissionTools.definitions + SkillTools.definitions + MemoryTools.definitions + WorkstationTools.definitions + AgentTools.workerTools).map(\.function.name))
         let catalogNames = ToolCatalog.specs.map(\.name)
         XCTAssertEqual(catalogNames.count, Set(catalogNames).count, "a tool is listed twice in the catalog")
         XCTAssertEqual(Set(catalogNames), connectorNames.union(workspaceNames), "the catalog and the tool definitions disagree")
@@ -1058,7 +1110,7 @@ final class ConversationTests: XCTestCase {
         try keys.set("test-key", for: provider.keyAccount)
         let conversations = ConversationStore(root: directory)
         let memory = WorkspaceMemoryStore(root: directory)
-        let large = String(repeating: "x", count: 90_000)
+        let large = String(repeating: "x", count: 400_000) // ≈100k tokens, past the default model budget
         let arguments = #"{"path":"large.txt","content":""}"#.replacingOccurrences(of: "\"content\":\"\"", with: "\"content\":\"\(large)\"")
         let engine = engine(store, conversations, memory, keys: keys) { _, _, _, system, messages, _ in
             if system.contains("Summarize only durable") {

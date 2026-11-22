@@ -275,7 +275,7 @@ public actor HostAccessStore {
 }
 
 public struct AgentActionRequest: Codable, Identifiable, Hashable, Sendable {
-    public enum Kind: String, Codable, Sendable { case connectorWrite, fileDelete }
+    public enum Kind: String, Codable, Sendable { case connectorWrite, fileDelete, workstation, mcpCall }
     public enum Status: String, Codable, Sendable { case pending, approved, executing, completed, denied, expired, failed }
     public enum FileScope: String, Codable, Sendable { case conversation, project }
 
@@ -296,8 +296,10 @@ public struct AgentActionRequest: Codable, Identifiable, Hashable, Sendable {
     public var createdAt: Date
     public var expiresAt: Date
     public var result: String?
+    /// True when a standing permission ran this without a card; the record is kept so the chat shows it.
+    public var automatic: Bool?
 
-    public init(ownerID: String, conversationID: UUID, missionID: UUID? = nil, kind: Kind, title: String, detail: String, toolName: String, arguments: JSONValue, teamID: UUID? = nil, toolScope: ToolScope? = nil, fileScope: FileScope? = nil, projectName: String? = nil) {
+    public init(ownerID: String, conversationID: UUID, missionID: UUID? = nil, kind: Kind, title: String, detail: String, toolName: String, arguments: JSONValue, teamID: UUID? = nil, toolScope: ToolScope? = nil, fileScope: FileScope? = nil, projectName: String? = nil, lifetime: TimeInterval = 15 * 60) {
         id = UUID()
         self.ownerID = ownerID
         self.conversationID = conversationID
@@ -313,7 +315,7 @@ public struct AgentActionRequest: Codable, Identifiable, Hashable, Sendable {
         self.projectName = projectName
         status = .pending
         createdAt = Date()
-        expiresAt = Date().addingTimeInterval(15 * 60)
+        expiresAt = Date().addingTimeInterval(max(60, lifetime))
         result = nil
     }
 }
@@ -323,10 +325,23 @@ public struct ConversationAccess: Sendable {
     public let actions: AgentActionCenter
     public let audit: AccessAuditLog
     public let terminal: WorkspaceTerminal
+    public let permissions: PermissionStore
+    public let spend: SpendLedger
+    /// Ada's own machine, when the server operator turned it on.
+    public let workstation: Workstation?
+    /// Whether this conversation owner may use the workstation (admins and the server token).
+    public let workstationOwner: @Sendable (String) async -> Bool
+    /// MCP servers an admin connected; their tools are offered in every conversation with access.
+    public let mcp: MCPRegistry?
 
-    public init(root: URL) {
+    public init(root: URL, workstation: Workstation? = nil, workstationOwner: @escaping @Sendable (String) async -> Bool = { _ in false }, mcp: MCPRegistry? = nil) {
+        self.mcp = mcp
+        self.workstation = workstation
+        self.workstationOwner = workstationOwner
+        spend = SpendLedger(root: root)
         let audit = AccessAuditLog(root: root)
         self.audit = audit
+        permissions = PermissionStore(root: root, audit: audit)
         hosts = HostAccessStore(root: root, audit: audit)
         actions = AgentActionCenter(root: root, audit: audit)
         terminal = WorkspaceTerminal()
@@ -359,10 +374,24 @@ public actor AgentActionCenter {
         links[missionID]?.ownerID
     }
 
+    public func conversation(missionID: UUID) -> UUID? {
+        links[missionID]?.conversationID
+    }
+
+    /// Called for every new approval request, for example to send a phone alert. Set by the server.
+    private var notifier: (@Sendable (AgentActionRequest) async -> Void)?
+
+    public func setNotifier(_ notifier: (@Sendable (AgentActionRequest) async -> Void)?) {
+        self.notifier = notifier
+    }
+
     @discardableResult
     public func request(_ action: AgentActionRequest) -> AgentActionRequest {
         save(action)
         Task { await audit.record(ownerID: action.ownerID, action: "approval.request", detail: "\(action.kind.rawValue): \(action.toolName)") }
+        if action.status == .pending, let notifier {
+            Task { await notifier(action) }
+        }
         return action
     }
 
@@ -375,6 +404,16 @@ public actor AgentActionCenter {
             save(expired)
             return expired
         }
+    }
+
+    /// The owner's open approval requests in every conversation, newest first.
+    public func pending(ownerID: String, limit: Int = 10) -> [AgentActionRequest] {
+        guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return [] }
+        let now = Date()
+        return files.compactMap { load($0) }
+            .filter { $0.ownerID == ownerID && $0.status == .pending && $0.expiresAt > now }
+            .sorted { $0.createdAt > $1.createdAt }
+            .prefix(limit).map { $0 }
     }
 
     public func get(ownerID: String, id: UUID) -> AgentActionRequest? {
@@ -406,18 +445,40 @@ public actor AgentActionCenter {
         action.status = succeeded ? .completed : .failed
         action.result = String(result.prefix(4_000))
         save(action)
-        Task { await audit.record(ownerID: ownerID, action: action.kind == .connectorWrite ? "connector.executed" : "file.deletion.finished", detail: "\(action.toolName): \(action.status.rawValue)") }
+        Task { await audit.record(ownerID: ownerID, action: Self.finishedAuditAction(action.kind), detail: "\(action.toolName): \(action.status.rawValue)") }
     }
 
-    public func awaitConnectorApproval(missionID: UUID, call: APIToolCall, scope: ToolScope?) async -> String {
+    /// Keeps a record of a write a standing permission ran without a card, so it shows in the chat
+    /// beside approval cards and in the audit log.
+    @discardableResult
+    public func recordAutomatic(_ action: AgentActionRequest, result: String, succeeded: Bool) -> AgentActionRequest {
+        var record = action
+        record.automatic = true
+        record.status = succeeded ? .completed : .failed
+        record.result = String(result.prefix(4_000))
+        save(record)
+        Task { await audit.record(ownerID: record.ownerID, action: Self.finishedAuditAction(record.kind), detail: "\(record.toolName): \(record.status.rawValue) (standing permission)") }
+        return record
+    }
+
+    static func finishedAuditAction(_ kind: AgentActionRequest.Kind) -> String {
+        switch kind {
+        case .connectorWrite: return "connector.executed"
+        case .fileDelete: return "file.deletion.finished"
+        case .workstation: return "workstation.executed"
+        case .mcpCall: return "mcp.executed"
+        }
+    }
+
+    public func awaitConnectorApproval(missionID: UUID, call: APIToolCall, scope: ToolScope?, lifetime: TimeInterval = 15 * 60) async -> String {
         guard let link = links[missionID] else { return "No conversation owns this mission. Launch connector-writing missions from a conversation so a person can approve the action." }
         let action = AgentActionRequest(
             ownerID: link.ownerID, conversationID: link.conversationID, missionID: missionID, kind: .connectorWrite,
             title: "Approve \(call.function.name)", detail: "A mission worker requested an external connector write. Review its exact arguments before approving.",
-            toolName: call.function.name, arguments: .object([("raw", .string(call.function.arguments))]), toolScope: scope
+            toolName: call.function.name, arguments: .object([("raw", .string(call.function.arguments))]), toolScope: scope, lifetime: lifetime
         )
         let saved = request(action)
-        let deadline = Date().addingTimeInterval(15 * 60)
+        let deadline = saved.expiresAt
         while Date() < deadline {
             try? Task.checkCancellation()
             guard let current = get(ownerID: link.ownerID, id: saved.id) else { return "The approval request disappeared; the connector write was not executed." }

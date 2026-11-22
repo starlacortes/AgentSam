@@ -64,7 +64,7 @@ public enum AgentTools {
             ),
             APIToolDef(
                 name: "run_program",
-                description: "Run code in a fresh, OS-sandboxed folder and see its output. The program can read mission workspace files at ../<path> but cannot change them, and it cannot see server data. Languages: \"js\" (Node.js), \"python\", \"c\" (compiled with gcc). 20-second timeout. Nothing is saved; use write_file for deliverables. Run the program you wrote to verify it actually works before finishing.",
+                description: "Run code in a fresh, OS-sandboxed folder and see its output. The program can read mission workspace files at ../<path> but cannot change them, and it cannot see server data. Languages: \"js\" (Node.js), \"python\", \"c\" (compiled with gcc). 60-second timeout. Nothing is saved; use write_file for deliverables. Run the program you wrote to verify it actually works before finishing.",
                 parameters: .object([
                     ("type", .string("object")),
                     ("properties", .object([

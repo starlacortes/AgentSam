@@ -716,3 +716,100 @@
   .co-popmenu-list button { padding: 12px; font-size: 14px; }
 }
 
+
+/* Standing permissions */
+.permission-rules { margin-top: 14px; }
+.permission-rule .co-setting-row { padding: 6px 0; }
+.permission-rule p { color: var(--mut); font-size: 11px; margin-top: 2px; }
+.permission-limits { display: flex; flex-wrap: wrap; gap: 12px; padding-top: 8px; }
+.permission-limits label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--mut); flex: 1 1 180px; }
+.permission-save { display: flex; align-items: center; gap: 12px; margin: 14px 0; }
+
+/* Approval alerts */
+.push-alerts { margin-bottom: 14px; }
+.push-alerts p { color: var(--mut); font-size: 11px; margin-top: 2px; }
+.push-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+
+/* Remembered on request */
+.remembered { margin-bottom: 12px; }
+.remembered p { color: var(--mut); font-size: 11px; margin-top: 2px; }
+.remembered-list { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 6px; }
+.remembered-list li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 12px; }
+.remembered-form { display: flex; gap: 8px; margin-top: 8px; }
+.remembered-form input { flex: 1; min-width: 0; }
+
+/* MCP servers */
+.mcp-servers { margin-top: 14px; }
+.mcp-servers p { color: var(--mut); font-size: 11px; margin-top: 2px; }
+.mcp-servers p.danger { color: var(--danger, #d66); }
+.mcp-list, .mcp-tools { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 6px; }
+.mcp-list > li { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 12px; min-width: 0; }
+.mcp-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.mcp-head > div:first-child { min-width: 0; overflow-wrap: anywhere; }
+.mcp-actions { display: flex; align-items: center; gap: 8px; }
+.mcp-tools { margin-top: 8px; }
+.mcp-tools label { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.mcp-form { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.mcp-form input { flex: 1 1 160px; min-width: 0; }
+
+/* Ada's workstation */
+.workstation-card { margin-bottom: 14px; }
+.workstation-card p { color: var(--mut); font-size: 11px; margin-top: 2px; }
+.workstation-key .row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.workstation-key code { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 11px; }
+
+.mcp-suggested { margin: 10px 0; }
+.mcp-suggestion { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.mcp-suggestion > div { min-width: 0; }
+
+/* Automation panel: schedule at set times, and triggers */
+.co-automation-heading { margin: 0; color: var(--ink); font-size: 13px; font-weight: 650; }
+.co-automation-triggers { border-top: 1px solid var(--line); }
+.co-automation-paused { display: block; padding: 7px 10px; border: 1px solid rgba(240,180,80,.35); border-radius: 8px; background: rgba(240,180,80,.1); color: #E8B860; font-size: 11px; line-height: 1.45; }
+.co-schedule-days { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+.co-schedule-days button { min-width: 42px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--mut); font-size: 11px; transition: .15s; }
+.co-schedule-days button.active { color: var(--em2); border-color: rgba(74,217,158,.35); background: rgba(74,217,158,.12); }
+.co-schedule-time, .co-schedule-input { width: 100%; max-width: 100%; padding: 8px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel2); color: var(--ink); font: inherit; font-size: 12.5px; }
+.co-schedule-time { width: auto; color-scheme: dark; }
+.co-schedule-time:focus, .co-schedule-input:focus { outline: none; border-color: rgba(74,217,158,.4); }
+.co-trigger-list { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.co-trigger-list li { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel2); }
+.co-trigger-list li.paused { border-color: rgba(240,180,80,.3); }
+.co-trigger-main { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; font-size: 12px; color: var(--mut); }
+.co-trigger-main b { color: var(--ink); font-weight: 600; overflow-wrap: anywhere; }
+.co-trigger-address { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.co-trigger-address code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; color: var(--dim); }
+.co-trigger-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+
+/* Ada's browser: the live window onto the Chromium window on her workstation. */
+.co-browser-overlay { padding: 14px; }
+.co-browser-window { display: flex; flex-direction: column; width: min(1320px, 100%); height: min(900px, 100%); border: 1px solid var(--line2); border-radius: 12px; background: var(--panel); overflow: hidden; }
+.co-browser-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--line); color: var(--ink); }
+.co-browser-title { display: flex; flex: 1; min-width: 0; align-items: baseline; gap: 10px; }
+.co-browser-title strong { font-size: 14px; font-weight: 630; }
+.co-browser-status { color: var(--mut); font-size: 11.5px; }
+.co-browser-status.live { color: var(--em); }
+.co-browser-window .error { margin: 10px 12px 0; }
+.co-browser-screen { position: relative; flex: 1; min-height: 0; background: var(--deep); }
+.co-browser-screen canvas { outline: none; }
+.co-browser-wait { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--mut); font-size: 12.5px; }
+.co-browser-type { display: flex; gap: 8px; padding: 9px 12px 0; }
+.co-browser-type input { flex: 1; min-width: 0; min-height: 33px; padding: 6px 10px; border: 1px solid var(--line2); border-radius: 8px; background: var(--deep); color: var(--ink); font-size: 16px; }
+.co-browser-note { padding: 8px 12px 11px; color: var(--dim); font-size: 11px; line-height: 1.5; }
+@media (max-width: 760px) {
+  .co-browser-overlay { padding: 0; }
+  .co-browser-window { width: 100%; height: 100%; border: 0; border-radius: 0; }
+  .co-browser-head .co-secondary-button { padding: 6px 8px; font-size: 11.5px; }
+}
+
+/* Finished action cards fold to one line once newer conversation arrives. */
+.co-action-card.collapsed { margin-top: 10px; border-radius: 10px; }
+.co-action-summary { display: flex; align-items: center; gap: 9px; width: 100%; padding: 9px 13px; border: 0; background: transparent; color: var(--em); text-align: left; cursor: pointer; }
+.co-action-summary:hover { background: rgba(148,190,156,.05); }
+.co-action-summary b { min-width: 0; overflow: hidden; color: var(--ink2); font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.co-action-summary .co-action-tool { flex: 1; min-width: 0; overflow: hidden; color: var(--dim); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.co-action-summary > svg:last-child { flex: none; color: var(--dim); }
+.co-action-fold { display: inline-flex; align-items: center; padding: 4px; border: 0; background: transparent; color: var(--dim); cursor: pointer; }
+.co-action-fold svg { transform: rotate(-90deg); }
+.co-action-fold:hover { color: var(--ink); }
+@media (max-width: 760px) { .co-action-summary .co-action-tool { display: none; } }

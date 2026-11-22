@@ -54,6 +54,12 @@ struct ServerContext: Sendable {
     let skills: SkillStore
     /// Compared against when an email isn't found, so failed logins take the same time either way.
     let dummyPasswordHash: String
+    /// Phone and browser alerts for approval requests.
+    let push: WebPushCenter
+    /// Ada's live browser on the SSH workstation, when the server operator turned it on.
+    let browser: BrowserLink?
+    /// The VNC password of the browser's display, handed only to admins who open the live window.
+    let browserPassword: String
 
     static func make() throws -> ServerContext {
         let raw = Environment.get("AGENTSAM_DATA") ?? "data"
@@ -66,7 +72,29 @@ struct ServerContext: Sendable {
             rs256Signer: GoogleRS256.sign
         )
         let connectors = ConnectorHub(store: store, keyRing: keyRing, google: google)
-        let access = ConversationAccess(root: store.root)
+        let accounts = AccountStore(dataDir: store.root)
+        let workstationConfig = WorkstationConfig.fromEnvironment()
+        let access = ConversationAccess(
+            root: store.root,
+            workstation: workstationConfig.enabled ? Workstation(config: workstationConfig, dataDir: store.root) : nil,
+            workstationOwner: { owner in
+                // Ada's machine is the server itself, so only admins (and the shared server token) may use it.
+                if owner == "shared-server-token" { return true }
+                guard let id = UUID(uuidString: owner), let user = await accounts.user(id: id) else { return false }
+                return user.role == .admin && !user.disabled
+            },
+            mcp: MCPRegistry(root: store.root, keyRing: keyRing)
+        )
+        if let problem = workstationConfig.problem { print(problem) }
+        let browserConfig = BrowserConfig.fromEnvironment(workstation: workstationConfig)
+        if let problem = browserConfig.problem { print(problem) }
+        let browser = browserConfig.enabled ? access.workstation.map { BrowserLink(config: browserConfig, workstation: $0) } : nil
+        if browser != nil { print("Ada's browser is on: admins can open a live window on \(workstationConfig.ssh?.destination ?? "the workstation").") }
+        if let ssh = workstationConfig.ssh, workstationConfig.enabled {
+            print("Workstation access is on: Ada can run approved commands on \(ssh.destination) over SSH.")
+        } else if workstationConfig.enabled {
+            print("Workstation access is on: Ada can run approved commands on this machine (home \(workstationConfig.home.path)).")
+        }
         let prompts = PromptStore(
             builtins: PromptStore.builtins,
             fileURL: store.root.appendingPathComponent("prompts.json")
@@ -75,13 +103,29 @@ struct ServerContext: Sendable {
             store: store,
             keyRing: keyRing,
             connectors: connectors,
-            config: MissionEngine.Config(maxParallel: 4, maxSteps: 14, verifyWithAgent: true),
+            config: MissionEngine.Config(maxParallel: 4, maxSteps: 24, verifyWithAgent: true),
             promptStore: prompts,
             connectorWrite: { missionID, call, scope in
                 guard let owner = await access.actions.owner(missionID: missionID) else {
                     return .failure("This mission is not linked to a user-owned conversation. No external write was performed.")
                 }
-                let decision = await access.actions.awaitConnectorApproval(missionID: missionID, call: call, scope: scope)
+                switch await access.permissions.decide(ownerID: owner, toolName: call.function.name, arguments: AgentTools.arguments(of: call)) {
+                case .deny(let reason):
+                    return .failure(reason)
+                case .allow:
+                    let outcome = await connectors.run(call: call, scope: scope, approved: true)
+                    let record = AgentActionRequest(
+                        ownerID: owner, conversationID: await access.actions.conversation(missionID: missionID) ?? UUID(), missionID: missionID, kind: .connectorWrite,
+                        title: "Ran \(call.function.name) automatically", detail: "A mission worker's write was allowed by your standing permission for this tool.",
+                        toolName: call.function.name, arguments: .object([("raw", .string(call.function.arguments))]), toolScope: scope
+                    )
+                    await access.actions.recordAutomatic(record, result: outcome.resultText, succeeded: outcome.succeeded)
+                    return outcome
+                case .ask:
+                    break
+                }
+                let lifetime = await access.permissions.approvalLifetime(ownerID: owner)
+                let decision = await access.actions.awaitConnectorApproval(missionID: missionID, call: call, scope: scope, lifetime: lifetime)
                 guard decision.hasPrefix("approved:"), let id = UUID(uuidString: String(decision.dropFirst("approved:".count))) else {
                     return .failure(decision)
                 }
@@ -121,7 +165,6 @@ struct ServerContext: Sendable {
             print(" Set AGENTSAM_TOKEN to pin a token for the iPhone app.")
             print("=================================================================")
         }
-        let accounts = AccountStore(dataDir: store.root)
         let provisioning = ProvisioningStore(
             dataDir: store.root,
             secrets: keyRing,
@@ -129,7 +172,10 @@ struct ServerContext: Sendable {
             dailyLimit: Environment.get("AGENTSAM_PROVISIONING_DAILY_LIMIT").flatMap(Int.init) ?? 200
         )
         let provisioningRunner = ProvisioningRunner(store: provisioning, accounts: accounts)
-        let scheduler = ConversationScheduler(conversations: conversations, engine: conversationEngine)
+        let scheduler = ConversationScheduler(conversations: conversations, engine: conversationEngine) { [connectors] query, seen in
+            guard connectors.isConfigured(.gmail) else { throw ConnectorError("Gmail is not connected.") }
+            return try await GmailConnector().recentEmails(query: query, seen: seen, runtime: connectors.runtime)
+        }
         let knowledgeScheduler = WorkspaceKnowledgeScheduler(knowledge: knowledge)
         return ServerContext(
             store: store,
@@ -155,8 +201,26 @@ struct ServerContext: Sendable {
             scheduler: scheduler,
             knowledgeScheduler: knowledgeScheduler,
             skills: skills,
-            dummyPasswordHash: (try? Bcrypt.hash(Secrets.randomToken())) ?? ""
+            dummyPasswordHash: (try? Bcrypt.hash(Secrets.randomToken())) ?? "",
+            push: WebPushCenter(dataDir: store.root, contact: Self.pushContact()),
+            browser: browser,
+            browserPassword: Environment.get("AGENTSAM_BROWSER_VNC_PASSWORD") ?? ""
         )
+    }
+
+    /// The VAPID "sub" claim: a contact push services can reach about this server.
+    static func pushContact() -> String {
+        if let contact = Environment.get("AGENTSAM_PUSH_CONTACT"), !contact.isEmpty { return contact }
+        if let url = Environment.get("AGENTSAM_PUBLIC_URL"), url.hasPrefix("https://") { return url }
+        return "mailto:ada@example.invalid"
+    }
+
+    /// Sends a phone alert to the owner's devices whenever Ada asks for an approval.
+    func startPushAlerts() async {
+        let push = self.push
+        await access.actions.setNotifier { action in
+            await push.notify(ownerID: action.ownerID)
+        }
     }
 
     func seedIfEmpty() async {

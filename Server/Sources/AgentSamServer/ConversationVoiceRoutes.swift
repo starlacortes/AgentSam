@@ -23,7 +23,9 @@ func conversationVoiceRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
         return (provider, key)
     }
 
-    @Sendable func synthesize(_ req: Request, text: String, tts: VoiceSetup.Engine, provider: ProviderConfig, key: String, lang: String, chunkCount: Int?) async throws -> Response {
+    /// `spoken` is the language the words are in, which can differ from the app's language `lang`:
+    /// numbers and amounts are read in it.
+    @Sendable func synthesize(_ req: Request, text: String, tts: VoiceSetup.Engine, provider: ProviderConfig, key: String, lang: String, spoken: String, chunkCount: Int?) async throws -> Response {
         let started = Date()
         do {
             let audio = try await speech.speakAudio(
@@ -32,7 +34,8 @@ func conversationVoiceRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
                 key: key,
                 model: tts.model,
                 voice: tts.voice ?? SpeechDefaults.defaultVoice(for: provider, language: lang),
-                instructions: "You are Ada, a calm, friendly team coordinator giving a quick spoken update. Natural pace, warm and clear."
+                instructions: "You are Ada, a calm, friendly team coordinator giving a quick spoken update. Natural pace, warm and clear.",
+                language: spoken
             )
             req.logger.info("speech: \(text.count) chars in \(Int(Date().timeIntervalSince(started) * 1000)) ms (\(audio.data.count) bytes, \(audio.mimeType))")
             var headers = HTTPHeaders()
@@ -81,7 +84,9 @@ func conversationVoiceRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
         // Without it the whole message is spoken in one go.
         // A voice reply may carry on-screen detail; only its spoken part is read, and long replies stop early.
         let tail = lang.hasPrefix("es") ? "El resto está en pantalla." : "The rest is on screen."
-        var text = SpeechClient.cappedSpeech(SpeechClient.spokenText(message.speech ?? message.text), tail: tail)
+        let source = message.speech ?? message.text
+        let spoken = SpokenNumbers.language(of: source, fallback: lang)
+        var text = SpeechClient.cappedSpeech(SpeechClient.spokenText(source, language: spoken), tail: tail)
         var chunkCount: Int?
         if let index = req.query[Int.self, at: "chunk"] {
             let pieces = SpeechClient.spokenChunks(text)
@@ -89,7 +94,7 @@ func conversationVoiceRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
             guard index >= 0, index < pieces.count else { return Response(status: .noContent) }
             text = pieces[index]
         }
-        return try await synthesize(req, text: text, tts: tts, provider: provider, key: key, lang: lang, chunkCount: chunkCount)
+        return try await synthesize(req, text: text, tts: tts, provider: provider, key: key, lang: lang, spoken: spoken, chunkCount: chunkCount)
     }
 
     /// Speaks one piece of text the browser already has, so a reply can start playing
@@ -98,11 +103,14 @@ func conversationVoiceRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
         struct SpeechText: Decodable { var text: String }
         let lang = req.query[String.self, at: "lang"] ?? SrvL10n.lang(for: req)
         let owner = try req.requirePrincipal().conversationOwnerID
-        guard try await ctx.conversations.get(id: req.conversationID, ownerID: owner) != nil else { throw ConversationError.notFound }
+        guard let conversation = try await ctx.conversations.get(id: req.conversationID, ownerID: owner) else { throw ConversationError.notFound }
         let body = try req.content.decode(SpeechText.self)
+        // One sentence may not say which language it is in; the person's last message usually does.
+        let lastAsked = conversation.messages.last(where: { $0.role == .user })?.text ?? ""
+        let spoken = SpokenNumbers.language(of: body.text, fallback: SpokenNumbers.language(of: lastAsked, fallback: lang))
         let (setup, providers) = await currentSetup()
         guard let tts = setup.tts else { throw Abort(.conflict, reason: SrvL10n.t("srv.voiceNoTTS", lang: lang)) }
         let (provider, key) = try engine(tts, providers, lang: lang)
-        return try await synthesize(req, text: body.text, tts: tts, provider: provider, key: key, lang: lang, chunkCount: nil)
+        return try await synthesize(req, text: body.text, tts: tts, provider: provider, key: key, lang: lang, spoken: spoken, chunkCount: nil)
     }
 }
