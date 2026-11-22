@@ -16,6 +16,7 @@ import { PeoplePage } from './PeoplePage'
 import { ProvidersPage } from './ProvidersPage'
 import { PermissionsPanel } from '../components/PermissionsPanel'
 import { PushAlertsCard } from '../components/PushAlertsCard'
+import { RememberedPanel } from '../components/RememberedPanel'
 
 export type SettingsSection = 'connections' | 'permissions' | 'memory' | 'preferences' | 'account' | 'providers' | 'people' | 'folders'
 
@@ -113,6 +114,7 @@ function MemorySettings() {
   return (
     <SectionHead title={t('Memory & knowledge')} lede={t('What Ada remembers across your chats, and what she knows about your workspace.')}>
       <ErrorBanner message={error} />
+      <RememberedPanel memory={memory} onChange={setMemory} />
       <MemoryPanel memory={memory} onChange={setMemory} />
       <KnowledgePanel knowledge={knowledge} onChange={setKnowledge} />
     </SectionHead>

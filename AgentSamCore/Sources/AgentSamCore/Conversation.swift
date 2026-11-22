@@ -360,14 +360,38 @@ public struct WorkspaceMemory: Codable, Hashable, Sendable {
     public var updatedAt: Date?
     public var compactionCount: Int
     public var pendingEntries: Int
+    /// Facts the person, or Ada at their request, asked to keep word for word.
+    public var pinned: [PinnedMemory]
 
-    public init(enabled: Bool = true, markdown: String = "", sources: [MemorySource] = [], updatedAt: Date? = nil, compactionCount: Int = 0, pendingEntries: Int = 0) {
+    public init(enabled: Bool = true, markdown: String = "", sources: [MemorySource] = [], updatedAt: Date? = nil, compactionCount: Int = 0, pendingEntries: Int = 0, pinned: [PinnedMemory] = []) {
         self.enabled = enabled
         self.markdown = markdown
         self.sources = sources
         self.updatedAt = updatedAt
         self.compactionCount = compactionCount
         self.pendingEntries = pendingEntries
+        self.pinned = pinned
+    }
+
+    enum CodingKeys: String, CodingKey { case enabled, markdown, sources, updatedAt, compactionCount, pendingEntries, pinned }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+        markdown = try container.decodeIfPresent(String.self, forKey: .markdown) ?? ""
+        sources = try container.decodeIfPresent([MemorySource].self, forKey: .sources) ?? []
+        updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt)
+        compactionCount = try container.decodeIfPresent(Int.self, forKey: .compactionCount) ?? 0
+        pendingEntries = try container.decodeIfPresent(Int.self, forKey: .pendingEntries) ?? 0
+        pinned = try container.decodeIfPresent([PinnedMemory].self, forKey: .pinned) ?? []
+    }
+
+    /// What Ada reads: remembered facts first, then the compacted summary. Empty when memory is off.
+    public var promptText: String {
+        guard enabled else { return "" }
+        guard !pinned.isEmpty else { return markdown }
+        let facts = pinned.map { "- \($0.text)" }.joined(separator: "\n")
+        return "## Remembered on request\n\(facts)\n\n\(markdown)"
     }
 
     public static let empty = WorkspaceMemory(

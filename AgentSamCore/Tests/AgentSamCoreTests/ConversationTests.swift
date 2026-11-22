@@ -1027,7 +1027,7 @@ final class ConversationTests: XCTestCase {
     func testEveryToolHasOneCatalogEntryWithTheRightAccess() {
         let everything = ConnectorPermissions(sendEmail: true, createDraft: true, dnsWrite: true, githubWrite: true, adsWrite: true)
         let connectorNames = Set(ConnectorHub.providers.flatMap { $0.toolDefs(permissions: everything) }.map(\.function.name))
-        let workspaceNames = Set((ChatWorkspaceTools.definitions + ExtendedWorkspaceTools.definitions + ConversationMissionTools.definitions + SkillTools.definitions).map(\.function.name))
+        let workspaceNames = Set((ChatWorkspaceTools.definitions + ExtendedWorkspaceTools.definitions + ConversationMissionTools.definitions + SkillTools.definitions + MemoryTools.definitions).map(\.function.name))
         let catalogNames = ToolCatalog.specs.map(\.name)
         XCTAssertEqual(catalogNames.count, Set(catalogNames).count, "a tool is listed twice in the catalog")
         XCTAssertEqual(Set(catalogNames), connectorNames.union(workspaceNames), "the catalog and the tool definitions disagree")

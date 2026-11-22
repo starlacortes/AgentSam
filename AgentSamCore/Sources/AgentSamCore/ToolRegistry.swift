@@ -10,6 +10,8 @@ public enum ToolFamily: Sendable, Equatable {
     case mission
     /// Saving procedures as skills (`SkillTools`).
     case skill
+    /// Remembering and forgetting facts on request (`MemoryTools`).
+    case memory
     /// External services through `ConnectorHub`. Reads run at once; writes need an approval.
     case connector
 }
@@ -49,6 +51,7 @@ public struct OfferedTools: Sendable {
             (.extended, hasExtendedAccess ? ExtendedWorkspaceTools.definitions : []),
             (.mission, hasLinkedMissions ? ConversationMissionTools.definitions : []),
             (.skill, SkillTools.definitions),
+            (.memory, MemoryTools.definitions),
         ])
     }
 }
@@ -132,6 +135,8 @@ public enum ToolCatalog {
         ToolSpec("googleads_set_budget", .approval, en: "Preparing a Google Ads change", es: "Preparando un cambio en Google Ads"),
         ToolSpec("googleads_mutate", .approval, en: "Preparing a Google Ads change", es: "Preparando un cambio en Google Ads"),
         ToolSpec("skill_save", .write, en: "Saving a procedure", es: "Guardando un procedimiento"),
+        ToolSpec("memory_remember", .write, en: "Remembering that", es: "Recordándolo"),
+        ToolSpec("memory_forget", .write, en: "Forgetting that", es: "Olvidándolo"),
         ToolSpec("cloudflare_dns_create", .approval, en: "Preparing a DNS change", es: "Preparando un cambio de DNS"),
         ToolSpec("cloudflare_dns_update", .approval, en: "Preparing a DNS change", es: "Preparando un cambio de DNS"),
         ToolSpec("cloudflare_dns_delete", .approval, en: "Preparing a DNS change", es: "Preparando un cambio de DNS"),
