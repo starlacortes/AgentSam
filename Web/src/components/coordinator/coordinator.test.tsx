@@ -5,7 +5,7 @@ import { api } from '../../api/client'
 import type { AgentActionRequest, Conversation, ConversationMessage, WorkspaceKnowledge } from '../../api/types'
 import { I18nProvider } from '../../i18n'
 import { Guide } from './Guide'
-import { ActionApprovalCard, ConversationMessages } from './ConversationMessages'
+import { ActionApprovalCard, ConversationMessages, placeActions } from './ConversationMessages'
 import { KnowledgePanel } from './WorkspacePanels'
 import { SettingsPage } from '../../pages/SettingsPage'
 
@@ -86,6 +86,42 @@ describe('action approvals', () => {
     renderUI(<ActionApprovalCard action={{ ...action, status: 'completed', result: 'Done' }} onResolved={vi.fn()} />)
     expect(screen.queryByRole('button', { name: 'Approve once' })).toBeNull()
     expect(api).not.toHaveBeenCalled()
+  })
+})
+
+describe('finished action cards', () => {
+  afterEach(() => { cleanup(); vi.clearAllMocks() })
+  const done: AgentActionRequest = {
+    id: 'action-9', ownerID: 'u', conversationID: 'chat-1', kind: 'mcpCall', title: 'Ran googleads_mutate automatically', detail: 'Standing permission.',
+    toolName: 'googleads_mutate', arguments: { raw: '{"customer_id":"42"}' }, status: 'completed', automatic: true,
+    createdAt: '2026-01-01T00:01:00Z', expiresAt: '2026-01-01T01:00:00Z',
+  }
+
+  it('folds a finished card to one line and opens it on tap', () => {
+    renderUI(<ActionApprovalCard action={done} onResolved={vi.fn()} collapsed />)
+    expect(screen.queryByText(/"customer_id": "42"/)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /Ran googleads_mutate automatically/ }))
+    expect(screen.getByText(/"customer_id": "42"/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse' }))
+    expect(screen.queryByText(/"customer_id": "42"/)).toBeNull()
+  })
+
+  it('never folds a card still waiting for approval', () => {
+    renderUI(<ActionApprovalCard action={{ ...done, status: 'pending', automatic: false, expiresAt: new Date(Date.now() + 60_000).toISOString() }} onResolved={vi.fn()} collapsed />)
+    expect(screen.getByRole('button', { name: 'Approve once' })).toBeTruthy()
+  })
+
+  it('places cards by time and collapses only those with newer messages below', () => {
+    const message = (id: string, role: 'user' | 'assistant', createdAt: string) => ({ id, role, text: id, createdAt, status: 'complete' as const, missionIDs: [], teamIDs: [], activity: [] })
+    const messages = [message('m1', 'user', '2026-01-01T00:00:00Z'), message('m2', 'assistant', '2026-01-01T00:00:30Z'), message('m3', 'user', '2026-01-01T00:05:00Z')]
+    const placed = placeActions(messages, [done, { ...done, id: 'late', createdAt: '2026-01-01T00:06:00Z' }])
+    expect(placed.get(1)?.map((a) => a.id)).toEqual(['action-9'])
+    expect(placed.get(2)?.map((a) => a.id)).toEqual(['late'])
+    const conversation = { id: 'chat-1', title: 'Chat', messages } as unknown as Conversation
+    const handlers = { onUpdated: vi.fn(), onRetry: vi.fn(), onEdit: vi.fn(), onQuickReply: vi.fn(), onOpenCanvas: vi.fn(), onStarter: vi.fn() }
+    renderUI(<ConversationMessages conversation={conversation} handlers={handlers} actions={[done, { ...done, id: 'late', createdAt: '2026-01-01T00:06:00Z' }]} />)
+    expect(screen.getAllByText(/"customer_id": "42"/)).toHaveLength(1)
+    expect(screen.getAllByRole('button', { expanded: false })).toHaveLength(1)
   })
 })
 

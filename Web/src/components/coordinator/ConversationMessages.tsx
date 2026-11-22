@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, errorMessage } from '../../api/client'
 import type { AgentActionRequest, Conversation, ConversationMessage, MissionDetail } from '../../api/types'
@@ -21,10 +21,34 @@ export function formatActionArguments(action: AgentActionRequest): string {
   return JSON.stringify(action.arguments, null, 2)
 }
 
-export function ActionApprovalCard({ action, onResolved }: { action: AgentActionRequest; onResolved: (actions: AgentActionRequest[]) => void }) {
+/** True once an action can no longer change: it ran, was denied, failed, or expired. */
+export function actionFinished(action: AgentActionRequest, now = Date.now()): boolean {
+  if (action.status === 'pending') return Date.parse(action.expiresAt) <= now
+  return action.status !== 'approved' && action.status !== 'executing'
+}
+
+/**
+ * Places each action card after the last message that started at or before it, so newer
+ * conversation flows below it instead of above. Returns, per message index, the actions
+ * to show after it; index -1 holds actions older than every message.
+ */
+export function placeActions(messages: ConversationMessage[], actions: AgentActionRequest[]): Map<number, AgentActionRequest[]> {
+  const placed = new Map<number, AgentActionRequest[]>()
+  const sorted = [...actions].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt))
+  for (const action of sorted) {
+    const at = Date.parse(action.createdAt)
+    let index = -1
+    messages.forEach((message, i) => { if (Date.parse(message.createdAt) <= at) index = i })
+    placed.set(index, [...(placed.get(index) ?? []), action])
+  }
+  return placed
+}
+
+export function ActionApprovalCard({ action, onResolved, collapsed = false }: { action: AgentActionRequest; onResolved: (actions: AgentActionRequest[]) => void; collapsed?: boolean }) {
   const { t } = useI18n()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [open, setOpen] = useState<boolean | null>(null)
   const pending = action.status === 'pending'
   const expired = pending && Date.parse(action.expiresAt) <= Date.now()
   const decide = async (approve: boolean) => {
@@ -34,8 +58,19 @@ export function ActionApprovalCard({ action, onResolved }: { action: AgentAction
       onResolved(await api<AgentActionRequest[]>(`conversations/${action.conversationID}/actions/${action.id}`, { method: 'POST', body: { approve } }))
     } catch (err) { setError(errorMessage(err)) } finally { setBusy(false) }
   }
+  const chip = <span className="co-chip">{expired ? t('expired') : action.automatic ? t('ran automatically') : t(action.status)}</span>
+  // A finished card folds to one line once newer conversation arrives; tapping it opens it again.
+  const canFold = actionFinished(action) && !busy
+  const expanded = !canFold || (open ?? !collapsed)
+  if (!expanded) return <section className="co-team-proposal co-action-card collapsed" aria-label={t('Action approval')}>
+    <button type="button" className="co-action-summary" aria-expanded={false} onClick={() => setOpen(true)}>
+      <Icon name="shield" size={14} /><b>{action.title}</b><span className="co-action-tool">{action.toolName}</span>{chip}<Icon name="chevron" size={13} />
+    </button>
+  </section>
   return <section className="co-team-proposal co-action-card" aria-label={t('Action approval')}>
-    <div className="co-proposal-head"><Icon name="shield" /><div><b>{action.title}</b><span>{action.toolName}</span></div><span className="co-chip">{expired ? t('expired') : action.automatic ? t('ran automatically') : t(action.status)}</span></div>
+    <div className="co-proposal-head"><Icon name="shield" /><div><b>{action.title}</b><span>{action.toolName}</span></div>{chip}
+      {canFold ? <button type="button" className="co-action-fold" aria-expanded={true} aria-label={t('Collapse')} onClick={() => setOpen(false)}><Icon name="chevron" size={13} /></button> : null}
+    </div>
     <p className="co-proposal-rationale">{action.detail}</p>
     <pre className="co-action-arguments">{formatActionArguments(action)}</pre>
     {action.result ? <pre className="co-action-result">{action.result}</pre> : null}
@@ -175,11 +210,18 @@ export function ConversationMessages({ conversation, busy = false, handlers, act
     <button onClick={() => handlers.onStarter(t('Whenever I ask for '))}><Icon name="plus" /><b>{t('Teach Ada a routine')}</b><span>{t('She remembers the steps and follows them next time.')}</span></button>
   </div></div></div>
   const lastAssistant = conversation.messages.reduce((found, message, index) => message.role === 'assistant' ? index : found, -1)
+  const placed = placeActions(conversation.messages, actions.slice(0, 10))
+  const lastIndex = conversation.messages.length - 1
+  // Collapse a finished card once a newer message sits below it.
+  const cards = (index: number) => placed.get(index)?.map((action) => <ActionApprovalCard key={action.id} action={action} onResolved={onActions} collapsed={index < lastIndex} />)
   const jump = () => { const element = box.current; if (element) element.scrollTo({ top: element.scrollHeight, behavior: 'smooth' }) }
   return <div className="co-messages-wrap">
     <div className="co-messages" ref={box} onScroll={(event) => { const el = event.currentTarget; const near = el.scrollHeight - el.scrollTop - el.clientHeight < 70; pinned.current = near; setAway(!near) }}><div className="co-message-inner">
-      {conversation.messages.map((message, index) => <Message key={message.id} conversationID={conversation.id} message={message} latest={index === lastAssistant} busy={busy} handlers={handlers} retry={() => { const previous = conversation.messages.slice(0, index).reverse().find((item) => item.role === 'user'); if (previous) handlers.onRetry(previous.text) }} />)}
-      {actions.slice(0, 10).map((action) => <ActionApprovalCard key={action.id} action={action} onResolved={onActions} />)}
+      {cards(-1)}
+      {conversation.messages.map((message, index) => <Fragment key={message.id}>
+        <Message conversationID={conversation.id} message={message} latest={index === lastAssistant} busy={busy} handlers={handlers} retry={() => { const previous = conversation.messages.slice(0, index).reverse().find((item) => item.role === 'user'); if (previous) handlers.onRetry(previous.text) }} />
+        {cards(index)}
+      </Fragment>)}
     </div></div>
     {away ? <button type="button" className="co-jump-latest" onClick={jump} aria-label={t('Jump to latest')}><Icon name="arrowDown" size={14} />{last?.status === 'running' ? t('Ada is working') : t('Latest')}</button> : null}
   </div>
