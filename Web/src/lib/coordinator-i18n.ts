@@ -463,4 +463,8 @@ export const coordinatorSpanish: Record<string, string> = {
   'Test connection': 'Probar conexión',
   'Add this key to ~/.ssh/authorized_keys for {user} on that machine:': 'Agrega esta clave a ~/.ssh/authorized_keys de {user} en esa máquina:',
   'Copy key': 'Copiar clave',
+  'Free servers to add': 'Servidores gratuitos para agregar',
+  'Add all': 'Agregar todos',
+  'Add': 'Agregar',
+  'These did not answer and were skipped: {names}': 'Estos no respondieron y se omitieron: {names}',
 }

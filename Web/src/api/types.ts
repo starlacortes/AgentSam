@@ -463,6 +463,14 @@ export interface MCPServerView {
   lastError?: string
 }
 
+export interface MCPSuggestionView {
+  id: string
+  name: string
+  url: string
+  detail: string
+  added: boolean
+}
+
 export type PermissionMode = 'ask' | 'allow' | 'never'
 
 export interface PermissionRule {

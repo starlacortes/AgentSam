@@ -114,3 +114,24 @@ func mcpRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
         return Response(status: .noContent)
     }
 }
+
+struct MCPSuggestionView: Content {
+    var id: String
+    var name: String
+    var url: String
+    var detail: String
+    var added: Bool
+}
+
+/// The one-click list of free public servers, marked when one is already connected.
+func mcpCatalogRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
+    api.get("mcp", "catalog") { req async throws -> Response in
+        let principal = try req.requirePrincipal()
+        guard principal.isAdmin else { throw Abort(.forbidden, reason: "Only admins can manage MCP servers.") }
+        let connected = Set(await ctx.access.mcp?.list().map { $0.url.lowercased() } ?? [])
+        let spanish = (req.headers.first(name: .acceptLanguage) ?? "").lowercased().hasPrefix("es")
+        return try req.json(MCPSuggestion.catalog.map {
+            MCPSuggestionView(id: $0.id, name: $0.name, url: $0.url, detail: spanish ? $0.detailES : $0.detail, added: connected.contains($0.url.lowercased()))
+        })
+    }
+}

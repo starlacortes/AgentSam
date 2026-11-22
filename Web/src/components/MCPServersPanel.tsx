@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, errorMessage } from '../api/client'
-import type { MCPServerView } from '../api/types'
+import type { MCPServerView, MCPSuggestionView } from '../api/types'
 import { useI18n } from '../i18n'
 import { Icon } from './coordinator/Icon'
 import { Switch } from './coordinator/WorkspacePanels'
@@ -16,8 +16,13 @@ export function MCPServersPanel() {
   const [open, setOpen] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [suggestions, setSuggestions] = useState<MCPSuggestionView[]>([])
+  const [failed, setFailed] = useState<string[]>([])
 
-  useEffect(() => { void api<MCPServerView[]>('mcp/servers').then(setServers).catch((err) => setError(errorMessage(err))) }, [])
+  useEffect(() => {
+    void api<MCPServerView[]>('mcp/servers').then(setServers).catch((err) => setError(errorMessage(err)))
+    void api<MCPSuggestionView[]>('mcp/catalog').then(setSuggestions).catch(() => setSuggestions([]))
+  }, [])
 
   const run = async (work: () => Promise<void>) => {
     setBusy(true)
@@ -32,6 +37,18 @@ export function MCPServersPanel() {
     setURL('')
     setToken('')
     setOpen(server.id)
+  })
+  /** Connects suggested servers one by one; one that does not answer is skipped and named. */
+  const addSuggested = (items: MCPSuggestionView[]) => run(async () => {
+    const missed: string[] = []
+    for (const item of items) {
+      try {
+        const server = await api<MCPServerView>('mcp/servers', { method: 'POST', body: { name: item.name, url: item.url } })
+        setServers((list) => [...(list ?? []), server])
+        setSuggestions((list) => list.map((entry) => entry.id === item.id ? { ...entry, added: true } : entry))
+      } catch { missed.push(item.name) }
+    }
+    setFailed(missed)
   })
   const update = (server: MCPServerView, body: { enabled?: boolean; readTools?: string[] }) => run(async () => {
     replace(await api<MCPServerView>(`mcp/servers/${server.id}`, { method: 'PUT', body }))
@@ -70,6 +87,16 @@ export function MCPServersPanel() {
         </ul> : null}
       </li>)}
     </ul> : servers ? <p className="co-panel-note">{t('No MCP servers yet.')}</p> : null}
+    {suggestions.some((item) => !item.added) ? <div className="mcp-suggested">
+      <div className="mcp-head"><b>{t('Free servers to add')}</b><button className="co-secondary-button" disabled={busy} onClick={() => void addSuggested(suggestions.filter((item) => !item.added))}><Icon name="plus" size={14} />{t('Add all')}</button></div>
+      <ul className="mcp-tools">
+        {suggestions.filter((item) => !item.added).map((item) => <li key={item.id} className="mcp-suggestion">
+          <div><b>{item.name}</b><p>{item.detail}</p></div>
+          <button className="co-text-button" disabled={busy} onClick={() => void addSuggested([item])}><Icon name="plus" size={12} />{t('Add')}</button>
+        </li>)}
+      </ul>
+      {failed.length ? <p className="danger">{t('These did not answer and were skipped: {names}', { names: failed.join(', ') })}</p> : null}
+    </div> : null}
     <form className="mcp-form" onSubmit={(event) => { event.preventDefault(); if (url.trim()) void add() }}>
       <input type="text" value={name} maxLength={60} placeholder={t('Name')} aria-label={t('Name')} onChange={(event) => setName(event.target.value)} />
       <input type="url" value={url} placeholder="https://example.com/mcp" aria-label={t('Server URL')} onChange={(event) => setURL(event.target.value)} />

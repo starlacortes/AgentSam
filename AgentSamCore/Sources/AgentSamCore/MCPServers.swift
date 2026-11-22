@@ -392,3 +392,41 @@ public actor MCPRegistry {
     private static let encoder: JSONEncoder = { let e = JSONEncoder(); e.dateEncodingStrategy = .iso8601; return e }()
     private static let decoder: JSONDecoder = { let d = JSONDecoder(); d.dateDecodingStrategy = .iso8601; return d }()
 }
+
+/// Free, public MCP servers an admin can add with one click. None needs an account or a key.
+/// They only read (documentation and public data), but each tool still starts as "asks first"
+/// unless the server marks it read-only.
+public struct MCPSuggestion: Codable, Sendable, Equatable {
+    public var id: String
+    public var name: String
+    public var url: String
+    public var detail: String
+    public var detailES: String
+
+    public static let catalog: [MCPSuggestion] = [
+        MCPSuggestion(id: "deepwiki", name: "DeepWiki", url: "https://mcp.deepwiki.com/mcp",
+                      detail: "Ask questions about any public GitHub repository and read its generated docs.",
+                      detailES: "Pregunta sobre cualquier repositorio público de GitHub y lee su documentación generada."),
+        MCPSuggestion(id: "context7", name: "Context7", url: "https://mcp.context7.com/mcp",
+                      detail: "Up-to-date documentation and code examples for popular libraries.",
+                      detailES: "Documentación y ejemplos de código actualizados de bibliotecas populares."),
+        MCPSuggestion(id: "mslearn", name: "Microsoft Learn", url: "https://learn.microsoft.com/api/mcp",
+                      detail: "Search and read official Microsoft and Azure documentation.",
+                      detailES: "Busca y lee la documentación oficial de Microsoft y Azure."),
+        MCPSuggestion(id: "awsknowledge", name: "AWS Knowledge", url: "https://knowledge-mcp.global.api.aws",
+                      detail: "Search and read AWS documentation, guides and regional availability.",
+                      detailES: "Busca y lee la documentación de AWS, guías y disponibilidad por región."),
+        MCPSuggestion(id: "cloudflaredocs", name: "Cloudflare Docs", url: "https://docs.mcp.cloudflare.com/mcp",
+                      detail: "Search Cloudflare's developer documentation.",
+                      detailES: "Busca en la documentación para desarrolladores de Cloudflare."),
+        MCPSuggestion(id: "huggingface", name: "Hugging Face", url: "https://huggingface.co/mcp",
+                      detail: "Search public models, datasets, Spaces and papers on Hugging Face.",
+                      detailES: "Busca modelos, conjuntos de datos, Spaces y artículos públicos en Hugging Face."),
+        MCPSuggestion(id: "gitmcp", name: "GitMCP", url: "https://gitmcp.io/docs",
+                      detail: "Read the documentation and code of any public GitHub project.",
+                      detailES: "Lee la documentación y el código de cualquier proyecto público de GitHub."),
+        MCPSuggestion(id: "exa", name: "Exa Search", url: "https://mcp.exa.ai/mcp",
+                      detail: "Web search and page reading, no key needed (rate limited).",
+                      detailES: "Búsqueda web y lectura de páginas, sin clave (con límite de uso)."),
+    ]
+}

@@ -91,6 +91,7 @@ func routes(_ app: Application, ctx: ServerContext) {
     accessRoutes(api, ctx: ctx)
     pushRoutes(api, ctx: ctx)
     mcpRoutes(api, ctx: ctx)
+    mcpCatalogRoutes(api, ctx: ctx)
     chatRoutes(api, admin: adminAPI, ctx: ctx)
 
     api.get("info") { req async throws -> Response in
