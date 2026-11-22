@@ -15,6 +15,7 @@ import { AccountPage } from './AccountPage'
 import { PeoplePage } from './PeoplePage'
 import { ProvidersPage } from './ProvidersPage'
 import { PermissionsPanel } from '../components/PermissionsPanel'
+import { PushAlertsCard } from '../components/PushAlertsCard'
 
 export type SettingsSection = 'connections' | 'permissions' | 'memory' | 'preferences' | 'account' | 'providers' | 'people' | 'folders'
 
@@ -56,7 +57,7 @@ export function SettingsPage() {
       </nav>
       <section className="settings-body">
         {current.id === 'connections' ? <ConnectionsSettings /> : null}
-        {current.id === 'permissions' ? <SectionHead title={t('What Ada can do alone')} lede={t('Choose which actions Ada may take without asking, and the limits that keep them small.')}><PermissionsPanel /></SectionHead> : null}
+        {current.id === 'permissions' ? <SectionHead title={t('What Ada can do alone')} lede={t('Choose which actions Ada may take without asking, and the limits that keep them small.')}><PushAlertsCard /><PermissionsPanel /></SectionHead> : null}
         {current.id === 'memory' ? <MemorySettings /> : null}
         {current.id === 'preferences' ? <PreferenceSettings /> : null}
         {current.id === 'account' ? <AccountPage /> : null}

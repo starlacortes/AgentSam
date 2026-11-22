@@ -419,4 +419,13 @@ export const coordinatorSpanish: Record<string, string> = {
   'Per day, in US dollars': 'Por día, en dólares estadounidenses',
   'Per reply, in US dollars': 'Por respuesta, en dólares estadounidenses',
   'At the daily limit Ada stops starting new work until midnight UTC. At the reply limit she stops using tools and answers with what she has.': 'Al llegar al límite diario, Ada deja de empezar trabajo nuevo hasta la medianoche (UTC). Al llegar al límite por respuesta, deja de usar herramientas y responde con lo que tiene.',
+  'Test alert sent to {count} device(s).': 'Alerta de prueba enviada a {count} dispositivo(s).',
+  'No device accepted the alert. Turn alerts off and on again on this device.': 'Ningún dispositivo aceptó la alerta. Desactiva y vuelve a activar las alertas en este dispositivo.',
+  'Approval alerts': 'Alertas de aprobación',
+  'Get a notification on this device when Ada needs your approval. On an iPhone, add Ada to the home screen first.': 'Recibe una notificación en este dispositivo cuando Ada necesite tu aprobación. En un iPhone, añade Ada a la pantalla de inicio primero.',
+  'This browser cannot show alerts. On an iPhone, add Ada to the home screen and open it from there.': 'Este navegador no puede mostrar alertas. En un iPhone, añade Ada a la pantalla de inicio y ábrela desde allí.',
+  '{count} device(s) get alerts.': '{count} dispositivo(s) reciben alertas.',
+  'Send a test': 'Enviar una prueba',
+  'Turn off here': 'Desactivar aquí',
+  'Turn on alerts here': 'Activar alertas aquí',
 }

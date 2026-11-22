@@ -369,10 +369,20 @@ public actor AgentActionCenter {
         links[missionID]?.conversationID
     }
 
+    /// Called for every new approval request, for example to send a phone alert. Set by the server.
+    private var notifier: (@Sendable (AgentActionRequest) async -> Void)?
+
+    public func setNotifier(_ notifier: (@Sendable (AgentActionRequest) async -> Void)?) {
+        self.notifier = notifier
+    }
+
     @discardableResult
     public func request(_ action: AgentActionRequest) -> AgentActionRequest {
         save(action)
         Task { await audit.record(ownerID: action.ownerID, action: "approval.request", detail: "\(action.kind.rawValue): \(action.toolName)") }
+        if action.status == .pending, let notifier {
+            Task { await notifier(action) }
+        }
         return action
     }
 
@@ -385,6 +395,16 @@ public actor AgentActionCenter {
             save(expired)
             return expired
         }
+    }
+
+    /// The owner's open approval requests in every conversation, newest first.
+    public func pending(ownerID: String, limit: Int = 10) -> [AgentActionRequest] {
+        guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return [] }
+        let now = Date()
+        return files.compactMap { load($0) }
+            .filter { $0.ownerID == ownerID && $0.status == .pending && $0.expiresAt > now }
+            .sorted { $0.createdAt > $1.createdAt }
+            .prefix(limit).map { $0 }
     }
 
     public func get(ownerID: String, id: UUID) -> AgentActionRequest? {
