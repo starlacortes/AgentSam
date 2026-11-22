@@ -757,3 +757,7 @@
 .workstation-card p { color: var(--mut); font-size: 11px; margin-top: 2px; }
 .workstation-key .row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .workstation-key code { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: 11px; }
+
+.mcp-suggested { margin: 10px 0; }
+.mcp-suggestion { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.mcp-suggestion > div { min-width: 0; }

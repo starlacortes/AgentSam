@@ -524,6 +524,12 @@ final class ConversationAPITests: XCTestCase {
         }, afterResponse: { res async in
             XCTAssertEqual(res.status, .badRequest, "plain HTTP to another machine is refused")
         })
+        try await app.test(.GET, "api/mcp/catalog", beforeRequest: authorize, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok, res.body.string)
+            let catalog = try res.content.decode([MCPSuggestionView].self)
+            XCTAssertEqual(catalog.count, MCPSuggestion.catalog.count)
+            XCTAssertTrue(catalog.allSatisfy { !$0.added && $0.url.hasPrefix("https://") })
+        })
         try await app.test(.GET, "api/access/workstation", beforeRequest: authorize, afterResponse: { res async throws in
             XCTAssertEqual(res.status, .ok)
             XCTAssertFalse(try res.content.decode(WorkstationView.self).enabled)
@@ -531,7 +537,7 @@ final class ConversationAPITests: XCTestCase {
         let accounts = try XCTUnwrap(app.storage[ServerContextKey.self]).accounts
         let member = try await accounts.createUser(email: "member-mcp@example.com", name: "Member", role: .member, passwordHash: try await Passwords.hash("member test password"))
         let (_, memberToken) = try await accounts.createAPIToken(userID: member.id, name: "Member token")
-        for path in ["api/mcp/servers", "api/access/workstation"] {
+        for path in ["api/mcp/servers", "api/mcp/catalog", "api/access/workstation"] {
             try await app.test(.GET, path, beforeRequest: { req in
                 req.headers.bearerAuthorization = BearerAuthorization(token: memberToken)
             }, afterResponse: { res async in XCTAssertEqual(res.status, .forbidden, path) })
