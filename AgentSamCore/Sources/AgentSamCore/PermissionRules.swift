@@ -21,13 +21,17 @@ public struct PermissionRule: Codable, Sendable, Equatable {
     public var branchPrefix: String?
     /// `gmail_send`: only these recipients (exact addresses, or "@domain.com") run without asking.
     public var allowedRecipients: [String]?
+    /// `workstation_run` / `workstation_start_job`: only single commands starting with one of these
+    /// (for example "pacman -Q" or "systemctl status") run without asking.
+    public var commandPrefixes: [String]?
 
-    public init(mode: PermissionMode, maxPerDay: Int? = nil, maxAmount: Double? = nil, branchPrefix: String? = nil, allowedRecipients: [String]? = nil) {
+    public init(mode: PermissionMode, maxPerDay: Int? = nil, maxAmount: Double? = nil, branchPrefix: String? = nil, allowedRecipients: [String]? = nil, commandPrefixes: [String]? = nil) {
         self.mode = mode
         self.maxPerDay = maxPerDay
         self.maxAmount = maxAmount
         self.branchPrefix = branchPrefix
         self.allowedRecipients = allowedRecipients
+        self.commandPrefixes = commandPrefixes
     }
 
     /// Cleans what a client sent: drops empty or nonsensical limits.
@@ -40,6 +44,8 @@ public struct PermissionRule: Codable, Sendable, Equatable {
         if rule.branchPrefix?.isEmpty == true { rule.branchPrefix = nil }
         let recipients = (rule.allowedRecipients ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }.filter { !$0.isEmpty }
         rule.allowedRecipients = recipients.isEmpty ? nil : Array(recipients.prefix(50))
+        let prefixes = (rule.commandPrefixes ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        rule.commandPrefixes = prefixes.isEmpty ? nil : Array(prefixes.prefix(50))
         return rule
     }
 }
@@ -212,6 +218,11 @@ public actor PermissionStore {
                 recipients.contains { $0.hasPrefix("@") ? address.hasSuffix($0) : address == $0 }
             }
             guard ok else { return "Your rule only sends automatically to approved recipients, so this email needs your approval." }
+        }
+        if let prefixes = rule.commandPrefixes, WorkstationTools.approvalNames.contains(toolName) {
+            guard WorkstationTools.matchesPrefix(arguments["command"]?.stringValue ?? "", prefixes: prefixes) else {
+                return "Your rule only runs single commands that start with an allowed prefix, so this one needs your approval."
+            }
         }
         return nil
     }

@@ -482,6 +482,8 @@ final class ConversationAPITests: XCTestCase {
             XCTAssertTrue(view.canEdit)
             XCTAssertTrue(view.policy.rules.isEmpty)
             XCTAssertTrue(view.tools.contains("gmail_send"))
+            XCTAssertFalse(view.workstation, "the workstation is off unless AGENTSAM_WORKSTATION=1")
+            XCTAssertFalse(view.tools.contains("workstation_run"))
         })
         let policy = PermissionPolicy(rules: ["gmail_draft": PermissionRule(mode: .allow, maxPerDay: 5), "run_terminal": PermissionRule(mode: .allow)], approvalMinutes: 720)
         try await app.test(.PUT, "api/access/permissions", beforeRequest: { req in

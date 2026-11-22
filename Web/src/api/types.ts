@@ -221,7 +221,7 @@ export interface AgentActionRequest {
   ownerID: string
   conversationID: string
   missionID?: string
-  kind: 'connectorWrite' | 'fileDelete'
+  kind: 'connectorWrite' | 'fileDelete' | 'workstation'
   title: string
   detail: string
   toolName: string
@@ -451,6 +451,7 @@ export interface PermissionRule {
   maxAmount?: number
   branchPrefix?: string
   allowedRecipients?: string[]
+  commandPrefixes?: string[]
 }
 
 export interface PermissionPolicy {
@@ -467,4 +468,5 @@ export interface PermissionsView {
   tools: string[]
   canEdit: boolean
   spentTodayUSD: number
+  workstation?: boolean
 }

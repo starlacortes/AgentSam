@@ -438,4 +438,8 @@ export const coordinatorSpanish: Record<string, string> = {
   'Remember': 'Recordar',
   'Forget anything about…': 'Olvidar todo sobre…',
   'Forget': 'Olvidar',
+  'Run commands on her workstation': 'Ejecutar comandos en su estación de trabajo',
+  'Start background jobs on her workstation': 'Iniciar tareas en segundo plano en su estación de trabajo',
+  'Only commands starting with': 'Solo comandos que empiecen con',
+  'With no prefixes, Ada can run any command on her workstation without asking.': 'Sin prefijos, Ada puede ejecutar cualquier comando en su estación de trabajo sin preguntar.',
 }

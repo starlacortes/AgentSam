@@ -15,7 +15,7 @@ import { photoURL } from '../../lib/photos'
 
 export function formatActionArguments(action: AgentActionRequest): string {
   const raw = action.arguments.raw
-  if (action.kind === 'connectorWrite' && typeof raw === 'string') {
+  if ((action.kind === 'connectorWrite' || action.kind === 'workstation') && typeof raw === 'string') {
     try { return JSON.stringify(JSON.parse(raw), null, 2) } catch { return raw }
   }
   return JSON.stringify(action.arguments, null, 2)

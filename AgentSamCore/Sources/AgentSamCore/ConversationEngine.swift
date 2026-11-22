@@ -459,7 +459,8 @@ public actor ConversationEngine {
     private func directAnswer(userText: String, photos photoInput: PhotoInputs = PhotoInputs(), coordinator: AgentProfile, context: ConversationPromptContext, history: [ConversationMessage], language: String, ref: ResponseRef? = nil, conversationID: UUID, writtenFiles: inout [String], toolLog: inout [String]) async throws -> String {
         let connectorTools = await connectors?.toolDefs(readOnly: access == nil) ?? []
         // Only tools offered in this request may run, and each runs by the family it was offered from.
-        let offeredTools = OfferedTools.direct(connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedAccess: access != nil)
+        let workstation = await workstation(ownerID: ref?.ownerID)
+        let offeredTools = OfferedTools.direct(connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedAccess: access != nil, hasWorkstation: workstation != nil)
         let tools = offeredTools.definitions
         let offered = offeredTools.names
         let system = ConversationPrompts.directResponseSystem(coordinator: coordinator, context: context, connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedTools: access != nil, store: promptStore, language: language)
@@ -526,6 +527,18 @@ public actor ConversationEngine {
                     outcome = await MemoryTools.run(call: call, memory: memory, ownerID: ref?.ownerID)
                 case .mission:
                     outcome = await ConversationMissionTools.run(call: call, store: store, allowedMissionIDs: Set(context.missionIDs))
+                case .workstation:
+                    guard let workstation, let access, let ref else { outcome = .failure("Workstation access is not available here."); break }
+                    guard WorkstationTools.approvalNames.contains(call.function.name) else {
+                        outcome = await WorkstationTools.run(call: call, workstation: workstation)
+                        break
+                    }
+                    runs += 1
+                    if runs > ChatWorkspaceTools.maxRunsPerTurn {
+                        outcome = .failure("Program and terminal run limit reached for this reply (\(ChatWorkspaceTools.maxRunsPerTurn)).")
+                        break
+                    }
+                    outcome = await workstationCommand(call: call, workstation: workstation, access: access, ownerID: ref.ownerID, conversationID: conversationID)
                 case .connector:
                     guard let connectors else { outcome = .failure("No connector is available for this tool."); break }
                     if ConnectorHub.readOnlyToolNames.contains(call.function.name) {
@@ -600,6 +613,45 @@ public actor ConversationEngine {
                 : "I used all the tool steps for this reply before finishing. Ask me to continue and I will pick up from here."
         }
         return answer
+    }
+
+    /// The workstation, when the server turned it on and this owner may use it.
+    private func workstation(ownerID: String?) async -> Workstation? {
+        guard let ownerID, let access, let workstation = access.workstation, await workstation.enabled, await access.workstationOwner(ownerID) else { return nil }
+        return workstation
+    }
+
+    /// A command on Ada's machine: refused, run under a standing permission, or turned into an approval card.
+    private func workstationCommand(call: APIToolCall, workstation: Workstation, access: ConversationAccess, ownerID: String, conversationID: UUID) async -> ToolOutcome {
+        let args = AgentTools.arguments(of: call)
+        let command = (args["command"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !command.isEmpty else { return .failure("A command is required. Nothing ran.") }
+        let raw: JSONValue = .object([("raw", .string(call.function.arguments))])
+        let shown = command.count > 80 ? String(command.prefix(77)) + "…" : command
+        let decision = await access.permissions.decide(ownerID: ownerID, toolName: call.function.name, arguments: args)
+        switch decision {
+        case .deny(let reason):
+            return .failure(reason)
+        case .allow:
+            let result = await WorkstationTools.execute(toolName: call.function.name, rawArguments: call.function.arguments, workstation: workstation)
+            let record = AgentActionRequest(
+                ownerID: ownerID, conversationID: conversationID, kind: .workstation,
+                title: "Ran on the workstation: \(shown)", detail: "Your standing permission for this tool allowed it without an approval card.",
+                toolName: call.function.name, arguments: raw
+            )
+            await access.actions.recordAutomatic(record, result: result.resultText, succeeded: result.succeeded)
+            return result.succeeded ? ToolOutcome(resultText: "Ran without an approval card because the user's standing permission allows it.\n\n" + result.resultText) : result
+        case .ask(let reason):
+            let lifetime = await access.permissions.approvalLifetime(ownerID: ownerID)
+            let action = AgentActionRequest(
+                ownerID: ownerID, conversationID: conversationID, kind: .workstation,
+                title: "Run on the workstation: \(shown)", detail: "Ada wants to run this on her Linux workstation, outside the sandbox. Nothing has run yet." + (reason.map { " " + $0 } ?? ""),
+                toolName: call.function.name, arguments: raw, lifetime: lifetime
+            )
+            let saved = await access.actions.request(action)
+            let why = reason.map { " \($0)" } ?? ""
+            return ToolOutcome(resultText: "Approval requested (\(saved.id.uuidString)).\(why) Do not retry this command. Tell the user to review the approval card; nothing has run. The output will appear under approval requests in your context on a later turn.")
+        }
     }
 
     /// The owner's per-reply spending limit, if one is set.

@@ -17,6 +17,8 @@ struct PermissionsView: Content {
     var tools: [String]
     var canEdit: Bool
     var spentTodayUSD: Double
+    /// True when the workstation is on and this person may use it, so its rules are shown.
+    var workstation: Bool
 }
 
 struct UploadedProjectFile: Content {
@@ -109,12 +111,15 @@ func accessRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
     }
 
     @Sendable func permissionsView(owner: String, canEdit: Bool) async -> PermissionsView {
-        PermissionsView(
+        var workstation = false
+        if let machine = ctx.access.workstation, await machine.enabled { workstation = await ctx.access.workstationOwner(owner) }
+        return PermissionsView(
             policy: await ctx.access.permissions.policy(ownerID: owner),
             usageToday: await ctx.access.permissions.usageToday(ownerID: owner),
-            tools: PermissionStore.ruleTools.sorted(),
+            tools: PermissionStore.ruleTools.sorted().filter { workstation || !WorkstationTools.names.contains($0) },
             canEdit: canEdit,
-            spentTodayUSD: await ctx.access.spend.today(ownerID: owner)
+            spentTodayUSD: await ctx.access.spend.today(ownerID: owner),
+            workstation: workstation
         )
     }
 
@@ -163,6 +168,23 @@ func accessRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
                 let call = APIToolCall(id: action.id.uuidString, function: .init(name: action.toolName, arguments: raw))
                 let outcome = await ctx.connectors.run(call: call, scope: action.toolScope, approved: true)
                 await ctx.access.actions.finish(ownerID: conversation.ownerID, id: id, result: outcome.resultText, succeeded: outcome.succeeded)
+            case .workstation:
+                guard let machine = ctx.access.workstation, await ctx.access.workstationOwner(conversation.ownerID) else {
+                    await ctx.access.actions.finish(ownerID: conversation.ownerID, id: id, result: "Workstation access is off on this server. Nothing ran.", succeeded: false)
+                    break
+                }
+                guard await ctx.access.actions.consumeApproved(ownerID: conversation.ownerID, id: id) != nil,
+                      let raw = action.arguments.objectValue?["raw"]?.stringValue else {
+                    throw Abort(.conflict, reason: "The workstation command could not be started.")
+                }
+                // Commands can take minutes, so they finish in the background; the card shows "executing" until then.
+                let owner = conversation.ownerID
+                let actions = ctx.access.actions
+                let tool = action.toolName
+                Task {
+                    let outcome = await WorkstationTools.execute(toolName: tool, rawArguments: raw, workstation: machine)
+                    await actions.finish(ownerID: owner, id: id, result: outcome.resultText, succeeded: outcome.succeeded)
+                }
             case .fileDelete:
                 guard await ctx.access.actions.consumeApproved(ownerID: conversation.ownerID, id: id) != nil,
                       let scope = action.fileScope,

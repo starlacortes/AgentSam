@@ -126,7 +126,9 @@ GreenPT works as an OpenAI-compatible provider with base URL `https://api.greenp
 | `AGENTSAM_MALOON_URL` / `AGENTSAM_MALOON_TOKEN` | Optional Indigo snapshot URL and service token | disabled |
 | `AGENTSAM_GOOGLE_CLIENT_ID` / `AGENTSAM_GOOGLE_CLIENT_SECRET` | Google Cloud OAuth client for the Gmail/Google Ads connectors | connectors without Google OAuth |
 | `AGENTSAM_GOOGLE_ADS_API_VERSION` | Google Ads API version for the Ads connector | `v25` |
-| `AGENTSAM_PUSH_CONTACT` | VAPID contact for approval alerts (`mailto:` or `https:`) | `AGENTSAM_PUBLIC_URL` |
+| `AGENTSAM_PUSH_CONTACT` | VAPID contact for approval alerts (`mailto:` or `https:`) | `AGENTSAM_WORKSTATION` | Set to `1` to let Ada run approved commands on the machine the server runs on (admins only) | off |
+| `AGENTSAM_WORKSTATION_HOME` | Where workstation commands start when no directory is given | `HOME` |
+| `AGENTSAM_PUBLIC_URL` |
 | `AGENTSAM_PUBLIC_URL` | Public base URL used for Google OAuth redirects (e.g. `https://agentsam.example.com`) | derived from the request |
 | `AGENTSAM_WEB_DIR` | Folder holding the built web app (`Web/dist`) | `./Public` (`/app/Public` in Docker) |
 | `AGENTSAM_INSECURE_COOKIES` | Set only for local plain-HTTP development; drops the `Secure` cookie flag | unset |
@@ -233,6 +235,8 @@ The approval card shows the tool and exact arguments, expires after 15 minutes u
 
 Agents treat everything a connector returns as untrusted data. `web_fetch` refuses localhost, private networks, cloud metadata addresses and internal names, including after redirects.
 
+**Ada's workstation.** With `AGENTSAM_WORKSTATION=1`, Ada gets tools for the machine the server runs on, outside her sandbox: `workstation_status` (OS, uptime, disk, memory, failed systemd units, pacman counts, whether sudo works without a password), `workstation_run` (one shell command, up to 10 minutes), `workstation_start_job` / `workstation_job` / `workstation_jobs` / `workstation_stop_job` (background jobs with logs, stopped by process group). They are offered only in conversations of admins and the shared server token. `workstation_run` and `workstation_start_job` are standing-permission tools: by default each command shows an approval card, and an approved command runs in the background and reports back on the card. An allow rule can be narrowed with *Only commands starting with* (for example `pacman -Q, systemctl status, journalctl`); a command matches only if it starts with a whole prefix and contains no `;`, `&`, `|`, backticks, `$(`, `<`, `>` or line breaks, so a prefix cannot be stretched into a second command. Commands get a scrubbed environment (no `AGENTSAM_*` variables, no pagers), `sudo` is forced to `-n` so it fails instead of waiting for a password, and every run is recorded on a card and in the audit log (`workstation.executed`). Job state and logs live in `workstation/`. Run the server directly on the machine (for example as a systemd service on Arch) for Ada to manage it; inside a container, the "workstation" is the container. For package installs and service management without a password prompt, give the server's user a narrow sudoers rule, such as `ada ALL=(root) NOPASSWD: /usr/bin/pacman, /usr/bin/systemctl`.
+
 ### Google (Gmail and Google Ads)
 
 1. In Google Cloud, create a project and enable the Gmail API and the Google Ads API.
@@ -303,6 +307,7 @@ The web app is in English. Each mission still carries an `outputLanguage` (`en` 
 - The server is read-for-write protected: every `/api/*` route requires the token, with one deliberate exception — the Google OAuth callback (`GET /api/connectors/:id/callback`), which validates a single-use state token and stores only the refresh token it just exchanged.
 - Mission workspaces are path-sandboxed (no `..`, no absolute paths, text-only deliverables).
 - Maloon snapshots may contain business and customer contact data. They are persisted only in mission records on the protected data volume, are not emitted to the live event stream, and should be included in volume backup/access policies.
+- Workstation access is off by default. When on, it is real shell access to the server's machine as the server's user, limited to admins and gated by approval cards or admin-set standing rules. Grant sudo narrowly, if at all.
 - Run behind TLS (Railway provides it). The token is the only door — use a long random one.
 
 ## Credits
