@@ -146,6 +146,21 @@ final class ConversationTests: XCTestCase {
         await engine.shutdown()
     }
 
+    func testMissingSandboxPointsAdaAtTheWorkstation() {
+        let refusal = ToolOutcome.failure("No program was run: running programs needs the OS sandbox (bubblewrap on Linux, sandbox-exec on macOS), and it is not available on this server (bwrap: Creating new namespace failed: Permission denied). Tell the user; do not try to work around it.")
+        let withWorkstation = ConversationEngine.workstationFallback(toolName: "run_program", outcome: refusal, hasWorkstation: true)
+        XCTAssertFalse(withWorkstation.succeeded)
+        XCTAssertTrue(withWorkstation.resultText.contains("workstation_run"))
+        XCTAssertTrue(withWorkstation.resultText.contains("git"))
+        XCTAssertFalse(withWorkstation.resultText.contains("do not try to work around it"))
+        XCTAssertTrue(withWorkstation.resultText.contains("Permission denied"))
+        // Without a workstation, or for other failures, nothing changes.
+        XCTAssertEqual(ConversationEngine.workstationFallback(toolName: "run_program", outcome: refusal, hasWorkstation: false).resultText, refusal.resultText)
+        let other = ToolOutcome.failure("Unsupported language: ruby.")
+        XCTAssertEqual(ConversationEngine.workstationFallback(toolName: "run_program", outcome: other, hasWorkstation: true).resultText, other.resultText)
+        XCTAssertEqual(ConversationEngine.workstationFallback(toolName: "chat_read_file", outcome: refusal, hasWorkstation: true).resultText, refusal.resultText)
+    }
+
     func testLongListsAndOutputSayWhatWasLeftOut() {
         let list = (1...100).map { "file\($0).md — 10" }.joined(separator: "\n")
         let clipped = ConversationPromptContext.clipList(list, limit: 200)

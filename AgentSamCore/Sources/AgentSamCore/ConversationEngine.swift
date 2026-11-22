@@ -639,8 +639,9 @@ public actor ConversationEngine {
                         outcome = .failure("A user-owned conversation is required to approve connector writes.")
                     }
                 }
-                messages.append(.tool(id: call.id, content: String(outcome.resultText.prefix(32_000)), isError: !outcome.succeeded))
-                if toolLog.count < Self.maxToolLogEntries { toolLog.append(Self.toolLogLine(call: call, outcome: outcome)) }
+                let shown = Self.workstationFallback(toolName: call.function.name, outcome: outcome, hasWorkstation: workstation != nil)
+                messages.append(.tool(id: call.id, content: String(shown.resultText.prefix(32_000)), isError: !shown.succeeded))
+                if toolLog.count < Self.maxToolLogEntries { toolLog.append(Self.toolLogLine(call: call, outcome: shown)) }
             }
             // The reply's spending limit stops further tool rounds; Ada answers with what she has.
             if let replyCap, (CostMeter.current?.total ?? 0) >= replyCap {
@@ -672,6 +673,17 @@ public actor ConversationEngine {
                 : "I used all the tool steps for this reply before finishing. Ask me to continue and I will pick up from here."
         }
         return answer
+    }
+
+    /// Where the OS sandbox is missing (Railway cannot start bubblewrap), `run_program` and the terminals
+    /// refuse to run. When Ada has a workstation, that refusal points her there instead of ending the task.
+    static func workstationFallback(toolName: String, outcome: ToolOutcome, hasWorkstation: Bool) -> ToolOutcome {
+        guard hasWorkstation, !outcome.succeeded, ["run_program", "run_terminal", "project_terminal"].contains(toolName),
+              outcome.resultText.contains("OS sandbox") || outcome.resultText.contains("persistent terminal is unavailable") else { return outcome }
+        let reason = outcome.resultText
+            .replacingOccurrences(of: " Tell the user; do not try to work around it.", with: "")
+            .replacingOccurrences(of: " No command was run.", with: "")
+        return .failure(reason + " Your workstation is available, so do the work there instead of telling the user it cannot be done: write files and run programs with workstation_run (for example a heredoc into a file, then python3 or node on it), and use git there for commits and branches. It goes through the normal approval cards unless a standing permission allows the command. If a git push is refused for missing credentials, say exactly that.")
     }
 
     /// The workstation, when the server turned it on and this owner may use it.

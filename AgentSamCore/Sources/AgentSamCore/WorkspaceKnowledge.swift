@@ -287,6 +287,7 @@ public actor WorkspaceKnowledgeStore {
         } else {
             lines.append("- On: Ada's workstation is the machine the server runs on (home `\(Self.inline(workstation.home.path))`), outside the sandbox.")
         }
+        lines.append("- Use it to create files, run programs and publish to git: the server's own sandbox (`run_program`, `run_terminal`) may be unavailable, so when it refuses, write the files and run the commands here with `workstation_run` instead of giving up. Git on that machine is her normal route for commits and pushes; a push needs credentials set up there.")
         lines.append("- Tools: `workstation_status`, `workstation_jobs` and `workstation_job` only look; `workstation_stop_job` stops a job she started; `workstation_run` and `workstation_start_job` change the machine.")
         let policy = await machines.permissions?.policy(ownerID: ownerID)
         let runRules = WorkstationTools.approvalNames.sorted().map { name -> String in
