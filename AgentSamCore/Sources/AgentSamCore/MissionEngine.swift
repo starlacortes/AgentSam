@@ -31,7 +31,7 @@ public actor MissionEngine {
         /// providers only send it when set, since their limits vary.
         public var maxOutputTokens: Int?
 
-        public init(maxParallel: Int = 4, maxSteps: Int = 14, verifyWithAgent: Bool = true, contextBudgetTokens: Int = 20_000, maxOutputTokens: Int? = nil) {
+        public init(maxParallel: Int = 4, maxSteps: Int = 24, verifyWithAgent: Bool = true, contextBudgetTokens: Int = 20_000, maxOutputTokens: Int? = nil) {
             self.maxParallel = maxParallel
             self.maxSteps = maxSteps
             self.verifyWithAgent = verifyWithAgent

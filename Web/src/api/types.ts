@@ -449,6 +449,8 @@ export interface PermissionPolicy {
   paused: boolean
   rules: { [tool: string]: PermissionRule }
   approvalMinutes: number
+  dailySpendCapUSD?: number
+  replySpendCapUSD?: number
 }
 
 export interface PermissionsView {
@@ -456,4 +458,5 @@ export interface PermissionsView {
   usageToday: { [tool: string]: number }
   tools: string[]
   canEdit: boolean
+  spentTodayUSD: number
 }

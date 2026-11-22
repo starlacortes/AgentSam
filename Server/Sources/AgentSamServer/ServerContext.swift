@@ -75,7 +75,7 @@ struct ServerContext: Sendable {
             store: store,
             keyRing: keyRing,
             connectors: connectors,
-            config: MissionEngine.Config(maxParallel: 4, maxSteps: 14, verifyWithAgent: true),
+            config: MissionEngine.Config(maxParallel: 4, maxSteps: 24, verifyWithAgent: true),
             promptStore: prompts,
             connectorWrite: { missionID, call, scope in
                 guard let owner = await access.actions.owner(missionID: missionID) else {

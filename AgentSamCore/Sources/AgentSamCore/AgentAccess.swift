@@ -326,8 +326,10 @@ public struct ConversationAccess: Sendable {
     public let audit: AccessAuditLog
     public let terminal: WorkspaceTerminal
     public let permissions: PermissionStore
+    public let spend: SpendLedger
 
     public init(root: URL) {
+        spend = SpendLedger(root: root)
         let audit = AccessAuditLog(root: root)
         self.audit = audit
         permissions = PermissionStore(root: root, audit: audit)
