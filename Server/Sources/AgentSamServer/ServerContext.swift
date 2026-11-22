@@ -56,6 +56,10 @@ struct ServerContext: Sendable {
     let dummyPasswordHash: String
     /// Phone and browser alerts for approval requests.
     let push: WebPushCenter
+    /// Ada's live browser on the SSH workstation, when the server operator turned it on.
+    let browser: BrowserLink?
+    /// The VNC password of the browser's display, handed only to admins who open the live window.
+    let browserPassword: String
 
     static func make() throws -> ServerContext {
         let raw = Environment.get("AGENTSAM_DATA") ?? "data"
@@ -82,6 +86,10 @@ struct ServerContext: Sendable {
             mcp: MCPRegistry(root: store.root, keyRing: keyRing)
         )
         if let problem = workstationConfig.problem { print(problem) }
+        let browserConfig = BrowserConfig.fromEnvironment(workstation: workstationConfig)
+        if let problem = browserConfig.problem { print(problem) }
+        let browser = browserConfig.enabled ? access.workstation.map { BrowserLink(config: browserConfig, workstation: $0) } : nil
+        if browser != nil { print("Ada's browser is on: admins can open a live window on \(workstationConfig.ssh?.destination ?? "the workstation").") }
         if let ssh = workstationConfig.ssh, workstationConfig.enabled {
             print("Workstation access is on: Ada can run approved commands on \(ssh.destination) over SSH.")
         } else if workstationConfig.enabled {
@@ -194,7 +202,9 @@ struct ServerContext: Sendable {
             knowledgeScheduler: knowledgeScheduler,
             skills: skills,
             dummyPasswordHash: (try? Bcrypt.hash(Secrets.randomToken())) ?? "",
-            push: WebPushCenter(dataDir: store.root, contact: Self.pushContact())
+            push: WebPushCenter(dataDir: store.root, contact: Self.pushContact()),
+            browser: browser,
+            browserPassword: Environment.get("AGENTSAM_BROWSER_VNC_PASSWORD") ?? ""
         )
     }
 

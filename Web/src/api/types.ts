@@ -535,3 +535,16 @@ export interface PermissionsView {
   spentTodayUSD: number
   workstation?: boolean
 }
+
+/** Ada's live browser on her workstation, as GET /api/browser reports it. */
+export interface BrowserView {
+  available: boolean
+  state?: 'running' | 'stopped' | 'unreachable' | null
+  idleMinutes?: number | null
+}
+
+/** What POST /api/browser/start returns: the state and what the viewer needs to connect. */
+export interface BrowserSessionView {
+  state: string
+  password: string
+}

@@ -780,3 +780,24 @@
 .co-trigger-address { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .co-trigger-address code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; color: var(--dim); }
 .co-trigger-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+
+/* Ada's browser: the live window onto the Chromium window on her workstation. */
+.co-browser-overlay { padding: 14px; }
+.co-browser-window { display: flex; flex-direction: column; width: min(1320px, 100%); height: min(900px, 100%); border: 1px solid var(--line2); border-radius: 12px; background: var(--panel); overflow: hidden; }
+.co-browser-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--line); color: var(--ink); }
+.co-browser-title { display: flex; flex: 1; min-width: 0; align-items: baseline; gap: 10px; }
+.co-browser-title strong { font-size: 14px; font-weight: 630; }
+.co-browser-status { color: var(--mut); font-size: 11.5px; }
+.co-browser-status.live { color: var(--em); }
+.co-browser-window .error { margin: 10px 12px 0; }
+.co-browser-screen { position: relative; flex: 1; min-height: 0; background: var(--deep); }
+.co-browser-screen canvas { outline: none; }
+.co-browser-wait { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--mut); font-size: 12.5px; }
+.co-browser-type { display: flex; gap: 8px; padding: 9px 12px 0; }
+.co-browser-type input { flex: 1; min-width: 0; min-height: 33px; padding: 6px 10px; border: 1px solid var(--line2); border-radius: 8px; background: var(--deep); color: var(--ink); font-size: 16px; }
+.co-browser-note { padding: 8px 12px 11px; color: var(--dim); font-size: 11px; line-height: 1.5; }
+@media (max-width: 760px) {
+  .co-browser-overlay { padding: 0; }
+  .co-browser-window { width: 100%; height: 100%; border: 0; border-radius: 0; }
+  .co-browser-head .co-secondary-button { padding: 6px 8px; font-size: 11.5px; }
+}
