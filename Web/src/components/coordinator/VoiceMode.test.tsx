@@ -51,6 +51,30 @@ describe('VoiceMode', () => {
     expect(synthesis.speak).not.toHaveBeenCalled()
   })
 
+  it('replays Ada’s last spoken answer, even after she was muted', async () => {
+    const reply = 'Your total is ready.'
+    const onSend = vi.fn(async (_text: string, _wait: boolean, onPartial?: (update: { text: string; final: boolean; speechPath: string }) => void) => {
+      onPartial?.({ text: reply, final: true, speechPath: '/speech' })
+      return { text: reply }
+    })
+    const synthesis = { speak: vi.fn((utterance: TestUtterance) => { window.setTimeout(() => utterance.onend?.(), 0) }), cancel: vi.fn(), resume: vi.fn() }
+    vi.stubGlobal('SpeechSynthesisUtterance', TestUtterance)
+    Object.defineProperty(window, 'speechSynthesis', { value: synthesis, configurable: true })
+    render(<I18nProvider><VoiceMode onSend={onSend} onTranscribe={vi.fn()} onClose={vi.fn()} /></I18nProvider>)
+    expect(screen.queryByRole('button', { name: 'Replay Ada’s answer' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Mute Ada' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message Ada with your keyboard' }), { target: { value: 'Hello' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+    const replay = await screen.findByRole('button', { name: 'Replay Ada’s answer' })
+    expect(synthesis.speak).not.toHaveBeenCalled()
+    fireEvent.click(replay)
+    await waitFor(() => expect(synthesis.speak).toHaveBeenCalledTimes(1))
+    expect(synthesis.speak.mock.calls[0]?.[0].text).toBe(reply)
+    await screen.findByRole('button', { name: 'Replay Ada’s answer' })
+    fireEvent.click(screen.getByRole('button', { name: 'Replay Ada’s answer' }))
+    await waitFor(() => expect(synthesis.speak).toHaveBeenCalledTimes(2))
+  })
+
   it('shows what Ada is doing under the orb only while she works', () => {
     const synthesis = { speak: vi.fn(), cancel: vi.fn() }
     vi.stubGlobal('SpeechSynthesisUtterance', TestUtterance)

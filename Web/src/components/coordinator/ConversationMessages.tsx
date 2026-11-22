@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { EMPTY_CHAT_CARDS, type PromptCard } from '../../lib/promptCards'
 import { Link } from 'react-router-dom'
 import { api, errorMessage } from '../../api/client'
 import type { AgentActionRequest, Conversation, ConversationMessage, MissionDetail } from '../../api/types'
@@ -87,6 +88,8 @@ export interface MessageHandlers {
   onQuickReply: (text: string) => void
   onOpenCanvas: (state: Partial<CanvasState>) => void
   onStarter: (text: string) => void
+  /** Opens the prompt cards list; with text, opens it ready to save that text as a new card. */
+  onPromptCards?: (draft?: string) => void
 }
 
 function useCopy(): [boolean, (text: string) => void] {
@@ -142,14 +145,14 @@ export function QuickReplies({ replies, onPick, disabled }: { replies: string[];
   return <div className="co-quick-replies" role="group" aria-label={t('Suggested replies')}>{replies.map((reply) => <button key={reply} type="button" disabled={disabled} onClick={() => onPick(reply)}>{reply}</button>)}</div>
 }
 
-function UserMessage({ conversationID, message, onEdit }: { conversationID: string; message: ConversationMessage; onEdit: (text: string) => void }) {
+function UserMessage({ conversationID, message, onEdit, onSave }: { conversationID: string; message: ConversationMessage; onEdit: (text: string) => void; onSave?: (text: string) => void }) {
   const { t } = useI18n()
   const [copied, copy] = useCopy()
   const photos = message.photos ?? []
   return <div className="co-user-message" title={timeLabel(message.createdAt)}>
     {photos.length ? <div className={`co-message-photos count-${Math.min(photos.length, 4)}`}>{photos.map((photo) => <a key={photo.id} href={photoURL(conversationID, photo.id)} target="_blank" rel="noreferrer" aria-label={t('Open photo')}><img src={photoURL(conversationID, photo.id)} alt={t('Attached photo')} loading="lazy" /></a>)}</div> : null}
     {message.scheduled ? <p className="co-scheduled-message"><span className="co-scheduled-tag"><Icon name="refresh" size={11} />{message.trigger ? t(message.trigger.kind === 'gmail' ? 'Started by a new email' : 'Started by a webhook call') : t('Scheduled run')}</span>{message.text}</p> : message.text || !photos.length ? <p>{message.text}</p> : null}
-    <div className="co-user-actions"><button type="button" onClick={() => copy(message.text)} aria-label={t('Copy')}><Icon name={copied ? 'check' : 'copy'} size={11} /></button><button type="button" onClick={() => onEdit(message.text)} aria-label={t('Edit and resend')} title={t('Edit and resend')}><Icon name="edit" size={11} /></button></div>
+    <div className="co-user-actions"><button type="button" onClick={() => copy(message.text)} aria-label={t('Copy')}><Icon name={copied ? 'check' : 'copy'} size={11} /></button><button type="button" onClick={() => onEdit(message.text)} aria-label={t('Edit and resend')} title={t('Edit and resend')}><Icon name="edit" size={11} /></button>{onSave && message.text.trim() && !message.scheduled ? <button type="button" onClick={() => onSave(message.text)} aria-label={t('Save as prompt card')} title={t('Save as prompt card')}><Icon name="spark" size={11} /></button> : null}</div>
   </div>
 }
 
@@ -165,7 +168,7 @@ function Message({ conversationID, message, latest, busy, handlers, retry }: { c
     canPreview: isPreviewableLanguage,
     onPreview: (language, code) => onOpenCanvas({ tab: 'preview', source: { kind: 'code', title: language === 'svg' ? t('SVG from Ada') : t('Page from Ada'), language, code } }),
   }), [t, onOpenCanvas])
-  if (message.role === 'user') return <UserMessage conversationID={conversationID} message={message} onEdit={handlers.onEdit} />
+  if (message.role === 'user') return <UserMessage conversationID={conversationID} message={message} onEdit={handlers.onEdit} onSave={handlers.onPromptCards} />
   const running = message.status === 'running'
   return <article className={`co-ada-message ${message.status}`}>
     <span className={`co-ada-avatar ${running ? 'working' : ''}`}>A</span>
@@ -194,7 +197,7 @@ function Message({ conversationID, message, latest, busy, handlers, retry }: { c
   </article>
 }
 
-export function ConversationMessages({ conversation, busy = false, handlers, actions = [], onActions = () => {} }: { conversation: Conversation | null; busy?: boolean; handlers: MessageHandlers; actions?: AgentActionRequest[]; onActions?: (actions: AgentActionRequest[]) => void }) {
+export function ConversationMessages({ conversation, busy = false, handlers, actions = [], onActions = () => {}, promptCards = [] }: { conversation: Conversation | null; busy?: boolean; handlers: MessageHandlers; actions?: AgentActionRequest[]; onActions?: (actions: AgentActionRequest[]) => void; /** The person's saved prompts, shown on the empty chat in place of the built-in starters. */ promptCards?: PromptCard[] }) {
   const { t } = useI18n()
   const box = useRef<HTMLDivElement>(null)
   const pinned = useRef(true)
@@ -205,10 +208,12 @@ export function ConversationMessages({ conversation, busy = false, handlers, act
     if (element && pinned.current) element.scrollTop = element.scrollHeight
   }, [conversation?.messages.length, last?.status, last?.steps?.length, last?.text])
   if (!conversation || (!conversation.messages.length && !actions.length)) return <div className="co-messages" ref={box}><div className="co-empty-chat"><span className="co-empty-orb">A</span><h1>{t('What can Ada help with?')}</h1><p>{t('Ask directly, or describe the outcome you need. Ada brings in specialists behind the scenes only when it helps.')}</p><div className="co-starters">
-    <button onClick={() => handlers.onStarter(t('What can you help me accomplish?'))}><Icon name="spark" /><b>{t('Start with a question')}</b><span>{t('Get a direct, concise answer.')}</span></button>
-    <button onClick={() => handlers.onStarter(t('Build me a simple landing page for '))}><Icon name="monitor" /><b>{t('Build a web page')}</b><span>{t('Preview it live beside the chat as it takes shape.')}</span></button>
-    <button onClick={() => handlers.onStarter(t('Whenever I ask for '))}><Icon name="plus" /><b>{t('Teach Ada a routine')}</b><span>{t('She remembers the steps and follows them next time.')}</span></button>
-  </div></div></div>
+    {promptCards.length ? promptCards.slice(0, EMPTY_CHAT_CARDS).map((card) => <button key={card.id} className="co-prompt-card" onClick={() => handlers.onStarter(card.text)}><Icon name="spark" /><b>{card.title}</b><span>{card.text}</span></button>) : <>
+      <button onClick={() => handlers.onStarter(t('What can you help me accomplish?'))}><Icon name="spark" /><b>{t('Start with a question')}</b><span>{t('Get a direct, concise answer.')}</span></button>
+      <button onClick={() => handlers.onStarter(t('Build me a simple landing page for '))}><Icon name="monitor" /><b>{t('Build a web page')}</b><span>{t('Preview it live beside the chat as it takes shape.')}</span></button>
+      <button onClick={() => handlers.onStarter(t('Whenever I ask for '))}><Icon name="plus" /><b>{t('Teach Ada a routine')}</b><span>{t('She remembers the steps and follows them next time.')}</span></button>
+    </>}
+  </div>{handlers.onPromptCards ? <button type="button" className="co-text-button co-prompt-manage" onClick={() => handlers.onPromptCards?.()}><Icon name={promptCards.length ? 'edit' : 'plus'} size={12} />{promptCards.length > EMPTY_CHAT_CARDS ? t('All {count} prompt cards', { count: String(promptCards.length) }) : promptCards.length ? t('Edit prompt cards') : t('Save your own prompt cards')}</button> : null}</div></div>
   const lastAssistant = conversation.messages.reduce((found, message, index) => message.role === 'assistant' ? index : found, -1)
   const placed = placeActions(conversation.messages, actions.slice(0, 10))
   const lastIndex = conversation.messages.length - 1

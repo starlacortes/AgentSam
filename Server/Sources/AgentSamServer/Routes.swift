@@ -92,6 +92,7 @@ func routes(_ app: Application, ctx: ServerContext) {
     conversationRoutes(api, ctx: ctx)
     accessRoutes(api, ctx: ctx)
     pushRoutes(api, ctx: ctx)
+    promptCardRoutes(api, ctx: ctx)
     mcpRoutes(api, ctx: ctx)
     mcpCatalogRoutes(api, ctx: ctx)
     browserRoutes(api, ctx: ctx)

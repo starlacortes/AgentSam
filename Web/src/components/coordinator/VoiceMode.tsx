@@ -36,6 +36,12 @@ function speechRecognition(): RecognitionConstructor | null {
   return scope.SpeechRecognition ?? scope.webkitSpeechRecognition ?? null
 }
 
+interface SpokenPiece {
+  text: string
+  /** The server speech endpoint it was read with; without one the browser voice reads it. */
+  url?: string
+}
+
 export interface VoiceReply {
   text: string
   speechURL?: string
@@ -105,6 +111,9 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null }: { 
   const mute = useRef(false)
   const active = useRef(true)
   const submission = useRef<(text: string) => Promise<void>>(async () => {})
+  /** What Ada said for the last reply, piece by piece, so Replay can read it again the same way. */
+  const spoken = useRef<SpokenPiece[]>([])
+  const [canReplay, setCanReplay] = useState(false)
   if (!speaker.current) {
     speaker.current = new Speaker(lang === 'es' ? 'es-ES' : 'en-US')
     speaker.current.onChange = (speaking) => {
@@ -192,6 +201,24 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null }: { 
     }
   }, [])
 
+  /** Remembers a piece of the reply for Replay, and speaks it unless Ada is muted. */
+  const say = (text: string, url?: string) => {
+    spoken.current.push({ text, url })
+    setCanReplay(true)
+    if (!mute.current) speaker.current?.enqueueText(text, url)
+  }
+
+  /** Reads Ada's last reply again, through the same voice path (server speech fixes numbers and money). */
+  const replay = () => {
+    const pieces = spoken.current
+    if (!pieces.length || sending.current) return
+    stopListening(true)
+    speaker.current?.stop()
+    speaker.current?.unlock()
+    setError(null)
+    for (const piece of pieces) speaker.current?.enqueueText(piece.text, piece.url)
+  }
+
   /** Speaks each finished sentence as Ada writes it, instead of waiting for the whole reply. */
   const streamSpeech = () => {
     let from = 0
@@ -204,7 +231,7 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null }: { 
       setResponse(text)
       if (text) markVoice('reply-first-text')
       if (final) markVoice('reply-complete')
-      if (mute.current || !speechOutput || capped) return
+      if (!speechOutput || capped) return
       // Once the spoken part is known, the rest of the reply is on-screen detail and is not read.
       const source = speech ?? text
       const done = final || speech !== undefined
@@ -217,15 +244,15 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null }: { 
         if (!next.text) continue
         if (spoke && spokenLength + next.text.length > SPOKEN_LIMIT) {
           capped = true
-          speaker.current?.enqueueText(t('The rest is on screen.'))
+          say(t('The rest is on screen.'))
           return
         }
         spoke = true
         spokenLength += next.text.length
         markVoice('first-sentence')
-        speaker.current?.enqueueText(next.text, voiceInfo?.setup.tts ? speechPath : undefined)
+        say(next.text, voiceInfo?.setup.tts ? speechPath : undefined)
       }
-      if (final && !spoke) speaker.current?.enqueueText(t('Your response is ready in the chat.'))
+      if (final && !spoke) say(t('Your response is ready in the chat.'))
     }
   }
 
@@ -235,6 +262,8 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null }: { 
     stopListening(true)
     stopSpeaking()
     sending.current = true
+    spoken.current = []
+    setCanReplay(false)
     setTranscript('')
     setResponse('')
     setError(null)
@@ -352,7 +381,7 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null }: { 
     </main>
     <footer className="co-voice-controls">
       <form onSubmit={sendForm}><Icon name="keyboard" size={17} /><input autoComplete="off" value={transcript} onChange={(event) => setTranscript(event.target.value)} aria-label={t('Message Ada with your keyboard')} placeholder={t('Type a message to Ada…')} maxLength={20000} disabled={phase === 'thinking'} /><button className="co-icon-button" type="submit" aria-label={t('Send message')} disabled={phase === 'thinking' || !transcript.trim()}><Icon name="arrow" size={17} /></button></form>
-      <div className="co-voice-buttons"><button className="co-secondary-button" disabled={!speechOutput} aria-pressed={muted} onClick={toggleMute}><Icon name="mic" size={15} />{muted ? t('Unmute Ada') : t('Mute Ada')}</button>{phase === 'listening' || phase === 'speaking' ? <button className="co-secondary-button" onClick={phase === 'listening' ? listen : stopSpeaking}><Icon name="stop" size={13} />{phase === 'listening' ? t('Finish speaking') : t('Stop speaking')}</button> : null}<button className="co-secondary-button" onClick={close}>{t('Return to chat')}</button></div>
+      <div className="co-voice-buttons"><button className="co-secondary-button" disabled={!speechOutput} aria-pressed={muted} onClick={toggleMute}><Icon name="mic" size={15} />{muted ? t('Unmute Ada') : t('Mute Ada')}</button>{canReplay && phase === 'idle' && speechOutput ? <button className="co-secondary-button" onClick={replay} aria-label={t('Replay Ada’s answer')}><Icon name="retry" size={14} />{t('Replay')}</button> : null}{phase === 'listening' || phase === 'speaking' ? <button className="co-secondary-button" onClick={phase === 'listening' ? listen : stopSpeaking}><Icon name="stop" size={13} />{phase === 'listening' ? t('Finish speaking') : t('Stop speaking')}</button> : null}<button className="co-secondary-button" onClick={close}>{t('Return to chat')}</button></div>
     </footer>
   </div>
 }
