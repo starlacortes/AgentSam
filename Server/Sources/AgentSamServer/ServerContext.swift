@@ -78,9 +78,15 @@ struct ServerContext: Sendable {
                 if owner == "shared-server-token" { return true }
                 guard let id = UUID(uuidString: owner), let user = await accounts.user(id: id) else { return false }
                 return user.role == .admin && !user.disabled
-            }
+            },
+            mcp: MCPRegistry(root: store.root, keyRing: keyRing)
         )
-        if workstationConfig.enabled { print("Workstation access is on: Ada can run approved commands on this machine (home \(workstationConfig.home.path)).") }
+        if let problem = workstationConfig.problem { print(problem) }
+        if let ssh = workstationConfig.ssh, workstationConfig.enabled {
+            print("Workstation access is on: Ada can run approved commands on \(ssh.destination) over SSH.")
+        } else if workstationConfig.enabled {
+            print("Workstation access is on: Ada can run approved commands on this machine (home \(workstationConfig.home.path)).")
+        }
         let prompts = PromptStore(
             builtins: PromptStore.builtins,
             fileURL: store.root.appendingPathComponent("prompts.json")

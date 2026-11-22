@@ -14,6 +14,8 @@ public enum ToolFamily: Sendable, Equatable {
     case memory
     /// Ada's own Linux machine (`WorkstationTools`): admins only, when the server turns it on.
     case workstation
+    /// Tools of MCP servers an admin connected (`MCPRegistry`). Reads the admin marked run at once; the rest need approval.
+    case mcp
     /// External services through `ConnectorHub`. Reads run at once; writes need an approval.
     case connector
 }
@@ -46,7 +48,7 @@ public struct OfferedTools: Sendable {
     public func family(of name: String) -> ToolFamily? { families[name] }
 
     /// Ada's direct-reply tools. Extended tools need workspace access; mission tools need a linked mission.
-    public static func direct(connectorTools: [APIToolDef], hasLinkedMissions: Bool, hasExtendedAccess: Bool, hasWorkstation: Bool = false) -> OfferedTools {
+    public static func direct(connectorTools: [APIToolDef], hasLinkedMissions: Bool, hasExtendedAccess: Bool, hasWorkstation: Bool = false, mcpTools: [APIToolDef] = []) -> OfferedTools {
         OfferedTools([
             (.connector, connectorTools),
             (.chat, ChatWorkspaceTools.definitions),
@@ -55,6 +57,7 @@ public struct OfferedTools: Sendable {
             (.skill, SkillTools.definitions),
             (.memory, MemoryTools.definitions),
             (.workstation, hasWorkstation ? WorkstationTools.definitions : []),
+            (.mcp, mcpTools),
         ])
     }
 }

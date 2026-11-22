@@ -103,6 +103,98 @@ final class WorkstationTests: XCTestCase {
         for def in WorkstationTools.definitions { XCTAssertNotNil(ToolCatalog.spec(def.function.name), def.function.name) }
     }
 
+    // MARK: Over SSH
+
+    func testSSHDestinationsAreOnlyPlainUserAtHost() {
+        XCTAssertTrue(SSHTarget.valid("ada@kokoro.example.com"))
+        XCTAssertTrue(SSHTarget.valid("arch@203.0.113.5"))
+        for bad in ["kokoro", "-oProxyCommand=x@host", "ada@-host", "ada@host;reboot", "a b@host", "@host", "ada@"] {
+            XCTAssertFalse(SSHTarget.valid(bad), bad)
+        }
+        let config = WorkstationConfig.fromEnvironment(["AGENTSAM_WORKSTATION_SSH": "ada@kokoro.example.com", "AGENTSAM_WORKSTATION_SSH_PORT": "2222"])
+        XCTAssertTrue(config.enabled, "naming a machine turns the workstation on")
+        XCTAssertEqual(config.ssh?.port, 2222)
+        let bad = WorkstationConfig.fromEnvironment(["AGENTSAM_WORKSTATION_SSH": "-oProxyCommand=evil", "AGENTSAM_WORKSTATION": "1"])
+        XCTAssertFalse(bad.enabled)
+        XCTAssertNotNil(bad.problem)
+    }
+
+    func testSSHArgumentsPinTheHostKey() async {
+        let data = directory.appendingPathComponent("data")
+        let target = SSHTarget(destination: "ada@kokoro.example.com", port: 2222, hostKey: "ssh-ed25519 AAAAC3Nza")
+        let pinned = Workstation(config: WorkstationConfig(enabled: true, home: directory, ssh: target), dataDir: data)
+        let args = await pinned.sshArguments(target, script: "echo 'hi'")
+        XCTAssertTrue(args.contains("StrictHostKeyChecking=yes"))
+        XCTAssertTrue(args.contains("BatchMode=yes"))
+        XCTAssertEqual(Array(args.suffix(3)), ["--", "ada@kokoro.example.com", "sh -c " + Workstation.quoted("echo 'hi'")])
+        let known = try? String(contentsOf: data.appendingPathComponent("workstation/ssh/known_hosts"), encoding: .utf8)
+        XCTAssertEqual(known, "[kokoro.example.com]:2222 ssh-ed25519 AAAAC3Nza\n")
+        let firstUse = await pinned.sshArguments(SSHTarget(destination: "ada@kokoro.example.com"), script: "true")
+        XCTAssertTrue(firstUse.contains("StrictHostKeyChecking=accept-new"), "without a pinned key, the first one seen is remembered")
+    }
+
+    /// A stand-in for ssh that runs the remote script here, with its own home folder.
+    private func sshMachine() throws -> Workstation {
+        let remoteHome = directory.appendingPathComponent("remote-home")
+        try FileManager.default.createDirectory(at: remoteHome, withIntermediateDirectories: true)
+        let fake = directory.appendingPathComponent("fake-ssh")
+        let script = [
+            "#!/bin/bash",
+            // Like sshd, hand the remote command no descriptors but stdin, stdout and stderr.
+            "for fd in $(ls /proc/$$/fd 2>/dev/null); do [ \"$fd\" -gt 2 ] && eval \"exec $fd>&-\" 2>/dev/null; done",
+            "while [ \"$1\" != \"--\" ]; do shift; done",
+            "shift; shift",
+            "export HOME=\(Workstation.quoted(remoteHome.path))",
+            "cd \"$HOME\"",
+            "exec sh -c \"$1\"",
+        ].joined(separator: "\n") + "\n"
+        try script.write(to: fake, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fake.path)
+        let data = directory.appendingPathComponent("data")
+        let keyDirectory = data.appendingPathComponent("workstation/ssh")
+        try FileManager.default.createDirectory(at: keyDirectory, withIntermediateDirectories: true)
+        try "fake key".write(to: keyDirectory.appendingPathComponent("id_ed25519"), atomically: true, encoding: .utf8)
+        try "ssh-ed25519 AAAAfake ada@agentsam".write(to: keyDirectory.appendingPathComponent("id_ed25519.pub"), atomically: true, encoding: .utf8)
+        return Workstation(config: WorkstationConfig(enabled: true, home: directory, ssh: SSHTarget(destination: "ada@kokoro.example.com", binary: fake.path)), dataDir: data)
+    }
+
+    func testRunsAndJobsOverSSH() async throws {
+        #if os(Linux) || os(macOS)
+        let ws = try sshMachine()
+        let publicKey = await ws.publicKey()
+        XCTAssertEqual(publicKey, "ssh-ed25519 AAAAfake ada@agentsam")
+        let run = await ws.run(command: "echo remote-$((1+1)); pwd", directory: nil, timeout: 10)
+        XCTAssertTrue(run.succeeded, run.resultText)
+        XCTAssertTrue(run.resultText.contains("remote-2"), run.resultText)
+        XCTAssertTrue(run.resultText.contains("remote-home"), run.resultText)
+        XCTAssertTrue(run.resultText.contains("ada@kokoro.example.com over SSH"))
+        let missing = await ws.run(command: "true", directory: "/no/such/dir", timeout: 5)
+        XCTAssertFalse(missing.succeeded)
+        XCTAssertTrue(missing.resultText.contains("does not exist"), missing.resultText)
+
+        let started = await ws.startJob(command: "echo remote-job; exit 3", directory: nil, label: "remote")
+        XCTAssertTrue(started.succeeded, started.resultText)
+        var jobs = await ws.listJobs()
+        let job = try XCTUnwrap(jobs.first)
+        XCTAssertEqual(job.remote, true)
+        var shown = await ws.job(id: job.id)
+        for _ in 0..<100 where shown.resultText.contains("· running") {
+            try await Task.sleep(nanoseconds: 50_000_000)
+            shown = await ws.job(id: job.id)
+        }
+        XCTAssertTrue(shown.resultText.contains("exited, exit code 3"), shown.resultText)
+        XCTAssertTrue(shown.resultText.contains("remote-job"), shown.resultText)
+
+        _ = await ws.startJob(command: "sleep 60", directory: nil, label: "remote-sleeper")
+        jobs = await ws.listJobs()
+        let sleeper = try XCTUnwrap(jobs.first { $0.label == "remote-sleeper" })
+        let stopped = await ws.stopJob(id: sleeper.id)
+        XCTAssertTrue(stopped.resultText.contains("Stopped"), stopped.resultText)
+        let gone = await ws.run(command: "kill -0 \(sleeper.pid) 2>/dev/null && echo still-alive || echo really-stopped", directory: nil, timeout: 5)
+        XCTAssertTrue(gone.resultText.contains("really-stopped"), gone.resultText)
+        #endif
+    }
+
     // MARK: Through the conversation engine
 
     private let provider = ProviderConfig(id: "test", name: "Test", kind: .openAICompatible, baseURL: "http://localhost/v1", models: ["stub"], defaultModel: "stub")

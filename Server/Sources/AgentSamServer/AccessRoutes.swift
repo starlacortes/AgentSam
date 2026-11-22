@@ -21,6 +21,19 @@ struct PermissionsView: Content {
     var workstation: Bool
 }
 
+/// The workstation as admins see it: where it runs and the public key to install there.
+struct WorkstationView: Content {
+    var enabled: Bool
+    var location: String
+    var ssh: String?
+    var publicKey: String?
+}
+
+struct WorkstationTestView: Content {
+    var ok: Bool
+    var output: String
+}
+
 struct UploadedProjectFile: Content {
     var path: String
     var bytes: Int
@@ -116,7 +129,7 @@ func accessRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
         return PermissionsView(
             policy: await ctx.access.permissions.policy(ownerID: owner),
             usageToday: await ctx.access.permissions.usageToday(ownerID: owner),
-            tools: PermissionStore.ruleTools.sorted().filter { workstation || !WorkstationTools.names.contains($0) },
+            tools: PermissionStore.ruleTools.sorted().filter { workstation || !WorkstationTools.names.contains($0) } + (await ctx.access.mcp?.writeToolNames() ?? []),
             canEdit: canEdit,
             spentTodayUSD: await ctx.access.spend.today(ownerID: owner),
             workstation: workstation
@@ -136,6 +149,24 @@ func accessRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
         let policy = try req.decodeJSON(PermissionPolicy.self)
         await ctx.access.permissions.save(ownerID: principal.conversationOwnerID, policy: policy)
         return try req.json(await permissionsView(owner: principal.conversationOwnerID, canEdit: true))
+    }
+
+    api.get("access", "workstation") { req async throws -> Response in
+        let principal = try req.requirePrincipal()
+        guard principal.isAdmin else { throw Abort(.forbidden, reason: "Only admins can see Ada's workstation.") }
+        guard let machine = ctx.access.workstation, await machine.enabled else {
+            return try req.json(WorkstationView(enabled: false, location: "", ssh: nil, publicKey: nil))
+        }
+        return try req.json(WorkstationView(enabled: true, location: await machine.location, ssh: machine.config.ssh?.destination, publicKey: await machine.publicKey()))
+    }
+
+    api.post("access", "workstation", "test") { req async throws -> Response in
+        let principal = try req.requirePrincipal()
+        guard principal.isAdmin else { throw Abort(.forbidden, reason: "Only admins can test Ada's workstation.") }
+        guard let machine = ctx.access.workstation, await machine.enabled else { throw Abort(.notFound, reason: "Workstation access is off on this server.") }
+        let outcome = await machine.status()
+        await ctx.access.audit.record(ownerID: principal.conversationOwnerID, action: "workstation.test", detail: outcome.succeeded ? "ok" : "failed")
+        return try req.json(WorkstationTestView(ok: outcome.succeeded, output: String(outcome.resultText.prefix(8_000))))
     }
 
     api.get("access", "audit") { req async throws -> Response in
@@ -185,6 +216,14 @@ func accessRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
                     let outcome = await WorkstationTools.execute(toolName: tool, rawArguments: raw, workstation: machine)
                     await actions.finish(ownerID: owner, id: id, result: outcome.resultText, succeeded: outcome.succeeded)
                 }
+            case .mcpCall:
+                guard let mcp = ctx.access.mcp,
+                      await ctx.access.actions.consumeApproved(ownerID: conversation.ownerID, id: id) != nil,
+                      let raw = action.arguments.objectValue?["raw"]?.stringValue else {
+                    throw Abort(.conflict, reason: "The MCP tool call could not be started.")
+                }
+                let outcome = await mcp.call(action.toolName, rawArguments: raw)
+                await ctx.access.actions.finish(ownerID: conversation.ownerID, id: id, result: outcome.resultText, succeeded: outcome.succeeded)
             case .fileDelete:
                 guard await ctx.access.actions.consumeApproved(ownerID: conversation.ownerID, id: id) != nil,
                       let scope = action.fileScope,

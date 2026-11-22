@@ -88,7 +88,7 @@ public struct PermissionPolicy: Codable, Sendable, Equatable {
     /// Keeps only rules for tools that can have one, with clean limits.
     func normalized() -> PermissionPolicy {
         var policy = self
-        policy.rules = rules.filter { PermissionStore.ruleTools.contains($0.key) }.mapValues { $0.normalized() }
+        policy.rules = rules.filter { PermissionStore.ruleTools.contains($0.key) || $0.key.hasPrefix(MCPRegistry.toolPrefix) }.mapValues { $0.normalized() }
         if !Self.allowedApprovalMinutes.contains(policy.approvalMinutes) { policy.approvalMinutes = Self.defaultApprovalMinutes }
         if let cap = policy.dailySpendCapUSD, !(cap.isFinite && cap > 0) { policy.dailySpendCapUSD = nil }
         if let cap = policy.replySpendCapUSD, !(cap.isFinite && cap > 0) { policy.replySpendCapUSD = nil }

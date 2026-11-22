@@ -460,7 +460,8 @@ public actor ConversationEngine {
         let connectorTools = await connectors?.toolDefs(readOnly: access == nil) ?? []
         // Only tools offered in this request may run, and each runs by the family it was offered from.
         let workstation = await workstation(ownerID: ref?.ownerID)
-        let offeredTools = OfferedTools.direct(connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedAccess: access != nil, hasWorkstation: workstation != nil)
+        let mcpTools = await access?.mcp?.toolDefs() ?? []
+        let offeredTools = OfferedTools.direct(connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedAccess: access != nil, hasWorkstation: workstation != nil, mcpTools: mcpTools)
         let tools = offeredTools.definitions
         let offered = offeredTools.names
         let system = ConversationPrompts.directResponseSystem(coordinator: coordinator, context: context, connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedTools: access != nil, store: promptStore, language: language)
@@ -538,7 +539,29 @@ public actor ConversationEngine {
                         outcome = .failure("Program and terminal run limit reached for this reply (\(ChatWorkspaceTools.maxRunsPerTurn)).")
                         break
                     }
-                    outcome = await workstationCommand(call: call, workstation: workstation, access: access, ownerID: ref.ownerID, conversationID: conversationID)
+                    let command = (AgentTools.arguments(of: call)["command"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !command.isEmpty else { outcome = .failure("A command is required. Nothing ran."); break }
+                    let shown = command.count > 80 ? String(command.prefix(77)) + "…" : command
+                    outcome = await gatedWrite(
+                        call: call, kind: .workstation, access: access, ownerID: ref.ownerID, conversationID: conversationID,
+                        title: "Run on the workstation: \(shown)", ranTitle: "Ran on the workstation: \(shown)", detail: "Ada wants to run this on her Linux workstation, outside the sandbox. Nothing has run yet."
+                    ) {
+                        await WorkstationTools.execute(toolName: call.function.name, rawArguments: call.function.arguments, workstation: workstation)
+                    }
+                case .mcp:
+                    guard let mcp = access?.mcp else { outcome = .failure("MCP servers are not available here."); break }
+                    if await mcp.isReadOnly(call.function.name) {
+                        outcome = await mcp.call(call.function.name, rawArguments: call.function.arguments)
+                    } else if let access, let ref {
+                        outcome = await gatedWrite(
+                            call: call, kind: .mcpCall, access: access, ownerID: ref.ownerID, conversationID: conversationID,
+                            title: "Approve \(call.function.name)", ranTitle: "Ran \(call.function.name) automatically", detail: "Ada wants to call a tool on a connected MCP server. Review the exact arguments. Nothing has been sent yet."
+                        ) {
+                            await mcp.call(call.function.name, rawArguments: call.function.arguments)
+                        }
+                    } else {
+                        outcome = .failure("A user-owned conversation is required to approve MCP tool calls.")
+                    }
                 case .connector:
                     guard let connectors else { outcome = .failure("No connector is available for this tool."); break }
                     if ConnectorHub.readOnlyToolNames.contains(call.function.name) {
@@ -621,22 +644,20 @@ public actor ConversationEngine {
         return workstation
     }
 
-    /// A command on Ada's machine: refused, run under a standing permission, or turned into an approval card.
-    private func workstationCommand(call: APIToolCall, workstation: Workstation, access: ConversationAccess, ownerID: String, conversationID: UUID) async -> ToolOutcome {
-        let args = AgentTools.arguments(of: call)
-        let command = (args["command"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !command.isEmpty else { return .failure("A command is required. Nothing ran.") }
+    /// A call that changes something outside the workspace: refused, run under a standing
+    /// permission, or turned into an approval card that runs `execute` once approved.
+    private func gatedWrite(call: APIToolCall, kind: AgentActionRequest.Kind, access: ConversationAccess, ownerID: String, conversationID: UUID, title: String, ranTitle: String, detail: String, execute: () async -> ToolOutcome) async -> ToolOutcome {
         let raw: JSONValue = .object([("raw", .string(call.function.arguments))])
-        let shown = command.count > 80 ? String(command.prefix(77)) + "…" : command
-        let decision = await access.permissions.decide(ownerID: ownerID, toolName: call.function.name, arguments: args)
+        let decision = await access.permissions.decide(ownerID: ownerID, toolName: call.function.name, arguments: AgentTools.arguments(of: call))
         switch decision {
         case .deny(let reason):
             return .failure(reason)
         case .allow:
-            let result = await WorkstationTools.execute(toolName: call.function.name, rawArguments: call.function.arguments, workstation: workstation)
+            let result = await execute()
             let record = AgentActionRequest(
-                ownerID: ownerID, conversationID: conversationID, kind: .workstation,
-                title: "Ran on the workstation: \(shown)", detail: "Your standing permission for this tool allowed it without an approval card.",
+                ownerID: ownerID, conversationID: conversationID, kind: kind,
+                title: ranTitle,
+                detail: "Your standing permission for this tool allowed it without an approval card.",
                 toolName: call.function.name, arguments: raw
             )
             await access.actions.recordAutomatic(record, result: result.resultText, succeeded: result.succeeded)
@@ -644,13 +665,13 @@ public actor ConversationEngine {
         case .ask(let reason):
             let lifetime = await access.permissions.approvalLifetime(ownerID: ownerID)
             let action = AgentActionRequest(
-                ownerID: ownerID, conversationID: conversationID, kind: .workstation,
-                title: "Run on the workstation: \(shown)", detail: "Ada wants to run this on her Linux workstation, outside the sandbox. Nothing has run yet." + (reason.map { " " + $0 } ?? ""),
+                ownerID: ownerID, conversationID: conversationID, kind: kind,
+                title: title, detail: detail + (reason.map { " " + $0 } ?? ""),
                 toolName: call.function.name, arguments: raw, lifetime: lifetime
             )
             let saved = await access.actions.request(action)
             let why = reason.map { " \($0)" } ?? ""
-            return ToolOutcome(resultText: "Approval requested (\(saved.id.uuidString)).\(why) Do not retry this command. Tell the user to review the approval card; nothing has run. The output will appear under approval requests in your context on a later turn.")
+            return ToolOutcome(resultText: "Approval requested (\(saved.id.uuidString)).\(why) Do not retry this call. Tell the user to review the approval card; nothing has run. The outcome will appear under approval requests in your context on a later turn.")
         }
     }
 
