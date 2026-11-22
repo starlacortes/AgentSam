@@ -1,0 +1,20 @@
+[Unit]
+Description=Ada's browser (Chromium on a virtual display, VNC on 127.0.0.1 only)
+After=network-online.target
+
+[Service]
+Type=simple
+User=adabrowser
+Group=adabrowser
+ExecStart=/var/lib/ada-browser/bin/run-browser.sh
+KillMode=control-group
+TimeoutStopSec=10
+Restart=no
+# The browser needs its own home and /tmp, and nothing else on this machine.
+ProtectSystem=strict
+ReadWritePaths=/var/lib/ada-browser /tmp
+ProtectHome=true
+MemoryMax=2G
+
+# No [Install] section on purpose: Ada's server starts the browser when somebody opens the live
+# window and stops it when nobody is watching. It never starts at boot.

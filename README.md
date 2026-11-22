@@ -99,6 +99,17 @@ Workspace memory is compacted separately for each signed-in user and is never sh
 
 Workspace knowledge is discovered on each user's first launch and maintained as three per-user Markdown documents: `capabilities.md`, `connections.md`, and `projects.md`. Open **Knowledge** in any project's sidebar to inspect, refresh, or export them. Discovery reads the actual provider, skill, tool, connector, and project registries without a model call, without testing external services, and without reading connector content. Credentials and private agent prompts are excluded. Ada receives a compact version in direct chats and mission handoffs. A background scheduler checks for changes every minute and reconciles documents at least daily; unchanged snapshots are not rewritten. Users can also force a refresh with `POST /api/workspace/knowledge/refresh`.
 
+## Ada's browser (live window)
+
+With `AGENTSAM_BROWSER=1` and a workstation over SSH, admins get **Open Ada's browser** in a chat's "⋯" menu. It opens a live window onto a real Chromium window that runs on the workstation, not on the server: the server starts a systemd service there over the workstation's SSH link, relays the picture (VNC, drawn in the page by noVNC) through `ssh -W` to the workstation's loopback interface, and stops the service after 15 minutes with nobody watching. The workstation opens no new port.
+
+- Only admins signed in with a browser session can watch, and only from Ada's own pages. Server and app tokens are refused for the live window, because whoever holds the stream sees everything in it.
+- The window starts with a fresh profile for the public web, and the profile is erased when the browser stops. Chromium's password manager, autofill and sync are off by policy.
+- This is the window only: the person is in control, and Ada has no browser tools yet. Accounts, sign-ins and Ada's own use of the browser are later steps.
+- Starting, stopping and opening the window are written to the access audit log.
+
+`deploy/browser-agent/` holds the installer, the service and its README.
+
 ## Deploy on Railway
 
 The root `railway.toml` builds `deploy/Dockerfile`, checks `/healthz`, and restarts failed processes. Create the service from the repository root, attach a Railway volume at `/data`, and keep the service at **one replica**. Active missions, event subscribers, and the file store are process-local and do not support horizontal scaling.
@@ -133,6 +144,9 @@ GreenPT works as an OpenAI-compatible provider with base URL `https://api.greenp
 | `AGENTSAM_WORKSTATION_SSH` | `user@host` of a Linux machine Ada manages over SSH instead of the server's own; turns the workstation on | unset |
 | `AGENTSAM_WORKSTATION_SSH_PORT` | SSH port of that machine | `22` |
 | `AGENTSAM_WORKSTATION_SSH_HOST_KEY` | Pinned host key (`ssh-ed25519 AAAA…`); without it the first key seen is remembered and later changes are refused | unset |
+| `AGENTSAM_BROWSER` | Set to `1` to give admins a live window onto a Chromium browser on the SSH workstation (see `deploy/browser-agent/`). Needs `AGENTSAM_WORKSTATION_SSH` | off |
+| `AGENTSAM_BROWSER_VNC_PASSWORD` | The VNC password `deploy/browser-agent/install.sh` created on the workstation | unset |
+| `AGENTSAM_BROWSER_VNC_PORT` / `AGENTSAM_BROWSER_SERVICE` | The browser's VNC port on the workstation's loopback interface, and its systemd unit | `5977` / `ada-browser.service` |
 | `AGENTSAM_PUBLIC_URL` |
 | `AGENTSAM_PUBLIC_URL` | Public base URL used for Google OAuth redirects (e.g. `https://agentsam.example.com`) | derived from the request |
 | `AGENTSAM_WEB_DIR` | Folder holding the built web app (`Web/dist`) | `./Public` (`/app/Public` in Docker) |
@@ -188,6 +202,9 @@ POST   /api/conversations/:id/project/uploads   (raw bytes; X-AgentSam-Path; at 
 GET    /api/conversations/:id/project/download/:name (shared project file download)
 GET    /api/conversations/:id/actions           (owner-scoped approval requests)
 POST   /api/conversations/:id/actions/:actionID { approve } (one use; expires after 15 minutes)
+GET    /api/browser                            (is Ada's browser available, and is it running)
+POST   /api/browser/start                      POST /api/browser/stop (admin)
+WS     /api/browser/live                       (admin browser session only; the live picture as VNC over WebSocket)
 GET    /api/access/audit                       (owner-scoped recent access activity)
 GET    /api/access/host-grants                 POST /api/access/host-grants (admin)
 DELETE /api/access/host-grants/:grantID         (admin; revoke without deleting files)
