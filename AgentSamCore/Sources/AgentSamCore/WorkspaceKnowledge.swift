@@ -336,14 +336,14 @@ public actor WorkspaceKnowledgeStore {
         }
         lines += machines
         lines += ["", "## Direct chat tools"]
-        var directTools = ChatWorkspaceTools.definitions + TriggerTools.definitions + SkillTools.definitions + MemoryTools.definitions
+        var directTools = ChatWorkspaceTools.definitions + TriggerTools.definitions + SkillTools.definitions + MemoryTools.definitions + SelfReviewTools.definitions
         if includeExtendedTools { directTools += ExtendedWorkspaceTools.definitions }
         // Names only: Ada already receives each tool's full description with its definition.
         lines.append(directTools.map(\.function.name).sorted().map { "`\($0)`" }.joined(separator: ", "))
         let skillNames = skills.map { Self.inline($0.name) + ($0.enabled ? "" : " (off)") }
         lines += [
             "",
-            "Ada can answer directly, work alone on a multi-step mission, or use a skill: a procedure she watches for, run by specialist subagents behind the scenes. People never manage the specialists. Ada saves new skills with skill_save when asked to remember a procedure. Direct chat and mission schedules run through the server. Workspace memory retains durable user context across projects.",
+            "Ada can answer directly, work alone on a multi-step mission, or use a skill: a procedure she watches for, run by specialist subagents behind the scenes. People never manage the specialists. Ada saves new skills with skill_save when asked to remember a procedure. Direct chat and mission schedules run through the server. Workspace memory retains durable user context across projects. Ada can review her own recent work with self_review_recent (failed tools, corrections, denied approvals) and suggest numbered fixes; the user picks which to apply, and a daily self-review can run on a chat schedule.",
             "",
             "## Skills",
             // Names only: Ada's routing prompt already carries each skill's "use when" line.

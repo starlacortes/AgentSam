@@ -16,6 +16,8 @@ public enum ToolFamily: Sendable, Equatable {
     case skill
     /// Remembering and forgetting facts on request (`MemoryTools`).
     case memory
+    /// Ada's read-only look back at her own recent work (`SelfReviewTools`).
+    case selfReview
     /// Ada's own Linux machine (`WorkstationTools`): admins only, when the server turns it on.
     case workstation
     /// Tools of MCP servers an admin connected (`MCPRegistry`). Reads the admin marked run at once; the rest need approval.
@@ -64,6 +66,7 @@ public struct OfferedTools: Sendable {
             (.mission, hasLinkedMissions ? ConversationMissionTools.definitions : []),
             (.skill, SkillTools.definitions),
             (.memory, MemoryTools.definitions),
+            (.selfReview, SelfReviewTools.definitions),
             (.workstation, hasWorkstation ? WorkstationTools.definitions : []),
             (.mcp, mcpTools),
         ])
@@ -162,6 +165,7 @@ public enum ToolCatalog {
         ToolSpec("skill_save", .write, en: "Saving a procedure", es: "Guardando un procedimiento"),
         ToolSpec("memory_remember", .write, en: "Remembering that", es: "Recordándolo"),
         ToolSpec("memory_forget", .write, en: "Forgetting that", es: "Olvidándolo"),
+        ToolSpec("self_review_recent", .read, en: "Looking back at my recent work", es: "Revisando mi trabajo reciente"),
         ToolSpec("workstation_status", .read, en: "Checking the workstation", es: "Revisando la estación de trabajo"),
         ToolSpec("workstation_run", .approval, en: "Preparing a workstation command", es: "Preparando un comando en la estación"),
         ToolSpec("workstation_start_job", .approval, en: "Preparing a workstation job", es: "Preparando una tarea en la estación"),

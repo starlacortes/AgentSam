@@ -406,6 +406,22 @@ public actor AgentActionCenter {
         }
     }
 
+    /// The owner's approval requests of any status created since a date, in every conversation, newest first.
+    public func recent(ownerID: String, since: Date, limit: Int = 200) -> [AgentActionRequest] {
+        guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return [] }
+        let now = Date()
+        return files.compactMap { load($0) }
+            .filter { $0.ownerID == ownerID && $0.createdAt >= since }
+            .sorted { $0.createdAt > $1.createdAt }
+            .prefix(limit)
+            .map { action in
+                guard action.status == .pending, action.expiresAt < now else { return action }
+                var expired = action
+                expired.status = .expired
+                return expired
+            }
+    }
+
     /// The owner's open approval requests in every conversation, newest first.
     public func pending(ownerID: String, limit: Int = 10) -> [AgentActionRequest] {
         guard let files = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return [] }

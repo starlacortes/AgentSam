@@ -507,6 +507,8 @@ public actor ConversationEngine {
         messages.append(.user(text, images: photoInput.current))
         var runs = 0
         var tasks = 0
+        /// Set once this reply runs a self-review: it may then only suggest lessons and skills, not save them.
+        var reviewed = false
         let summaries = ConversationCompactor.SummaryState()
         let replyCap = await replySpendCap(ownerID: ref?.ownerID)
         var overCap = false
@@ -559,7 +561,7 @@ public actor ConversationEngine {
                     }
                     if !outcome.wroteFiles.isEmpty { writtenFiles.append(contentsOf: outcome.wroteFiles) }
                 case .skill:
-                    outcome = await SkillTools.run(call: call, skills: skills)
+                    if reviewed { outcome = .failure(SelfReviewTools.applyLaterMessage) } else { outcome = await SkillTools.run(call: call, skills: skills) }
                 case .task:
                     tasks += 1
                     if tasks > TaskTools.maxPerReply {
@@ -585,7 +587,11 @@ public actor ConversationEngine {
                     }
                     outcome = await TriggerTools.run(call: call, sink: sink, language: language)
                 case .memory:
-                    outcome = await MemoryTools.run(call: call, memory: memory, ownerID: ref?.ownerID)
+                    if reviewed { outcome = .failure(SelfReviewTools.applyLaterMessage) } else { outcome = await MemoryTools.run(call: call, memory: memory, ownerID: ref?.ownerID) }
+                case .selfReview:
+                    // From here on this reply only suggests; memory and skill tools refuse until the user picks.
+                    reviewed = true
+                    outcome = await SelfReviewTools.run(call: call, ownerID: ref?.ownerID, conversations: conversations, missions: store, actions: access?.actions, spend: access?.spend)
                 case .mission:
                     outcome = await ConversationMissionTools.run(call: call, store: store, allowedMissionIDs: Set(context.missionIDs))
                 case .workstation:
