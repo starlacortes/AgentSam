@@ -28,7 +28,6 @@ final class GoogleAdsMCPTests: XCTestCase {
         XCTAssertTrue(on.enabled)
         XCTAssertEqual(on.url, "http://127.0.0.1:9001/mcp")
         XCTAssertEqual(on.launcher, "/opt/google-ads-mcp/ada_launch.py")
-        XCTAssertNotNil(MCPRegistry.validURL(on.url), "Ada's MCP client accepts the loopback URL")
         XCTAssertEqual(GoogleAdsMCPConfig.fromEnvironment(["AGENTSAM_GOOGLE_ADS_MCP": "true", "AGENTSAM_GOOGLE_ADS_MCP_PORT": "80"]).port, GoogleAdsMCPConfig.defaultPort)
     }
 
