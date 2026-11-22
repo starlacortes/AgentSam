@@ -187,3 +187,43 @@ final class ModelLimitsTests: XCTestCase {
         XCTAssertEqual(ConversationCompactor.digest(of: []), "")
     }
 }
+
+final class SummarizingCompactionTests: XCTestCase {
+    private func turn(_ i: Int, size: Int) -> [APIMessage] {
+        let call = APIToolCall(id: "c\(i)", function: .init(name: "chat_read_file", arguments: #"{"path":"f\#(i).md"}"#))
+        return [APIMessage(role: "assistant", content: nil, tool_calls: [call]), .tool(id: "c\(i)", content: String(repeating: "x", count: size))]
+    }
+
+    func testDroppedTurnsAreSummarizedOnceAndReused() async {
+        var messages: [APIMessage] = [.user("go")]
+        for i in 0..<10 { messages += turn(i, size: 4_000) }
+        let state = ConversationCompactor.SummaryState()
+        let calls = Counter()
+        let summarizer: ConversationCompactor.Summarizer = { previous, transcript in
+            await calls.bump()
+            XCTAssertTrue(transcript.contains("chat_read_file"))
+            return "SUMMARY"
+        }
+        let first = await ConversationCompactor.compact(messages: messages, budgetTokens: 5_000, summarizer: summarizer, state: state)
+        XCTAssertTrue(first.trimmed)
+        XCTAssertTrue(first.messages.first?.content?.contains("SUMMARY") == true)
+        XCTAssertLessThanOrEqual(ConversationCompactor.size(first.messages), 5_000)
+        // Same conversation again: the state already covers the dropped turns, so no new summary call.
+        _ = await ConversationCompactor.compact(messages: messages, budgetTokens: 5_000, summarizer: summarizer, state: state)
+        let count = await calls.value
+        XCTAssertEqual(count, 1)
+    }
+
+    func testFailedSummaryFallsBackToToolCallList() async {
+        var messages: [APIMessage] = [.user("go")]
+        for i in 0..<10 { messages += turn(i, size: 4_000) }
+        let outcome = await ConversationCompactor.compact(messages: messages, budgetTokens: 5_000, summarizer: { _, _ in nil }, state: .init())
+        XCTAssertTrue(outcome.trimmed)
+        XCTAssertTrue(outcome.messages.first?.content?.contains("chat_read_file") == true)
+    }
+}
+
+private actor Counter {
+    var value = 0
+    func bump() { value += 1 }
+}

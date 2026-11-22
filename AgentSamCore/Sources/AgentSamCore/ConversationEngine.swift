@@ -507,12 +507,13 @@ public actor ConversationEngine {
         messages.append(.user(text, images: photoInput.current))
         var runs = 0
         var tasks = 0
+        let summaries = ConversationCompactor.SummaryState()
         let replyCap = await replySpendCap(ownerID: ref?.ownerID)
         var overCap = false
         for round in 0..<Self.maxToolRounds {
             try Task.checkCancellation()
             let stream = streamer(for: ref)
-            let reply = try await completeDirect(coordinator: coordinator, system: system, messages: messages, tools: tools, contextAllowance: allowance, onDelta: stream?.handler)
+            let reply = try await completeDirect(coordinator: coordinator, system: system, messages: messages, tools: tools, contextAllowance: allowance, summaries: summaries, onDelta: stream?.handler)
             messages.append(reply.message)
             let calls = reply.message.tool_calls ?? []
             if calls.isEmpty { return reply.message.content ?? "" }
@@ -687,7 +688,7 @@ public actor ConversationEngine {
                 ? "Ya no quedan pasos de herramientas para esta respuesta. Responde ahora con lo que ya sabes, sin llamar a herramientas, y di qué falta si no pudiste terminar."
                 : "No tool steps are left for this reply. Answer now with what you already have, without calling any tools, and say what is still missing if you could not finish."))
         }
-        let final = try await completeDirect(coordinator: coordinator, system: system, messages: messages, tools: nil, maxTokens: context.spoken ? Self.voiceMaxTokens : nil, contextAllowance: allowance, onDelta: streamer(for: ref)?.handler)
+        let final = try await completeDirect(coordinator: coordinator, system: system, messages: messages, tools: nil, maxTokens: context.spoken ? Self.voiceMaxTokens : nil, contextAllowance: allowance, summaries: summaries, onDelta: streamer(for: ref)?.handler)
         let answer = final.message.content ?? ""
         if answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return language == "es"
@@ -986,12 +987,16 @@ public actor ConversationEngine {
         return reply
     }
 
-    private func completeDirect(coordinator: AgentProfile, system: String, messages: [APIMessage], tools: [APIToolDef]?, maxTokens: Int? = nil, contextAllowance: Int = 0, onDelta: TextDeltaHandler? = nil) async throws -> LLMReply {
+    private func completeDirect(coordinator: AgentProfile, system: String, messages: [APIMessage], tools: [APIToolDef]?, maxTokens: Int? = nil, contextAllowance: Int = 0, summaries: ConversationCompactor.SummaryState = .init(), onDelta: TextDeltaHandler? = nil) async throws -> LLMReply {
         var budget = ModelLimits.conversationBudget(model: coordinator.model) + contextAllowance
         var overflowRetries = 0
         var messages = messages
         while true {
-            let compacted = ConversationCompactor.compact(messages: messages, budgetTokens: budget)
+            let compacted = await ConversationCompactor.compact(messages: messages, budgetTokens: budget, summarizer: { previous, transcript in
+                let request = ConversationCompactor.summaryRequest(previous: previous, transcript: transcript)
+                let reply = try? await self.complete(coordinator: coordinator, system: ConversationCompactor.summarySystem, messages: [.user(request)], tools: nil, maxTokens: 900)
+                return reply?.message.content
+            }, state: summaries)
             do {
                 return try await complete(coordinator: coordinator, system: system, messages: compacted.messages, tools: tools, maxTokens: maxTokens, onDelta: onDelta)
             } catch let error as LLMError where error.isContextOverflow {

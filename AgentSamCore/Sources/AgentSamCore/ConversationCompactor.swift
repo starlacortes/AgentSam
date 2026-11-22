@@ -27,6 +27,109 @@ public enum ConversationCompactor {
     Continue from your most recent tool results.]
     """
 
+    // MARK: Summarizing compaction
+
+    /// Writes (or extends) a summary of turns that no longer fit. Returns nil when the model call
+    /// fails, in which case compaction falls back to the plain tool-call list.
+    public typealias Summarizer = @Sendable (_ previousSummary: String?, _ transcript: String) async -> String?
+
+    /// Remembers the summary of the turns already dropped from one running conversation, so each
+    /// new round only summarizes the turns dropped since the last one instead of starting over.
+    public final class SummaryState: @unchecked Sendable {
+        private let lock = NSLock()
+        private var covered = 0
+        private var text: String?
+        private var fingerprint = ""
+
+        public init() {}
+
+        func snapshot(fingerprint: String) -> (covered: Int, text: String?) {
+            lock.lock(); defer { lock.unlock() }
+            if self.fingerprint != fingerprint { self.fingerprint = fingerprint; covered = 0; text = nil }
+            return (covered, text)
+        }
+
+        func store(covered: Int, text: String) {
+            lock.lock(); defer { lock.unlock() }
+            self.covered = covered
+            self.text = text
+        }
+    }
+
+    /// While summarizing, trim down to this share of the budget, so a trim happens in larger steps
+    /// (one summary call per many rounds) instead of on every round.
+    static let summarizeTargetShare = 0.7
+
+    /// Like `compact`, but summarizes the turns it drops with `summarizer`. Falls back to the
+    /// tool-call list if the summary call fails.
+    public static func compact(messages: [APIMessage], budgetTokens: Int, summarizer: Summarizer, state: SummaryState) async -> Outcome {
+        guard size(messages) > budgetTokens else {
+            return Outcome(messages: messages, trimmed: false, notice: nil)
+        }
+        let target = min(budgetTokens, max(minimumBudgetTokens / 2, Int(Double(budgetTokens) * summarizeTargetShare)))
+        let (head, turns) = units(messages)
+        guard turns.count > 1 else { return compact(messages: messages, budgetTokens: budgetTokens) }
+        var keptSize = size(head) + size(turns[turns.count - 1])
+        var firstKept = turns.count - 1
+        while firstKept > 0, keptSize + size(turns[firstKept - 1]) <= target {
+            firstKept -= 1
+            keptSize += size(turns[firstKept])
+        }
+        guard firstKept > 0 else { return compact(messages: messages, budgetTokens: budgetTokens) }
+
+        let known = state.snapshot(fingerprint: fingerprint(of: turns))
+        var summary = known.text
+        if known.covered < firstKept {
+            let transcript = render(Array(turns[known.covered..<firstKept]))
+            if let next = await summarizer(known.text, transcript), !next.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                summary = String(next.prefix(6_000))
+                state.store(covered: firstKept, text: summary ?? next)
+            }
+        }
+        var outcome = compact(messages: messages, budgetTokens: target, summary: summary)
+        if summary != nil, outcome.trimmed {
+            outcome.notice = "Conversation compacted: summarized \(firstKept) of \(turns.count) earlier turns to fit the context window."
+        }
+        return outcome
+    }
+
+    /// Identifies a conversation by its first turn, so a state reused for another one starts clean.
+    static func fingerprint(of turns: [[APIMessage]]) -> String {
+        guard let first = turns.first?.first else { return "" }
+        return String((first.content ?? "").prefix(120)) + "|" + (first.tool_calls?.first?.id ?? "")
+    }
+
+    /// The dropped turns as plain text for the summarizer, newest part kept when it is long.
+    static func render(_ turns: [[APIMessage]], maxCharacters: Int = 60_000) -> String {
+        var lines: [String] = []
+        for message in turns.flatMap({ $0 }) {
+            switch message.role {
+            case "tool":
+                lines.append("RESULT: " + String((message.content ?? "").replacingOccurrences(of: "\n", with: " ").prefix(500)))
+            default:
+                if let text = message.content, !text.isEmpty { lines.append("\(message.role.uppercased()): " + String(text.prefix(1_200))) }
+                for call in message.tool_calls ?? [] {
+                    lines.append("CALL \(call.function.name): " + String(call.function.arguments.replacingOccurrences(of: "\n", with: " ").prefix(300)))
+                }
+            }
+        }
+        var text = lines.joined(separator: "\n")
+        if text.count > maxCharacters { text = "…\n" + String(text.suffix(maxCharacters)) }
+        return text
+    }
+
+    public static let summarySystem = """
+    You compress the older part of an agent's working conversation so it can keep going with less context. \
+    Write a faithful, compact summary (at most 350 words) of what happened: the goal, what was done and found, \
+    files written or changed (with names), decisions and their reasons, errors hit, and what is still open. \
+    Keep exact names, paths, numbers and identifiers. Do not invent anything and do not address the reader.
+    """
+
+    public static func summaryRequest(previous: String?, transcript: String) -> String {
+        let base = previous.map { "Summary so far:\n\($0)\n\nNew activity since that summary:\n" } ?? "Activity to summarize:\n"
+        return base + transcript + "\n\nWrite the updated summary."
+    }
+
     /// One line per dropped tool call, so the model still knows what it already did.
     static func digest(of dropped: [[APIMessage]], maxLines: Int = 25) -> String {
         var lines: [String] = []
@@ -99,7 +202,7 @@ public enum ConversationCompactor {
         return (head, turns)
     }
 
-    public static func compact(messages: [APIMessage], budgetTokens: Int) -> Outcome {
+    public static func compact(messages: [APIMessage], budgetTokens: Int, summary: String? = nil) -> Outcome {
         guard size(messages) > budgetTokens else {
             return Outcome(messages: messages, trimmed: false, notice: nil)
         }
@@ -119,7 +222,10 @@ public enum ConversationCompactor {
 
         var result = head
         if firstKept > 0 {
-            let notice = trimmedNotice + digest(of: Array(turns[..<firstKept]))
+            // The extra text only gets the room the kept turns leave under the budget.
+            let room = max(0, budgetTokens - keptSize - estimateTokens(trimmedNotice)) * 4
+            let extra = summary.map { "\nSummary of the trimmed turns:\n" + $0 } ?? digest(of: Array(turns[..<firstKept]))
+            let notice = trimmedNotice + (extra.count <= room ? extra : "")
             // Merge the notice into the last kept user message: Anthropic
             // rejects consecutive same-role messages.
             if let lastIndex = result.indices.last, result[lastIndex].role == "user" {
@@ -206,5 +312,20 @@ public enum ConversationCompactor {
             }
         }
         return bestIndex
+    }
+}
+
+/// Summary states for the agents of running missions, one per mission and agent.
+final class SummaryStates: @unchecked Sendable {
+    private let lock = NSLock()
+    private var states: [String: ConversationCompactor.SummaryState] = [:]
+
+    func state(missionID: UUID, agent: String) -> ConversationCompactor.SummaryState {
+        lock.lock(); defer { lock.unlock() }
+        let key = "\(missionID.uuidString)|\(agent)"
+        if let existing = states[key] { return existing }
+        let created = ConversationCompactor.SummaryState()
+        states[key] = created
+        return created
     }
 }
