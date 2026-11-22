@@ -39,6 +39,19 @@ struct ArchiveSettingsBody: Content {
     var retentionDays: Int?
 }
 
+struct MemoryPinBody: Content {
+    var text: String
+}
+
+struct MemoryForgetBody: Content {
+    var about: String
+}
+
+struct MemoryForgetView: Content {
+    var result: MemoryForgetResult
+    var memory: WorkspaceMemory
+}
+
 struct MemoryPatchBody: Content {
     var enabled: Bool
 }
@@ -251,6 +264,32 @@ func conversationRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
         let owner = try req.requirePrincipal().conversationOwnerID
         let body = try req.decodeJSON(MemoryPatchBody.self)
         return try req.json(try await ctx.memory.setEnabled(ownerID: owner, body.enabled))
+    }
+
+    // Facts kept word for word, and forgetting on request.
+    api.post("workspace", "memory", "pinned") { req async throws -> Response in
+        let owner = try req.requirePrincipal().conversationOwnerID
+        let body = try req.decodeJSON(MemoryPinBody.self)
+        do {
+            _ = try await ctx.memory.pin(ownerID: owner, text: body.text, origin: .person)
+        } catch let error as MemoryEditError {
+            throw Abort(.badRequest, reason: error.errorDescription ?? "Nothing was remembered.")
+        }
+        return try req.json(await ctx.memory.state(ownerID: owner), status: .created)
+    }
+
+    api.delete("workspace", "memory", "pinned", ":pinID") { req async throws -> Response in
+        let owner = try req.requirePrincipal().conversationOwnerID
+        guard let raw = req.parameters.get("pinID"), let id = UUID(uuidString: raw) else { throw Abort(.badRequest, reason: "Invalid memory ID.") }
+        return try req.json(try await ctx.memory.unpin(ownerID: owner, id: id))
+    }
+
+    api.post("workspace", "memory", "forget") { req async throws -> Response in
+        let owner = try req.requirePrincipal().conversationOwnerID
+        let body = try req.decodeJSON(MemoryForgetBody.self)
+        guard body.about.trimmingCharacters(in: .whitespacesAndNewlines).count >= 3 else { throw Abort(.badRequest, reason: "Give at least 3 characters that identify what to forget.") }
+        let result = try await ctx.memory.forget(ownerID: owner, matching: body.about)
+        return try req.json(MemoryForgetView(result: result, memory: await ctx.memory.state(ownerID: owner)))
     }
 
     api.get("workspace", "memory", "export") { req async throws -> Response in

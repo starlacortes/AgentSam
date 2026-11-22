@@ -724,3 +724,16 @@
 .permission-limits { display: flex; flex-wrap: wrap; gap: 12px; padding-top: 8px; }
 .permission-limits label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--mut); flex: 1 1 180px; }
 .permission-save { display: flex; align-items: center; gap: 12px; margin: 14px 0; }
+
+/* Approval alerts */
+.push-alerts { margin-bottom: 14px; }
+.push-alerts p { color: var(--mut); font-size: 11px; margin-top: 2px; }
+.push-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+
+/* Remembered on request */
+.remembered { margin-bottom: 12px; }
+.remembered p { color: var(--mut); font-size: 11px; margin-top: 2px; }
+.remembered-list { list-style: none; margin: 0 0 10px; padding: 0; display: grid; gap: 6px; }
+.remembered-list li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; font-size: 12px; }
+.remembered-form { display: flex; gap: 8px; margin-top: 8px; }
+.remembered-form input { flex: 1; min-width: 0; }

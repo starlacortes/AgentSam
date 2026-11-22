@@ -245,6 +245,14 @@ export interface WorkspaceMemory {
   updatedAt?: string
   compactionCount: number
   pendingEntries: number
+  pinned?: PinnedMemory[]
+}
+
+export interface PinnedMemory {
+  id: string
+  text: string
+  createdAt: string
+  origin: 'ada' | 'person'
 }
 
 export type WorkspaceKnowledgeDocumentID = 'capabilities' | 'connections' | 'projects'

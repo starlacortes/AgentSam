@@ -54,6 +54,8 @@ struct ServerContext: Sendable {
     let skills: SkillStore
     /// Compared against when an email isn't found, so failed logins take the same time either way.
     let dummyPasswordHash: String
+    /// Phone and browser alerts for approval requests.
+    let push: WebPushCenter
 
     static func make() throws -> ServerContext {
         let raw = Environment.get("AGENTSAM_DATA") ?? "data"
@@ -171,8 +173,24 @@ struct ServerContext: Sendable {
             scheduler: scheduler,
             knowledgeScheduler: knowledgeScheduler,
             skills: skills,
-            dummyPasswordHash: (try? Bcrypt.hash(Secrets.randomToken())) ?? ""
+            dummyPasswordHash: (try? Bcrypt.hash(Secrets.randomToken())) ?? "",
+            push: WebPushCenter(dataDir: store.root, contact: Self.pushContact())
         )
+    }
+
+    /// The VAPID "sub" claim: a contact push services can reach about this server.
+    static func pushContact() -> String {
+        if let contact = Environment.get("AGENTSAM_PUSH_CONTACT"), !contact.isEmpty { return contact }
+        if let url = Environment.get("AGENTSAM_PUBLIC_URL"), url.hasPrefix("https://") { return url }
+        return "mailto:ada@example.invalid"
+    }
+
+    /// Sends a phone alert to the owner's devices whenever Ada asks for an approval.
+    func startPushAlerts() async {
+        let push = self.push
+        await access.actions.setNotifier { action in
+            await push.notify(ownerID: action.ownerID)
+        }
     }
 
     func seedIfEmpty() async {

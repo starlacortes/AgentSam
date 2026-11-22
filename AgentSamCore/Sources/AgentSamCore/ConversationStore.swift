@@ -432,4 +432,64 @@ public actor WorkspaceMemoryStore {
     }
 
     public func compactionFailed(ownerID: String) { compacting.remove(ownerID) }
+
+    // MARK: Remember and forget on request
+
+    @discardableResult
+    public func pin(ownerID: String, text raw: String, origin: PinnedMemory.Origin) throws -> PinnedMemory {
+        var memory = state(ownerID: ownerID)
+        guard memory.enabled else { throw MemoryEditError.disabled }
+        let text: String
+        switch PinnedMemory.clean(raw) {
+        case .success(let cleaned): text = cleaned
+        case .failure(let error): throw error
+        }
+        if let existing = memory.pinned.first(where: { $0.text.caseInsensitiveCompare(text) == .orderedSame }) { return existing }
+        guard memory.pinned.count < PinnedMemory.maxCount else { throw MemoryEditError.full }
+        let pinned = PinnedMemory(text: text, origin: origin)
+        memory.pinned.append(pinned)
+        try saveMetadata(memory, ownerID: ownerID)
+        return pinned
+    }
+
+    public func unpin(ownerID: String, id: UUID) throws -> WorkspaceMemory {
+        var memory = state(ownerID: ownerID)
+        memory.pinned.removeAll { $0.id == id }
+        try saveMetadata(memory, ownerID: ownerID)
+        return state(ownerID: ownerID)
+    }
+
+    /// Removes remembered facts, summary lines and not-yet-summarized exchanges that mention `needle`,
+    /// so a later compaction cannot bring it back.
+    public func forget(ownerID: String, matching needle: String) throws -> MemoryForgetResult {
+        let term = needle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard term.count >= 3 else { return MemoryForgetResult(pinnedRemoved: 0, summaryLinesRemoved: 0, pendingRemoved: 0) }
+        let matches: (String) -> Bool = { $0.range(of: term, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
+        var memory = state(ownerID: ownerID)
+        let pinnedBefore = memory.pinned.count
+        memory.pinned.removeAll { matches($0.text) }
+        // Only summary lines above the Sources index; headings stay.
+        var linesRemoved = 0
+        let parts = memory.markdown.components(separatedBy: "## Sources")
+        if let body = parts.first {
+            let kept = body.components(separatedBy: "\n").filter { line in
+                if !line.hasPrefix("#") && matches(line) { linesRemoved += 1; return false }
+                return true
+            }
+            memory.markdown = ([kept.joined(separator: "\n")] + parts.dropFirst()).joined(separator: "## Sources")
+            if linesRemoved > 0 {
+                do {
+                    try Data(memory.markdown.utf8).write(to: paths(ownerID: ownerID).memory, options: .atomic)
+                } catch {
+                    throw ConversationError.persistence("Memory could not be updated.")
+                }
+            }
+        }
+        let pending = entries(ownerID: ownerID)
+        let keptEntries = pending.filter { !matches($0.userText) && !matches($0.assistantText) }
+        if keptEntries.count != pending.count { try saveEntries(keptEntries, ownerID: ownerID) }
+        memory.pendingEntries = keptEntries.count
+        try saveMetadata(memory, ownerID: ownerID)
+        return MemoryForgetResult(pinnedRemoved: pinnedBefore - memory.pinned.count, summaryLinesRemoved: linesRemoved, pendingRemoved: pending.count - keptEntries.count)
+    }
 }

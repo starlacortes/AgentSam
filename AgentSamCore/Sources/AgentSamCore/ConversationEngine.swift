@@ -171,7 +171,7 @@ public actor ConversationEngine {
             let catalog = SkillTeams.catalog(skillList)
             let history = conversation.messages.filter { $0.status != .running && (!$0.text.isEmpty || !$0.photos.isEmpty) }
             let workspaceMemory = await memory.state(ownerID: ownerID)
-            let memoryText = workspaceMemory.enabled ? workspaceMemory.markdown : ""
+            let memoryText = workspaceMemory.promptText
             let currentKnowledge = await knowledge?.refresh(ownerID: ownerID)
             let context = await promptContext(conversation: conversation, history: history, memory: memoryText, knowledge: currentKnowledge?.promptSummary ?? "", scheduled: userMessage.scheduled, spoken: userMessage.spoken, personName: userMessage.scheduled ? nil : launchedBy)
             // Photos: only Ada's direct reply looks at them. Routing, missions, and consolidation get a
@@ -522,6 +522,8 @@ public actor ConversationEngine {
                     if !outcome.wroteFiles.isEmpty { writtenFiles.append(contentsOf: outcome.wroteFiles) }
                 case .skill:
                     outcome = await SkillTools.run(call: call, skills: skills)
+                case .memory:
+                    outcome = await MemoryTools.run(call: call, memory: memory, ownerID: ref?.ownerID)
                 case .mission:
                     outcome = await ConversationMissionTools.run(call: call, store: store, allowedMissionIDs: Set(context.missionIDs))
                 case .connector:

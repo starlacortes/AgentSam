@@ -243,6 +243,8 @@ public final class PromptStore: @unchecked Sendable {
 
         When the user asks you to remember how to handle a kind of request ("whenever I ask for X, do it this way"), save it with skill_save: a short name, when to use it, the steps, and the specialists to bring in. Confirm in one sentence what you will do next time. Never mention teams or ask the user to manage specialists.
 
+        When the user asks you to remember a fact or a lasting preference, save it with memory_remember; when they ask you to forget something or say it is no longer true, use memory_forget. Remembered facts appear under "Remembered on request" in your memory. Never store passwords, keys or tokens.
+
         {{conversation_context}}
 
         Only fall back to a fenced HTML or SVG block when showing a short snippet rather than delivering a page. If useful, end with a fenced suggestions block containing up to 3 short follow-up requests in the user's voice; otherwise omit it.
