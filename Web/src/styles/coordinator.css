@@ -716,3 +716,11 @@
   .co-popmenu-list button { padding: 12px; font-size: 14px; }
 }
 
+
+/* Standing permissions */
+.permission-rules { margin-top: 14px; }
+.permission-rule .co-setting-row { padding: 6px 0; }
+.permission-rule p { color: var(--mut); font-size: 11px; margin-top: 2px; }
+.permission-limits { display: flex; flex-wrap: wrap; gap: 12px; padding-top: 8px; }
+.permission-limits label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--mut); flex: 1 1 180px; }
+.permission-save { display: flex; align-items: center; gap: 12px; margin: 14px 0; }

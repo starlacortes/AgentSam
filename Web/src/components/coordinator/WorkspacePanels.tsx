@@ -6,7 +6,7 @@ import { dateLocale, useI18n } from '../../i18n'
 import { ErrorBanner } from '../ui'
 import { Icon } from './Icon'
 
-function Switch({ checked, label, onChange, disabled = false }: { checked: boolean; label: string; onChange: () => void; disabled?: boolean }) {
+export function Switch({ checked, label, onChange, disabled = false }: { checked: boolean; label: string; onChange: () => void; disabled?: boolean }) {
   return <button type="button" className="co-switch" role="switch" aria-checked={checked} aria-label={label} disabled={disabled} onClick={onChange} />
 }
 

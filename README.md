@@ -61,6 +61,7 @@ Every turn, tool call, deliverable, finding, and cost is a `RunEvent`, appended 
   host-grants.json         owner-scoped, admin-managed server folder grants
   access-audit.jsonl       project, host, terminal, and approval activity
   action-requests/         expiring, one-use connector-write and file-delete approvals
+  permissions/             owner-scoped standing permissions and today's automatic-run counts
   workspace/knowledge/<user>/
     state.json            discovery state, snapshot fingerprint, and refresh timestamps
     capabilities.md       providers, direct tools, and skill names
@@ -211,7 +212,11 @@ All other `/api/*` routes require either `Authorization: Bearer <AGENTSAM_TOKEN>
 
 Connectors give Ada and mission agents tools beyond their own files. Set them up on the **Connectors** page (admins only). Anything that sends or changes something is off until you switch it on.
 
-Every connector write also needs a person's explicit, one-use approval, in direct chat as well as in a linked mission. The approval card shows the tool and exact arguments, expires after 15 minutes, and cannot be approved twice. Denial and expiry perform no external action; a refused or failed operation is not marked completed. The connector must remain enabled and configured, its relevant write permission must be on, and mission team scopes still apply. Read-only connector tools do not require approval.
+Every connector write also needs a person's explicit, one-use approval, in direct chat as well as in a linked mission, unless a **standing permission** allows it (Settings → *What Ada can do alone*).
+
+**Standing permissions.** An admin can set each connector write tool to *Ask me each time* (the default), *Allow without asking*, or *Never*. An allow rule can carry limits: at most N automatic runs per UTC day, the largest Google Ads daily budget, a GitHub branch prefix (for example `claude/`), or the Gmail recipients and `@domains` it may send to. Anything outside the limits falls back to an approval card that says why. *Pause automatic actions* turns every allow rule back into *ask* (never rules still refuse). The same setting chooses how long approval cards stay open (15 minutes to 24 hours), so scheduled runs and missions can wait for a person. Automatic runs show in the chat as "ran automatically" cards, in Ada's context on later turns, and in the access audit log (`permissions.auto_run`, `connector.executed`). Rules are owner-scoped and stored in `permissions/`; only admins can change them, because connector accounts are shared by the server. API: `GET`/`PUT /api/access/permissions`.
+
+The approval card shows the tool and exact arguments, expires after 15 minutes unless the standing-permission setting gives it longer, and cannot be approved twice. Denial and expiry perform no external action; a refused or failed operation is not marked completed. The connector must remain enabled and configured, its relevant write permission must be on, and mission team scopes still apply. Read-only connector tools do not require approval.
 
 | Connector | Agent tools | Off until you switch it on |
 |---|---|---|

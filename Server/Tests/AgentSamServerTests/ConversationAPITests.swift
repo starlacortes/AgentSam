@@ -475,6 +475,42 @@ final class ConversationAPITests: XCTestCase {
         })
     }
 
+    func testStandingPermissionsAreAdminEditableAndOwnerScoped() async throws {
+        try await app.test(.GET, "api/access/permissions", beforeRequest: authorize, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok, res.body.string)
+            let view = try res.content.decode(PermissionsView.self)
+            XCTAssertTrue(view.canEdit)
+            XCTAssertTrue(view.policy.rules.isEmpty)
+            XCTAssertTrue(view.tools.contains("gmail_send"))
+        })
+        let policy = PermissionPolicy(rules: ["gmail_draft": PermissionRule(mode: .allow, maxPerDay: 5), "run_terminal": PermissionRule(mode: .allow)], approvalMinutes: 720)
+        try await app.test(.PUT, "api/access/permissions", beforeRequest: { req in
+            self.authorize(&req)
+            try req.content.encode(policy, as: .json)
+        }, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok, res.body.string)
+            let view = try res.content.decode(PermissionsView.self)
+            XCTAssertEqual(view.policy.rules["gmail_draft"], PermissionRule(mode: .allow, maxPerDay: 5))
+            XCTAssertNil(view.policy.rules["run_terminal"], "only write tools can have a rule")
+            XCTAssertEqual(view.policy.approvalMinutes, 720)
+        })
+        let accounts = try XCTUnwrap(app.storage[ServerContextKey.self]).accounts
+        let member = try await accounts.createUser(email: "member-perms@example.com", name: "Member", role: .member, passwordHash: try await Passwords.hash("member test password"))
+        let (_, memberToken) = try await accounts.createAPIToken(userID: member.id, name: "Member token")
+        try await app.test(.GET, "api/access/permissions", beforeRequest: { req in
+            req.headers.bearerAuthorization = BearerAuthorization(token: memberToken)
+        }, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok)
+            let view = try res.content.decode(PermissionsView.self)
+            XCTAssertFalse(view.canEdit)
+            XCTAssertTrue(view.policy.rules.isEmpty, "rules belong to the admin who set them")
+        })
+        try await app.test(.PUT, "api/access/permissions", beforeRequest: { req in
+            req.headers.bearerAuthorization = BearerAuthorization(token: memberToken)
+            try req.content.encode(policy, as: .json)
+        }, afterResponse: { res async in XCTAssertEqual(res.status, .forbidden) })
+    }
+
     func testWorkspaceKnowledgeDiscoversRefreshesAndExportsDocuments() async throws {
         _ = try await createConversation()
         try await app.test(.GET, "api/workspace/knowledge", afterResponse: { res async in

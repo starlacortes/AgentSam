@@ -81,7 +81,23 @@ struct ServerContext: Sendable {
                 guard let owner = await access.actions.owner(missionID: missionID) else {
                     return .failure("This mission is not linked to a user-owned conversation. No external write was performed.")
                 }
-                let decision = await access.actions.awaitConnectorApproval(missionID: missionID, call: call, scope: scope)
+                switch await access.permissions.decide(ownerID: owner, toolName: call.function.name, arguments: AgentTools.arguments(of: call)) {
+                case .deny(let reason):
+                    return .failure(reason)
+                case .allow:
+                    let outcome = await connectors.run(call: call, scope: scope, approved: true)
+                    let record = AgentActionRequest(
+                        ownerID: owner, conversationID: await access.actions.conversation(missionID: missionID) ?? UUID(), missionID: missionID, kind: .connectorWrite,
+                        title: "Ran \(call.function.name) automatically", detail: "A mission worker's write was allowed by your standing permission for this tool.",
+                        toolName: call.function.name, arguments: .object([("raw", .string(call.function.arguments))]), toolScope: scope
+                    )
+                    await access.actions.recordAutomatic(record, result: outcome.resultText, succeeded: outcome.succeeded)
+                    return outcome
+                case .ask:
+                    break
+                }
+                let lifetime = await access.permissions.approvalLifetime(ownerID: owner)
+                let decision = await access.actions.awaitConnectorApproval(missionID: missionID, call: call, scope: scope, lifetime: lifetime)
                 guard decision.hasPrefix("approved:"), let id = UUID(uuidString: String(decision.dropFirst("approved:".count))) else {
                     return .failure(decision)
                 }
