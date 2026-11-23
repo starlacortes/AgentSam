@@ -20,9 +20,10 @@ public actor ConversationEngine {
     /// answers in one loop and hands work on with `delegate` and `start_task` when it needs more.
     private let routing: Bool
     /// Output cap for spoken replies written without tools (team summaries, the last answer after the tool
-    /// budget). A backstop only: the voice style asks for about 120 words, shown and read in full.
+    /// budget). A backstop only: voice replies are shown and read in full, however long, so this is
+    /// high enough for a long answer the user asked for (a story, a full report read out).
     /// Turns that offer tools are not capped, because a capped tool call (a file write) would be cut off.
-    static let voiceMaxTokens = 1_500
+    static let voiceMaxTokens = 8_000
     private let completionOverride: Completion?
     private var running: [UUID: Task<Void, Never>] = [:]
     private var memoryJobs: [UUID: Task<Void, Never>] = [:]

@@ -403,11 +403,23 @@ final class PhotosAndVoiceTests: XCTestCase {
         XCTAssertTrue(spanish.contains("La tabla está en pantalla."), spanish)
     }
 
-    func testLongVoiceRepliesAreReadWellPastTheOldCap() {
+    func testAVeryLongReplyIsReadInFullPieceByPiece() {
+        let reply = (1...400).map { "Point \($0) is worth a sentence of its own." }.joined(separator: " ")
+        let spoken = SpeechClient.spokenText(reply)
+        let pieces = SpeechClient.spokenChunks(spoken)
+        XCTAssertGreaterThan(pieces.count, 20)
+        XCTAssertTrue(pieces.allSatisfy { $0.count <= SpeechClient.maxSpeechCharacters })
+        XCTAssertEqual(pieces.joined(separator: " "), spoken)
+        XCTAssertTrue(ConversationPrompts.voiceStyle(language: "en").contains("there is no length limit"))
+    }
+
+    func testOneClipForAWholeReplyStopsWithinTheProviderLimit() {
         let reply = String(repeating: "This is a fairly ordinary sentence about nothing. ", count: 30).trimmingCharacters(in: .whitespaces)
         XCTAssertEqual(SpeechClient.cappedSpeech(reply, tail: "The rest is on screen."), reply)
-        let huge = String(repeating: "This is a fairly ordinary sentence about nothing. ", count: 80)
-        XCTAssertTrue(SpeechClient.cappedSpeech(huge, tail: "The rest is on screen.").hasSuffix("nothing. The rest is on screen."))
+        let huge = String(repeating: "This is a fairly ordinary sentence about nothing. ", count: 120)
+        let clip = SpeechClient.cappedSpeech(huge, tail: "The rest is on screen.")
+        XCTAssertTrue(clip.hasSuffix("nothing. The rest is on screen."))
+        XCTAssertLessThanOrEqual(clip.count, SpeechClient.maxSpeechCharacters)
     }
 }
 

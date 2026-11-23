@@ -122,20 +122,6 @@ const SCREEN_WORDS = {
 const TABLE = /(?:^[ \t]*\|.*(?:\n|$))+/gm
 
 /**
- * Most characters Ada speaks in one reply; the server uses the same limit (`SpeechClient.spokenLimit`).
- * Replies are read in full, so this only stops a very long one.
- */
-export const SPOKEN_LIMIT = 3000
-
-/** Cuts spoken text at the last sentence end within `limit` and adds `tail`. Shorter text is unchanged. */
-export function cappedSpeech(text: string, tail: string, limit = SPOKEN_LIMIT): string {
-  if (text.length <= limit) return text
-  const head = text.slice(0, limit)
-  const end = Math.max(head.lastIndexOf('.'), head.lastIndexOf('!'), head.lastIndexOf('?'))
-  return `${(end > 0 ? head.slice(0, end + 1) : head).trim()} ${tail}`
-}
-
-/**
  * Pulls the next sentence worth speaking out of a reply that may still be streaming in.
  * `from` is where the last call stopped (an offset into the speakable text, as returned in `end`).
  * Unfinished code blocks, tables, and the trailing suggestions or details block are never spoken, and short

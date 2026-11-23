@@ -382,10 +382,11 @@ public struct SpeechClient: Sendable {
         return SpokenNumbers.normalize(text, language: SpokenNumbers.language(of: text, fallback: language))
     }
 
-    /// Most characters Ada speaks in one reply. Replies are read in full, so this is only a backstop
-    /// for a very long one, which stops at a sentence end with a short pointer to the screen. The
-    /// browser uses the same limit (`SPOKEN_LIMIT` in coordinator.ts).
-    public static let spokenLimit = 3_000
+    /// Most characters of a reply spoken in ONE speech request (the provider limit, with room for the
+    /// tail). Replies are read in full: the browser asks for them piece by piece (`spokenChunks`),
+    /// which has no limit. Only a caller that wants the whole reply as one clip is cut here, at a
+    /// sentence end with a short pointer to the screen.
+    public static let spokenLimit = maxSpeechCharacters - 60
 
     /// Cuts spoken text at the last sentence end within `limit` and adds `tail`. Text within the limit is unchanged.
     public static func cappedSpeech(_ text: String, tail: String, limit: Int = spokenLimit) -> String {

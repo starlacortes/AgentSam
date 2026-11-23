@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createTurnDetector, pickRecordingType, Speaker } from './voice'
+import { browserSpeechPieces, createTurnDetector, pickRecordingType, Speaker, speakWithBrowser } from './voice'
 
 describe('pickRecordingType', () => {
   it('prefers WebM/Opus where the browser has it', () => {
@@ -170,6 +170,38 @@ describe('Speaker sentence by sentence', () => {
     expect(requests.map((r) => r.text)).toEqual(['First sentence.', 'Second sentence.', 'Third sentence.'])
   })
 
+  it('makes a long reply only a little ahead of the listener, and carries on as it plays', async () => {
+    const ended: Array<() => void> = []
+    let context: { currentTime: number } | null = null
+    class SlowContext {
+      currentTime = 0
+      destination = {}
+      constructor() { context = this }
+      resume() { return Promise.resolve() }
+      decodeAudioData() { return Promise.resolve({ duration: 20 }) }
+      createBufferSource() {
+        const source = { buffer: null, onended: null as null | (() => void), connect() {}, start() { started += 1; ended.push(() => source.onended?.()) }, stop() {} }
+        return source
+      }
+    }
+    vi.stubGlobal('AudioContext', SlowContext)
+    const speaker = new Speaker('en-US')
+    for (let i = 1; i <= 8; i++) speaker.enqueueText(`Sentence ${i}.`, '/speech')
+    for (let i = 0; i < 8; i++) { requests[i]?.resolve(); await settle(); await settle() }
+    // Each sentence is 20 seconds. Once more than 30 seconds are waiting to play, nothing more is made.
+    expect(started).toBe(3)
+    expect(requests).toHaveLength(3)
+    // The first sentence finishes: there is room again, so the next one is made and scheduled.
+    context!.currentTime = 40
+    ended.shift()!()
+    await settle()
+    expect(requests).toHaveLength(4)
+    expect(requests[3]!.text).toBe('Sentence 4.')
+    requests[3]!.resolve()
+    await settle(); await settle()
+    expect(started).toBe(4)
+  })
+
   it('cancels the sentence being made when stopped, and the next reply starts fresh', async () => {
     const speaker = new Speaker('en-US')
     speaker.enqueueText('Old reply.', '/speech')
@@ -184,5 +216,42 @@ describe('Speaker sentence by sentence', () => {
     requests[1]!.resolve()
     await settle()
     expect(started).toBe(1)
+  })
+})
+
+describe('browser voice for long replies', () => {
+  it('splits text into short pieces at sentence ends, keeping every word', () => {
+    const text = Array.from({ length: 60 }, (_, i) => `Item ${i + 1} costs $1.000,50 today.`).join(' ')
+    const pieces = browserSpeechPieces(text)
+    expect(pieces.length).toBeGreaterThan(5)
+    for (const piece of pieces) expect(piece.length).toBeLessThanOrEqual(220)
+    expect(pieces.join(' ')).toBe(text)
+    expect(pieces.every((piece) => /[.!?]$/.test(piece))).toBe(true)
+  })
+
+  it('breaks one very long sentence at commas or spaces', () => {
+    const text = `${Array.from({ length: 80 }, (_, i) => `word${i}`).join(' ')}, and then ${Array.from({ length: 40 }, (_, i) => `more${i}`).join(' ')}.`
+    const pieces = browserSpeechPieces(text, 100)
+    for (const piece of pieces) expect(piece.length).toBeLessThanOrEqual(100)
+    expect(pieces.join(' ')).toBe(text)
+  })
+
+  it('queues the pieces back to back and finishes after the last one', async () => {
+    const spoken: Array<{ text: string; onend?: () => void }> = []
+    class U { onend?: () => void; onerror?: () => void; lang = ''; rate = 1; constructor(public text: string) {} }
+    vi.stubGlobal('SpeechSynthesisUtterance', U)
+    Object.defineProperty(window, 'speechSynthesis', { value: { speak: (u: U) => spoken.push(u) }, configurable: true })
+    let done = false
+    const text = Array.from({ length: 30 }, (_, i) => `This is sentence number ${i + 1} of a long answer.`).join(' ')
+    void speakWithBrowser(text, 'en-US').then(() => { done = true })
+    expect(spoken.length).toBeGreaterThan(3)
+    expect(spoken.map((u) => u.text).join(' ')).toBe(text)
+    spoken[0]!.onend?.()
+    await Promise.resolve()
+    expect(done).toBe(false)
+    spoken[spoken.length - 1]!.onend?.()
+    await Promise.resolve()
+    expect(done).toBe(true)
+    vi.unstubAllGlobals()
   })
 })

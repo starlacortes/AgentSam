@@ -293,7 +293,6 @@ export const coordinatorSpanish: Record<string, string> = {
   'Microphone access isn’t available. You can type your message instead.': 'El acceso al micrófono no está disponible. Puedes escribir tu mensaje.',
   'Ada couldn’t complete that response. Return to chat for details, or try again.': 'Ada no pudo completar la respuesta. Vuelve al chat para ver los detalles o inténtalo de nuevo.',
   'Your response is ready in the chat.': 'Tu respuesta está lista en el chat.',
-  'The rest is on screen.': 'El resto está en pantalla.',
   "Thinking": "Pensando",
   "Hide steps": "Ocultar pasos",
   "{count} steps": "{count} pasos",

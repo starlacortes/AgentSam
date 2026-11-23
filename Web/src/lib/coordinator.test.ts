@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentActivity, Conversation, ConversationMessage } from '../api/types'
 import { intervalLabel } from '../api/types'
-import { cappedSpeech, canvasForFinishedFiles, connectorLabel, groupedConversations, pollDelay, presentWork, shouldPoll, takeSpeakable, voiceTranscript, workspaceFileSource, wroteFreshFiles } from './coordinator'
+import { canvasForFinishedFiles, connectorLabel, groupedConversations, pollDelay, presentWork, shouldPoll, takeSpeakable, voiceTranscript, workspaceFileSource, wroteFreshFiles } from './coordinator'
 
 const activity: AgentActivity = { id: 'activity-1', agentID: 'agent-1', agentName: 'Scout', summary: 'Reviewing the brief', state: 'working', updatedAt: '2026-01-01T00:00:00Z', teamID: 'team-1', teamName: 'Research' }
 
@@ -106,15 +106,15 @@ describe('voice transcript', () => {
     expect(voiceTranscript('Aquí está.\n```js\nx = 1\n```\n| A | B |\n| --- | --- |\n| 1 | 2 |\nMira [la guía](https://example.com/guia) o https://example.com.', 'es'))
       .toBe('Aquí está. Hay un ejemplo de código en pantalla. La tabla está en pantalla. Mira la guía o el enlace en pantalla.')
   })
-  it('caps long speech at a sentence end', () => {
-    const long = 'This is a fairly ordinary sentence about nothing. '.repeat(80)
-    const capped = cappedSpeech(long, 'The rest is on screen.')
-    expect(capped.endsWith('nothing. The rest is on screen.')).toBe(true)
-    expect(capped.length).toBeLessThanOrEqual(3030)
-    // A whole normal reply is read, not just its opening.
-    const reply = 'This is a fairly ordinary sentence about nothing. '.repeat(12).trim()
-    expect(cappedSpeech(reply, 'The rest is on screen.')).toBe(reply)
-    expect(cappedSpeech('Short.', 'x')).toBe('Short.')
+  it('reads a very long reply in full', () => {
+    const long = Array.from({ length: 400 }, (_, i) => `Point ${i + 1} is worth a sentence of its own.`).join(' ')
+    let from = 0
+    const pieces: string[] = []
+    for (let next = takeSpeakable(long, from, true); next; next = takeSpeakable(long, from, true)) {
+      from = next.end
+      if (next.text) pieces.push(next.text)
+    }
+    expect(pieces.join(' ')).toBe(long)
   })
 })
 
