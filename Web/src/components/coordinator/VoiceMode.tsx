@@ -318,6 +318,8 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null, tran
   const streamSpeech = () => {
     let from = 0
     let previous = ''
+    /** The reply's language, kept once something is spoken: offsets into the reply depend on it. */
+    let replyLang: 'en' | 'es' | null = null
     let spoke = false
     const startedAt = Date.now()
     let acknowledged = false
@@ -357,12 +359,13 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null, tran
       const done = final || speech !== undefined
       // Text Ada wrote before using a tool is replaced by the real answer. Start again from its top,
       // or the opening of the answer would be skipped.
-      if (startedOver(previous, source)) from = 0
+      if (startedOver(previous, source)) { from = 0; replyLang = null }
       previous = source
       // Said in the reply's own language, which may not be the app's.
-      const words = replyLanguage(source, lang)
+      const words = replyLang ?? replyLanguage(source, lang)
       for (let next = takeSpeakable(source, from, done, undefined, undefined, words); next; next = takeSpeakable(source, from, done, undefined, undefined, words)) {
         from = next.end
+        replyLang = words
         if (!next.text) continue
         spoke = true
         markVoice('first-sentence')

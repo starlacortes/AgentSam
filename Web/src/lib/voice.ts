@@ -385,10 +385,16 @@ export class Speaker {
     item.audio = new Promise((resolve) => {
       item.begin = () => {
         item.begin = undefined
+        const generation = this.generation
         this.requests += 1
-        void fetchSpeech(postURL, text, this.aborter.signal).then(resolve, () => resolve(null)).finally(() => {
+        // Counted before the clip is handed over, so the pump's count down always comes after it.
+        // A clip from a reply that was stopped is not counted.
+        const arrived = (clip: SpeechAudio | null) => {
+          if (generation === this.generation) this.ready += 1
+          resolve(clip)
+        }
+        void fetchSpeech(postURL, text, this.aborter.signal).then(arrived, () => arrived(null)).finally(() => {
           this.requests -= 1
-          this.ready += 1
           this.fetchAhead()
         })
       }
@@ -400,7 +406,9 @@ export class Speaker {
 
   /** Starts the next sentences' audio, oldest first, while keeping the voice server to a few requests. */
   private fetchAhead(): void {
-    while (this.requests < MAX_SPEECH_REQUESTS && this.unfetched.length > 0 && this.ready < MAX_READY_CLIPS && this.secondsAhead() < MAX_AHEAD_SECONDS) {
+    // Behind a single clip longer than the limit, the next sentence may still be made, so there is no gap after it.
+    const roomAhead = () => this.secondsAhead() < MAX_AHEAD_SECONDS || (this.sources.size <= 1 && this.ready + this.requests === 0)
+    while (this.requests < MAX_SPEECH_REQUESTS && this.unfetched.length > 0 && this.ready < MAX_READY_CLIPS && roomAhead()) {
       this.unfetched.shift()?.begin?.()
     }
   }
@@ -648,13 +656,18 @@ export function speakWithBrowser(text: string, lang = navigator.language): Promi
     const pieces = browserSpeechPieces(text)
     if (pieces.length === 0) return resolve()
     // All pieces are queued at once, so the browser reads them back to back. Stopping cancels the
-    // whole queue, which ends the current piece with an error.
+    // whole queue, which ends the pieces with a 'canceled' or 'interrupted' error. Any other error
+    // on one piece skips just that piece; the rest keep reading.
     pieces.forEach((piece, index) => {
+      const last = index === pieces.length - 1
       const utterance = new SpeechSynthesisUtterance(piece)
       utterance.lang = lang
       utterance.rate = 1.05
-      if (index === pieces.length - 1) utterance.onend = () => resolve()
-      utterance.onerror = () => resolve()
+      if (last) utterance.onend = () => resolve()
+      utterance.onerror = (event?: SpeechSynthesisErrorEvent) => {
+        const stopped = event?.error === 'canceled' || event?.error === 'interrupted'
+        if (last || stopped || !event) resolve()
+      }
       window.speechSynthesis.speak(utterance)
     })
   })

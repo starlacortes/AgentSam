@@ -202,6 +202,32 @@ describe('Speaker sentence by sentence', () => {
     expect(started).toBe(4)
   })
 
+  it('makes the next sentence behind one very long clip, so there is no gap after it', async () => {
+    class LongContext {
+      currentTime = 0
+      destination = {}
+      resume() { return Promise.resolve() }
+      decodeAudioData() { return Promise.resolve({ duration: 45 }) }
+      createBufferSource() { return { buffer: null, onended: null, connect() {}, start() { started += 1 }, stop() {} } }
+    }
+    vi.stubGlobal('AudioContext', LongContext)
+    const speaker = new Speaker('en-US')
+    for (let i = 1; i <= 4; i++) speaker.enqueueText(`Sentence ${i}.`, '/speech')
+    requests[0]!.resolve()
+    await settle(); await settle()
+    expect(started).toBe(1)
+    expect(requests).toHaveLength(2)
+    requests[1]!.resolve()
+    await settle(); await settle()
+    expect(started).toBe(2)
+    expect(requests).toHaveLength(3)
+    requests[2]!.resolve()
+    await settle(); await settle()
+    // Well over 30 seconds are waiting now, so the fourth is not made yet.
+    expect(started).toBe(3)
+    expect(requests).toHaveLength(3)
+  })
+
   it('cancels the sentence being made when stopped, and the next reply starts fresh', async () => {
     const speaker = new Speaker('en-US')
     speaker.enqueueText('Old reply.', '/speech')
@@ -250,6 +276,23 @@ describe('browser voice for long replies', () => {
     await Promise.resolve()
     expect(done).toBe(false)
     spoken[spoken.length - 1]!.onend?.()
+    await Promise.resolve()
+    expect(done).toBe(true)
+    vi.unstubAllGlobals()
+  })
+
+  it('skips a piece that fails but keeps reading, and stops when cancelled', async () => {
+    const spoken: Array<{ text: string; onend?: () => void; onerror?: (e: { error: string }) => void }> = []
+    class U { onend?: () => void; onerror?: (e: { error: string }) => void; lang = ''; rate = 1; constructor(public text: string) {} }
+    vi.stubGlobal('SpeechSynthesisUtterance', U)
+    Object.defineProperty(window, 'speechSynthesis', { value: { speak: (u: U) => spoken.push(u) }, configurable: true })
+    const text = Array.from({ length: 30 }, (_, i) => `This is sentence number ${i + 1} of a long answer.`).join(' ')
+    let done = false
+    void speakWithBrowser(text, 'en-US').then(() => { done = true })
+    spoken[0]!.onerror?.({ error: 'synthesis-failed' })
+    await Promise.resolve()
+    expect(done).toBe(false)
+    spoken[1]!.onerror?.({ error: 'interrupted' })
     await Promise.resolve()
     expect(done).toBe(true)
     vi.unstubAllGlobals()

@@ -426,6 +426,10 @@ public struct SpeechClient: Sendable {
             }
         }
         if !current.isEmpty { sentences.append(current) }
+        // A sentence too long for one speech request (it would be cut at `maxSpeechCharacters`) is broken
+        // at a comma or space, so nothing of a long reply is dropped. Shorter sentences stay whole, even
+        // past `limit`, so a number or amount is never split across pieces.
+        sentences = sentences.flatMap { Self.splitLong($0, limit: max(limit, 1_000)) }
 
         var chunks: [String] = []
         var buffer = ""
@@ -441,6 +445,23 @@ public struct SpeechClient: Sendable {
         return chunks
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+    }
+
+    static func splitLong(_ sentence: String, limit: Int) -> [String] {
+        var rest = Substring(sentence)
+        var parts: [String] = []
+        while rest.count > limit {
+            let head = rest.prefix(limit)
+            let cut = head.range(of: ", ", options: .backwards).map { head.index(after: $0.lowerBound) }
+                ?? head.lastIndex(of: " ")
+                ?? head.endIndex
+            let piece = rest[..<cut]
+            parts.append(String(piece) + " ")
+            rest = rest[cut...].drop(while: { $0 == " " })
+            if piece.isEmpty { break }
+        }
+        if !rest.isEmpty { parts.append(String(rest)) }
+        return parts
     }
 
     private func send(_ request: URLRequest) async throws -> (Data, URLResponse) {

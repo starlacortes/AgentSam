@@ -403,6 +403,15 @@ final class PhotosAndVoiceTests: XCTestCase {
         XCTAssertTrue(spanish.contains("La tabla está en pantalla."), spanish)
     }
 
+    func testOneHugeSentenceIsSplitSoNothingIsDropped() {
+        let sentence = (1...900).map { "word\($0)" }.joined(separator: " ") + "."
+        let pieces = SpeechClient.spokenChunks(sentence)
+        XCTAssertGreaterThan(pieces.count, 5)
+        XCTAssertGreaterThan(sentence.count, SpeechClient.maxSpeechCharacters)
+        XCTAssertTrue(pieces.allSatisfy { $0.count <= 1_000 }, "\(pieces.map(\.count))")
+        XCTAssertEqual(pieces.joined(separator: " "), sentence)
+    }
+
     func testSkippedPartsFollowTheLanguageOfTheProseNotTheCode() {
         let english = SpeechClient.spokenText("Here is the fix for the build.\n```js\n// añadir la función de búsqueda para el menú y la página\n```\nThat is all.", language: "es")
         XCTAssertTrue(english.contains("Code example omitted from speech."), english)
