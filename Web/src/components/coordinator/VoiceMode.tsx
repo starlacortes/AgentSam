@@ -53,12 +53,42 @@ export interface VoicePartial {
   /** The part of the reply meant to be heard, once Ada has moved on to on-screen detail. */
   speech?: string
   final: boolean
+  /** A few words to say right away while Ada works, written by a quick model call. */
+  ack?: string
   /** Where to POST a sentence to have the server speak it. */
   speechPath: string
 }
 
 /** A short pause between Ada going quiet and the microphone opening, so the tail of her voice isn't recorded. */
 export const MIC_AFTER_SPEECH_MS = 200
+
+/** Wait this long before saying anything while Ada works, so an instant answer isn't preceded by filler. */
+export const ACK_AFTER_MS = 1000
+/** If the quick model hasn't written an acknowledgement by now, say one of the app's own. */
+export const ACK_FALLBACK_MS = 2600
+/** While Ada works quietly, say how it's going this often at most, and only a few times per answer. */
+export const PROGRESS_EVERY_MS = 12_000
+export const MAX_PROGRESS_CUES = 2
+
+const FALLBACK_ACKS: Record<'en' | 'es', string[]> = {
+  en: ['Let me check that.', 'One moment.', 'On it.', 'Let me look into that.', 'Give me a second.'],
+  es: ['Déjame revisarlo.', 'Un momento.', 'Ahora mismo.', 'Voy a mirarlo.', 'Dame un segundo.'],
+}
+let fallbackTurn = 0
+
+/** The app's own acknowledgement, a different one each time. */
+export function fallbackAck(lang: 'en' | 'es'): string {
+  const lines = FALLBACK_ACKS[lang]
+  fallbackTurn += 1
+  return lines[fallbackTurn % lines.length]!
+}
+
+/** A short spoken progress line from what Ada is doing right now ("Searching Gmail"). */
+export function progressCue(lang: 'en' | 'es', activity: string | null): string {
+  const step = activity?.trim().replace(/[.…]+$/, '')
+  if (lang === 'es') return step ? `Sigo en ello: ${step.charAt(0).toLowerCase()}${step.slice(1)}.` : 'Sigo trabajando en ello.'
+  return step ? `Still on it, ${step.charAt(0).toLowerCase()}${step.slice(1)}.` : 'Still working on it.'
+}
 
 /** Why the orb is idle, which decides the hint under it. */
 type Rest = 'start' | 'replied' | 'no-speech'
@@ -140,6 +170,8 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null, tran
   const micTimer = useRef<number | null>(null)
   /** Set when they stop Ada mid-reply, so the rest of that reply isn't read out as it arrives. */
   const hushed = useRef(false)
+  const activityNow = useRef<string | null>(activity)
+  activityNow.current = activity
   /** What Ada said for the last reply, piece by piece, so Replay can read it again the same way. */
   const spoken = useRef<SpokenPiece[]>([])
   const [canReplay, setCanReplay] = useState(false)
@@ -289,9 +321,35 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null, tran
     let spoke = false
     let spokenLength = 0
     let capped = false
-    return ({ text, speech, final, speechPath }: VoicePartial) => {
+    const startedAt = Date.now()
+    let acknowledged = false
+    let lastVoiced = startedAt
+    let cues = 0
+    let lastCue: string | null = null
+    /** Says a short filler line (not part of the answer, so Replay skips it) unless Ada is quiet on purpose. */
+    const fill = (line: string, speechPath: string) => {
+      if (mute.current || hushed.current) return
+      lastVoiced = Date.now()
+      speaker.current?.enqueueText(line, voiceInfo?.setup.tts ? speechPath : undefined)
+    }
+    return ({ text, speech, ack, final, speechPath }: VoicePartial) => {
       if (!active.current) return
       setResponse(text)
+      // While nothing of the answer is ready, let them know she's on it, then how it's going.
+      if (speechOutput && !spoke && !final && !speaker.current?.speaking) {
+        const waited = Date.now() - startedAt
+        if (!acknowledged && waited >= ACK_AFTER_MS && (ack || waited >= ACK_FALLBACK_MS)) {
+          acknowledged = true
+          fill(ack || fallbackAck(lang === 'es' ? 'es' : 'en'), speechPath)
+        } else if (acknowledged && cues < MAX_PROGRESS_CUES && Date.now() - lastVoiced >= PROGRESS_EVERY_MS) {
+          const step = activityNow.current
+          if (step !== lastCue || cues === 0) {
+            cues += 1
+            lastCue = step
+            fill(progressCue(lang === 'es' ? 'es' : 'en', step), speechPath)
+          }
+        }
+      }
       if (text) markVoice('reply-first-text')
       if (final) markVoice('reply-complete')
       if (!speechOutput || capped) return
@@ -482,7 +540,7 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null, tran
   // The status box shows only while Ada is working: the server's current step, or a plain fallback.
   const working = activity?.trim() || (phase === 'thinking' ? t('Thinking') : '')
   const label = phase === 'listening' ? t('Listening…') : phase === 'thinking' ? t('Thinking…') : phase === 'speaking' ? t('Speaking') : orbState === 'error' ? t('Something went wrong') : t('Ready')
-  const heading = phase === 'listening' ? t('I’m listening') : phase === 'thinking' ? t('Finding your answer') : phase === 'speaking' ? t('Here’s what I found') : rest === 'replied' ? t('Anything else?') : t('What can I help with?')
+  const heading = phase === 'listening' ? t('I’m listening') : phase === 'thinking' ? t('Finding your answer') : phase === 'speaking' ? sending.current && !canReplay ? t('Finding your answer') : t('Here’s what I found') : rest === 'replied' ? t('Anything else?') : t('What can I help with?')
   const hint = phase === 'listening'
     ? t('Speak naturally. I’ll send your message when you finish.')
     : phase === 'idle'

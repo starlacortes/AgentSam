@@ -212,6 +212,7 @@ final class PhotosAndVoiceTests: XCTestCase {
 
     func testSpokenMessagesGetTheVoiceStyle() async throws {
         let (engine, conversations) = try await makeEngine(model: "stub") { _, _, _, system, _, _ in
+            if system.contains("spoken acknowledgement") { return LLMReply(message: .assistant("On it."), inputTokens: 0, outputTokens: 0, model: "stub") }
             if system.contains("Decide how to handle") {
                 XCTAssertTrue(system.contains("talking by voice"))
                 return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub")
@@ -242,6 +243,7 @@ final class PhotosAndVoiceTests: XCTestCase {
 
     func testFastPathAnswersWithoutARoutingCall() async throws {
         let (engine, conversations) = try await makeEngine(model: "stub") { _, _, _, system, _, _ in
+            if system.contains("spoken acknowledgement") { return LLMReply(message: .assistant("On it."), inputTokens: 0, outputTokens: 0, model: "stub") }
             XCTAssertFalse(system.contains("Decide how to handle"), "A quick spoken question should not be routed.")
             if system.contains("workspace Markdown memory") { return LLMReply(message: .assistant("# Memory"), inputTokens: 0, outputTokens: 0, model: "stub") }
             return LLMReply(message: .assistant("It's sunny."), inputTokens: 0, outputTokens: 0, model: "stub")
@@ -297,6 +299,7 @@ final class PhotosAndVoiceTests: XCTestCase {
 
     func testSpokenReplyKeepsDetailOnScreenButNotInSpeech() async throws {
         let (engine, conversations) = try await makeEngine(model: "stub") { _, _, _, system, _, _ in
+            if system.contains("spoken acknowledgement") { return LLMReply(message: .assistant("On it."), inputTokens: 0, outputTokens: 0, model: "stub") }
             if system.contains("Decide how to handle") { return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub") }
             if system.contains("workspace Markdown memory") { return LLMReply(message: .assistant("# Memory"), inputTokens: 0, outputTokens: 0, model: "stub") }
             return LLMReply(message: .assistant("Three campaigns are live. The details are on screen.\n```details\n- Spring\n- Summer\n- Fall"), inputTokens: 0, outputTokens: 0, model: "stub")
@@ -310,7 +313,83 @@ final class PhotosAndVoiceTests: XCTestCase {
         await engine.shutdown()
     }
 
+    // MARK: - Spoken acknowledgement
+
+    func testSpokenMessagesGetAQuickAcknowledgementFromASmallModel() async throws {
+        let models = ModelLog()
+        let (engine, conversations) = try await makeEngine(model: "stub") { _, _, profile, system, messages, _ in
+            if system.contains("spoken acknowledgement") {
+                await models.add(profile.model)
+                XCTAssertTrue(system.contains("in Spanish"))
+                XCTAssertEqual(messages.last?.content, "¿Cómo va la campaña de ayer?")
+                return LLMReply(message: .assistant("\"Déjame revisar la campaña.\"\nExtra line"), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
+            if system.contains("workspace Markdown memory") { return LLMReply(message: .assistant("# Memory"), inputTokens: 0, outputTokens: 0, model: "stub") }
+            // The real answer takes a moment, so the acknowledgement lands while Ada is still working.
+            try await Task.sleep(for: .milliseconds(300))
+            return LLMReply(message: .assistant("Va bien."), inputTokens: 0, outputTokens: 0, model: "stub")
+        }
+        let conversation = try await conversations.create(ownerID: "owner")
+        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "¿Cómo va la campaña de ayer?", launchedBy: "Owner", language: "en", spoken: true)
+        let result = try await finished(conversations, id: conversation.id)
+        XCTAssertEqual(result.messages.last?.acknowledgement, "Déjame revisar la campaña.")
+        XCTAssertEqual(result.messages.last?.text, "Va bien.")
+        let used = await models.all
+        XCTAssertEqual(used.count, 1)
+        await engine.shutdown()
+    }
+
+    func testTypedMessagesGetNoAcknowledgement() async throws {
+        let (engine, conversations) = try await makeEngine(model: "stub") { _, _, _, system, _, _ in
+            XCTAssertFalse(system.contains("spoken acknowledgement"))
+            if system.contains("Decide how to handle") { return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub") }
+            if system.contains("workspace Markdown memory") { return LLMReply(message: .assistant("# Memory"), inputTokens: 0, outputTokens: 0, model: "stub") }
+            return LLMReply(message: .assistant("Typed answer."), inputTokens: 0, outputTokens: 0, model: "stub")
+        }
+        let conversation = try await conversations.create(ownerID: "owner")
+        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "How is it going?", launchedBy: "Owner", language: "en")
+        let result = try await finished(conversations, id: conversation.id)
+        XCTAssertNil(result.messages.last?.acknowledgement)
+        await engine.shutdown()
+    }
+
+    func testAcknowledgementUsesASmallModel() {
+        let deepseek = ProviderConfig.builtin.first { $0.id == "deepseek" }!
+        let anthropic = ProviderConfig.builtin.first { $0.id == "anthropic" }!
+        var ada = AgentProfile.rosterTemplates[0]
+        ada.providerID = "deepseek"
+        ada.model = "deepseek-v4-pro"
+        XCTAssertEqual(ConversationEngine.acknowledgementProfile(for: ada, providers: [deepseek, anthropic], hasKey: { _ in true }).model, "deepseek-chat")
+        ada.providerID = "anthropic"
+        ada.model = "claude-opus-4-5"
+        XCTAssertEqual(ConversationEngine.acknowledgementProfile(for: ada, providers: [anthropic], hasKey: { _ in true }).model, "claude-haiku-4-5")
+        // A provider with no small model and no other key: Ada's own model.
+        let custom = ProviderConfig(id: "custom", name: "Custom", kind: .openAICompatible, baseURL: "https://example.com", models: ["big-model"])
+        ada.providerID = "custom"
+        ada.model = "big-model"
+        XCTAssertEqual(ConversationEngine.acknowledgementProfile(for: ada, providers: [custom, anthropic], hasKey: { $0.id == "custom" }).model, "big-model")
+        // "gemini" contains "mini" but isn't a small model.
+        let google = ProviderConfig(id: "g", name: "G", kind: .openAICompatible, baseURL: "https://example.com", models: ["gemini-2.5-pro", "gemini-2.5-flash"])
+        ada.providerID = "g"
+        ada.model = "gemini-2.5-pro"
+        XCTAssertEqual(ConversationEngine.acknowledgementProfile(for: ada, providers: [google], hasKey: { _ in true }).model, "gemini-2.5-flash")
+    }
+
+    func testAcknowledgementIsCleanedToOneShortLine() {
+        XCTAssertEqual(ConversationEngine.cleanAcknowledgement("**On it**"), "On it.")
+        XCTAssertEqual(ConversationEngine.cleanAcknowledgement("Ada: Let me check that!"), "Let me check that!")
+        XCTAssertNil(ConversationEngine.cleanAcknowledgement("Want me to check?"))
+        XCTAssertNil(ConversationEngine.cleanAcknowledgement(""))
+        XCTAssertNil(ConversationEngine.cleanAcknowledgement(String(repeating: "word ", count: 20)))
+        XCTAssertTrue(ConversationEngine.acknowledgementSystem(language: "en", avoid: "Let me check that.").contains("Don't repeat your last one (\"Let me check that.\")"))
+    }
+
     func testVoiceStyleOffersTheDetailsLine() {
         XCTAssertTrue(ConversationPrompts.voiceStyle(language: "en").contains("```details"))
     }
+}
+
+private actor ModelLog {
+    private(set) var all: [String] = []
+    func add(_ model: String) { all.append(model) }
 }

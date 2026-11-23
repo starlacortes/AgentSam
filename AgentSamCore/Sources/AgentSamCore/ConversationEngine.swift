@@ -281,6 +281,12 @@ public actor ConversationEngine {
             let skillList = await skills.enabled()
             let providers = await store.loadProviders()
             let coordinator = try coordinator(providers: providers)
+            // Voice: say a few words right away while the real answer is worked out. It runs beside
+            // the reply and is dropped if the reply finishes first.
+            let acknowledgement = userMessage.spoken && !userMessage.scheduled
+                ? Task { await self.acknowledge(userMessage, previous: conversation.messages, coordinator: coordinator, providers: providers, language: language, ref: ref) }
+                : nil
+            defer { acknowledgement?.cancel() }
             let catalog = SkillTeams.catalog(skillList)
             let history = conversation.messages.filter { $0.status != .running && (!$0.text.isEmpty || !$0.photos.isEmpty) }
             let workspaceMemory = await memory.state(ownerID: ownerID)
@@ -1304,6 +1310,88 @@ public actor ConversationEngine {
         "launch", "set up", "setup", "compare", "summar", "list of", "file",
         "crea", "haz", "escrib", "diseñ", "investig", "informe", "equipo", "envía", "envia", "programa", "cada ", "cambia", "borra", "archivo",
     ]
+
+    // MARK: - Spoken acknowledgement
+
+    /// How long the quick acknowledgement may take. After this, the app's own short line is used instead.
+    static let acknowledgementTimeout: Duration = .seconds(4)
+
+    /// Model names that are quick to answer: the small model of each family.
+    static let fastModelHints = ["haiku", "-mini", "flash", "-lite", "nano", "instant", "deepseek-chat", "-8b"]
+
+    /// The model for the acknowledgement: a small, fast one, on Ada's own provider if it has one,
+    /// else on any provider with a key, else Ada's own model.
+    static func acknowledgementProfile(for coordinator: AgentProfile, providers: [ProviderConfig], hasKey: (ProviderConfig) -> Bool) -> AgentProfile {
+        func fast(_ model: String) -> Bool { fastModelHints.contains { model.lowercased().contains($0) } }
+        var profile = coordinator
+        if fast(coordinator.model) { return profile }
+        if let own = providers.first(where: { $0.id == coordinator.providerID }), let model = own.models.first(where: fast) {
+            profile.model = model
+            return profile
+        }
+        for provider in providers where hasKey(provider) {
+            if let model = provider.models.first(where: fast) {
+                profile.providerID = provider.id
+                profile.model = model
+                return profile
+            }
+        }
+        return profile
+    }
+
+    static func acknowledgementSystem(language: String, avoid: String?) -> String {
+        let spanish = language == "es"
+        var lines = [
+            "You are Ada, a warm voice assistant. The person just asked you something out loud, and you are starting on it now.",
+            "Reply with ONE short spoken acknowledgement of 2 to 7 words, in \(spanish ? "Spanish" : "English"), that tells them you're on it.",
+            "Name the topic when it is natural, for example \(spanish ? "\"Déjame revisar tu calendario.\" or \"Un momento, busco esas cifras.\"" : "\"Let me check your calendar.\" or \"One sec, pulling up those numbers.\"").",
+            "Never answer the question, never guess a result, never promise anything, never ask a question.",
+            "Plain text only: no quotes, emoji, Markdown, or name.",
+        ]
+        if let avoid, !avoid.isEmpty { lines.append("Don't repeat your last one (\"\(avoid)\"); word it differently.") }
+        return lines.joined(separator: "\n")
+    }
+
+    /// One short spoken line, or nil when the model's text isn't usable as one.
+    static func cleanAcknowledgement(_ raw: String) -> String? {
+        let firstLine = raw.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
+        var text = firstLine
+            .replacingOccurrences(of: "[*_`#\"“”«»]", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.hasPrefix("Ada:") { text = String(text.dropFirst(4)).trimmingCharacters(in: .whitespaces) }
+        let words = text.split(separator: " ").count
+        guard words >= 1, words <= 10, text.count <= 80, !text.contains("?") else { return nil }
+        if let last = text.last, !".!…".contains(last) { text += "." }
+        return text
+    }
+
+    /// Asks a small model for the acknowledgement and puts it on the reply, if the reply is still being written.
+    private func acknowledge(_ message: ConversationMessage, previous: [ConversationMessage], coordinator: AgentProfile, providers: [ProviderConfig], language: String, ref: ResponseRef) async {
+        let profile = Self.acknowledgementProfile(for: coordinator, providers: providers) { self.keyRing.get($0.keyAccount) != nil }
+        let spoken = SpokenNumbers.language(of: message.text, fallback: language)
+        let avoid = previous.last(where: { $0.role == .assistant && $0.acknowledgement != nil })?.acknowledgement
+        let system = Self.acknowledgementSystem(language: spoken, avoid: avoid)
+        let request = String(message.text.prefix(600))
+        let line: String? = await withTaskGroup(of: String?.self) { group in
+            group.addTask {
+                let reply = try? await self.complete(coordinator: profile, system: system, messages: [.user(request)], tools: nil, maxTokens: 40)
+                return reply?.message.content.flatMap(Self.cleanAcknowledgement)
+            }
+            group.addTask {
+                try? await Task.sleep(for: Self.acknowledgementTimeout)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+        guard let line, !Task.isCancelled else { return }
+        _ = try? await conversations.updateMessage(id: ref.conversationID, ownerID: ref.ownerID, messageID: ref.responseID) { reply in
+            guard reply.status == .running, reply.acknowledgement == nil else { return }
+            reply.acknowledgement = line
+        }
+    }
 
     /// True for a short spoken message that is a question or a chat turn, not a request for work.
     /// It also stays false right after Ada asked something, because the answer may complete a

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { I18nProvider } from '../../i18n'
-import { startedOver, VoiceMode } from './VoiceMode'
+import { fallbackAck, progressCue, startedOver, VoiceMode, type VoicePartial } from './VoiceMode'
 
 class TestUtterance {
   lang = ''
@@ -224,6 +224,72 @@ describe('VoiceMode hands-free', () => {
     expect(document.querySelector('.co-voice-orb')!.classList.contains('idle')).toBe(true)
   })
 
+  it('says a quick acknowledgement while Ada works, but keeps it out of Replay', async () => {
+    let clock = 1_000_000
+    vi.spyOn(Date, 'now').mockImplementation(() => clock)
+    const synthesis = setUp()
+    let push: (update: VoicePartial) => void = () => {}
+    let finish: () => void = () => {}
+    const onSend = vi.fn((_text: string, _wait: boolean, onPartial?: (update: VoicePartial) => void) => {
+      push = onPartial ?? (() => {})
+      return new Promise<{ text: string }>((resolve) => { finish = () => resolve({ text: 'You have two meetings tomorrow.' }) })
+    })
+    render(<I18nProvider><VoiceMode onSend={onSend} onTranscribe={vi.fn()} onClose={vi.fn()} /></I18nProvider>)
+    await waitFor(() => expect(TestRecognition.made).toHaveLength(1))
+    act(() => TestRecognition.made[0]!.onerror?.({ error: 'no-speech' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message Ada with your keyboard' }), { target: { value: 'What is on tomorrow' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+    const partial = { text: '', final: false, speechPath: '/speech', ack: 'Let me check your calendar.' }
+    // Too soon: an instant answer shouldn't get filler in front of it.
+    act(() => push(partial))
+    expect(synthesis.speak).not.toHaveBeenCalled()
+    clock += 1200
+    act(() => push(partial))
+    await waitFor(() => expect(synthesis.speak).toHaveBeenCalledTimes(1))
+    expect(synthesis.speak.mock.calls[0]?.[0].text).toBe('Let me check your calendar.')
+    // Said once, not on every update.
+    clock += 500
+    act(() => push(partial))
+    act(() => push({ ...partial, text: 'You have two meetings tomorrow.', final: true }))
+    await act(async () => finish())
+    await waitFor(() => expect(synthesis.speak).toHaveBeenCalledTimes(2))
+    expect(synthesis.speak.mock.calls[1]?.[0].text).toBe('You have two meetings tomorrow.')
+    fireEvent.click(await screen.findByRole('button', { name: 'Replay answer' }))
+    await waitFor(() => expect(synthesis.speak).toHaveBeenCalledTimes(3))
+    expect(synthesis.speak.mock.calls[2]?.[0].text).toBe('You have two meetings tomorrow.')
+  })
+
+  it('falls back to its own acknowledgement, then a progress line on long work', async () => {
+    let clock = 1_000_000
+    vi.spyOn(Date, 'now').mockImplementation(() => clock)
+    const synthesis = setUp()
+    let push: (update: VoicePartial) => void = () => {}
+    const onSend = vi.fn((_text: string, _wait: boolean, onPartial?: (update: VoicePartial) => void) => {
+      push = onPartial ?? (() => {})
+      return new Promise<{ text: string }>(() => {})
+    })
+    render(<I18nProvider><VoiceMode onSend={onSend} onTranscribe={vi.fn()} onClose={vi.fn()} activity="Searching Gmail" /></I18nProvider>)
+    await waitFor(() => expect(TestRecognition.made).toHaveLength(1))
+    act(() => TestRecognition.made[0]!.onerror?.({ error: 'no-speech' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message Ada with your keyboard' }), { target: { value: 'Find the invoice' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+    const partial = { text: '', final: false, speechPath: '/speech' }
+    clock += 1500
+    act(() => push(partial))
+    expect(synthesis.speak).not.toHaveBeenCalled()
+    clock += 1500
+    act(() => push(partial))
+    await waitFor(() => expect(synthesis.speak).toHaveBeenCalledTimes(1))
+    clock += 13_000
+    act(() => push(partial))
+    await waitFor(() => expect(synthesis.speak).toHaveBeenCalledTimes(2))
+    expect(synthesis.speak.mock.calls[1]?.[0].text).toBe('Still on it, searching Gmail.')
+    // The same step again isn't repeated.
+    clock += 13_000
+    act(() => push(partial))
+    expect(synthesis.speak).toHaveBeenCalledTimes(2)
+  })
+
   it('shows the conversation beside the orb, and sends picks from it through voice', async () => {
     setUp()
     const onSend = vi.fn().mockResolvedValue({ text: 'Done.' })
@@ -231,6 +297,16 @@ describe('VoiceMode hands-free', () => {
     expect(screen.getByRole('complementary', { name: 'Conversation' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Quick reply' }))
     await waitFor(() => expect(onSend).toHaveBeenCalledWith('Yes, go ahead', true, expect.any(Function), false))
+  })
+})
+
+describe('spoken filler', () => {
+  it('varies the fallback acknowledgement and speaks Spanish too', () => {
+    const first = fallbackAck('en')
+    expect(fallbackAck('en')).not.toBe(first)
+    expect(fallbackAck('es')).toMatch(/[a-záéíóú]/i)
+    expect(progressCue('es', 'Buscando en Gmail')).toBe('Sigo en ello: buscando en Gmail.')
+    expect(progressCue('en', null)).toBe('Still working on it.')
   })
 })
 
