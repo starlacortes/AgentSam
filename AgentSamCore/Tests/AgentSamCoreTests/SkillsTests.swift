@@ -110,6 +110,16 @@ final class SkillsTests: XCTestCase {
         let noSteps = await SkillTools.run(call: call(#"{"name":"Empty","when_to_use":"x","procedure":[],"specialists":["Scout"]}"#), skills: skills)
         XCTAssertFalse(noSteps.succeeded)
 
+        // A skill is procedure text: specialists are optional, and a task uses the default lineup.
+        let textOnly = await SkillTools.run(call: call(#"{"name":"Invoice check","when_to_use":"Checking supplier invoices.","procedure":["Match each line to the order","Flag differences"]}"#), skills: skills)
+        XCTAssertTrue(textOnly.succeeded, textOnly.resultText)
+        let invoice = await skills.skill(id: "invoice-check")
+        XCTAssertEqual(invoice?.specialists, [])
+        let coordinator = AgentProfile.rosterTemplates.first { $0.role == .coordinator }!
+        let team = invoice.flatMap { SkillTeams.team(for: $0, coordinator: coordinator, providers: [], hasKey: { _ in false }, saved: nil) }
+        XCTAssertEqual(team?.workers.map(\.name).sorted(), ["Quill", "Scout"])
+        XCTAssertEqual(team?.agents.filter { $0.role == .verifier }.map(\.name), ["Judge"])
+
         // Updating keeps the skill's team, so its mission history stays linked.
         let firstTeam = skill?.teamID
         _ = await SkillTools.run(call: call(#"{"name":"Weekly ads report","when_to_use":"Weekly summaries.","procedure":["One step"],"specialists":["Plot"],"enabled":false}"#), skills: skills)

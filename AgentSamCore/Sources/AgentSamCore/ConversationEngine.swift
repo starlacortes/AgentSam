@@ -513,7 +513,7 @@ public actor ConversationEngine {
         let taskTools = ref == nil ? [] : TaskTools.definitions(catalog: SkillTeams.catalog(await skills.enabled()))
         // Helpers run inside this reply, so they need a user-owned reply to show their work in too.
         // Proposing a saved helper role needs an approval card, so it is offered only with access.
-        let delegateTools = ref == nil ? [] : HelperTools.definitions(hasWorkstation: workstation != nil, hasMCP: !mcpTools.isEmpty, saved: await helpers.all(), canSave: access != nil)
+        let delegateTools = ref == nil ? [] : HelperTools.definitions(hasWorkstation: workstation != nil, hasMCP: !mcpTools.isEmpty, saved: await helpers.all(), canSave: access != nil, skills: await skills.enabled().map(\.id))
         let offeredTools = OfferedTools.direct(connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedAccess: access != nil, hasWorkstation: workstation != nil, mcpTools: mcpTools, taskTools: taskTools, delegateTools: delegateTools)
         let tools = offeredTools.definitions
         let offered = offeredTools.names
@@ -792,7 +792,15 @@ public actor ConversationEngine {
         let request: HelperTools.Request
         switch HelperTools.request(from: call, saved: await helpers.all()) {
         case .failure(let error): return .failure(error.message)
-        case .success(let valid): request = valid
+        case .success(var valid):
+            if let id = valid.skillID {
+                guard let skill = await skills.skill(id: id), skill.enabled else {
+                    let known = await skills.enabled().map(\.id).joined(separator: ", ")
+                    return .failure("No enabled skill \"\(id)\". Enabled skills: \(known.isEmpty ? "none" : known). Leave skill out, or put the steps in the brief.")
+                }
+                valid.procedure = String(SkillTeams.procedureBlock(skill).trimmingCharacters(in: .whitespacesAndNewlines).prefix(4_000))
+            }
+            request = valid
         }
         let offeredTools = parent.restricted { name, family in HelperTools.allows(name: name, family: family, groups: request.groups) }
         let es = language == "es"
