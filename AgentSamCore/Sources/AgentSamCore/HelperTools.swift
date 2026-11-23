@@ -80,7 +80,7 @@ public enum HelperTools {
         return builtInRoles.first { $0.function == key }
     }
 
-    public static func definitions(hasWorkstation: Bool, hasMCP: Bool, saved: [SavedHelper] = [], canSave: Bool = false) -> [APIToolDef] {
+    public static func definitions(hasWorkstation: Bool, hasMCP: Bool, saved: [SavedHelper] = [], canSave: Bool = false, skills: [String] = []) -> [APIToolDef] {
         let functions = builtInRoles.map(\.function).joined(separator: ", ")
         var groups = Group.allCases.filter { $0 != .workstation || hasWorkstation }.filter { $0 != .mcp || hasMCP }.map(\.rawValue)
         if groups.isEmpty { groups = ["read"] }
@@ -102,6 +102,7 @@ public enum HelperTools {
                         ("function", .object([("type", .string("string")), ("description", .string("What the helper does, in one or two words. Ready roles: \(functions).\(savedLine) Any other word works too; then write a brief."))])),
                         ("task", .object([("type", .string("string")), ("description", .string("The whole job, self-contained: what to produce, what to use, and what done looks like. The helper cannot see this chat."))])),
                         ("brief", .object([("type", .string("string")), ("description", .string("Optional. Extra instructions about the helper's role or method, for example when the function has no ready role."))])),
+                        ("skill", .object([("type", .string("string")), ("description", .string(skills.isEmpty ? "Optional. The ID of one of your skills whose procedure the helper should follow. No skills are enabled, so leave it out." : "Optional. The ID of one of your skills whose procedure the helper should follow. Enabled skills: \(skills.prefix(40).joined(separator: ", ")).")) ])),
                         ("tools", .object([
                             ("type", .string("array")),
                             ("items", groupItems),
@@ -218,6 +219,9 @@ public enum HelperTools {
         /// The saved role in use, when Ada saved one for this function.
         public var savedRole: String? = nil
         public var savedVersion: Int? = nil
+        /// The skill Ada asked the helper to follow, and its procedure once the engine looked it up.
+        public var skillID: String? = nil
+        public var procedure: String? = nil
     }
 
     /// Reads a call's arguments, or says what is wrong with them.
@@ -243,7 +247,8 @@ public enum HelperTools {
         } else if let preset = role(for: function) {
             groups = preset.groups
         }
-        return .success(Request(function: function, name: name, task: task, brief: brief?.isEmpty == false ? String(brief!.prefix(1_500)) : nil, groups: groups, savedRole: savedHelper?.role, savedVersion: savedHelper?.version))
+        let skill = args["skill"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return .success(Request(function: function, name: name, task: task, brief: brief?.isEmpty == false ? String(brief!.prefix(1_500)) : nil, groups: groups, savedRole: savedHelper?.role, savedVersion: savedHelper?.version, skillID: skill?.isEmpty == false ? skill : nil))
     }
 
     /// Whether a helper with these groups may run `name`, offered from `family`.
@@ -276,6 +281,7 @@ public enum HelperTools {
         var text = "You are \(request.name), a helper working for Ada. "
         if let preset { text += preset + " " }
         if let brief = request.brief { text += "\nAda's instructions for your role: \(brief)\n" }
+        if let procedure = request.procedure { text += "\n\(procedure)\n" }
         text += """
 
         Do only the task you are given, with the tools offered: \(tools.isEmpty ? "none" : tools.joined(separator: ", ")). You cannot see Ada's chat, so rely on the task text and the workspace files. \

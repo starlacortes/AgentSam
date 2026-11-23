@@ -805,6 +805,7 @@ final class ConversationTests: XCTestCase {
             if system.contains("Decide how to handle") { return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub") }
             let names = Set((tools ?? []).map(\.function.name))
             if system.contains("You are researchAda") {
+                XCTAssertTrue(system.contains("SKILL: Research"), "the skill's procedure reaches the helper")
                 // Read-only: it can look at files, but not write them, delegate, or schedule.
                 XCTAssertTrue(names.contains("chat_read_file"))
                 XCTAssertFalse(names.contains("chat_write_file"))
@@ -834,9 +835,10 @@ final class ConversationTests: XCTestCase {
             if results.isEmpty {
                 XCTAssertTrue(names.contains("delegate"))
                 return LLMReply(message: APIMessage(role: "assistant", content: nil, tool_calls: [
-                    APIToolCall(id: "d1", function: .init(name: "delegate", arguments: #"{"function":"research","task":"Find sources on battery recycling"}"#)),
+                    APIToolCall(id: "d1", function: .init(name: "delegate", arguments: #"{"function":"research","task":"Find sources on battery recycling","skill":"research"}"#)),
                     APIToolCall(id: "d2", function: .init(name: "delegate", arguments: #"{"function":"price check","brief":"Compare vendor prices","task":"Write prices.md","tools":["files"]}"#)),
                     APIToolCall(id: "d3", function: .init(name: "delegate", arguments: #"{"function":"research","task":"x","tools":["teleport"]}"#)),
+                    APIToolCall(id: "d4", function: .init(name: "delegate", arguments: #"{"function":"research","task":"x","skill":"nope"}"#)),
                 ]), inputTokens: 0, outputTokens: 0, model: "stub")
             }
             XCTAssertTrue(results[0].contains("researchAda finished"), results[0])
@@ -845,6 +847,7 @@ final class ConversationTests: XCTestCase {
             XCTAssertTrue(results[1].contains("priceCheckAda finished"), results[1])
             XCTAssertTrue(results[1].contains("prices.md"), results[1])
             XCTAssertTrue(results[2].contains("Unknown tool group"), results[2])
+            XCTAssertTrue(results[3].contains("No enabled skill \"nope\""), results[3])
             return LLMReply(message: .assistant("Both helpers reported."), inputTokens: 0, outputTokens: 0, model: "stub")
         })
         let conversation = try await conversations.create(ownerID: "owner")

@@ -23,8 +23,9 @@ public struct Skill: Codable, Identifiable, Hashable, Sendable {
     public var whenToUse: String
     /// The dedicated procedure, step by step. Given to the coordinating agent of every run.
     public var procedure: [String]
-    /// Roster names (see `AgentProfile.rosterTemplates`) of the specialists to bring in. Empty for a
-    /// migrated team, which runs with the agents it was saved with.
+    /// Roster names (see `AgentProfile.rosterTemplates`) of the specialists a task brings in.
+    /// Optional: a skill Ada saves is procedure text, and a task without specialists uses
+    /// `SkillTeams.defaultLineup`. A migrated team keeps it empty and runs with its saved agents.
     public var specialists: [String]
     /// The team the skill runs as. Stable, so mission history links back to it.
     public var teamID: UUID
@@ -306,8 +307,11 @@ public enum SkillTeams {
     /// specialists come from the shared roster. A specialist whose provider has no key uses Ada's
     /// provider and model instead, so a skill always runs on what the server can actually call.
     /// A migrated skill runs its saved team unchanged. Returns nil when there is nothing to run.
+    /// The specialists a task brings in when its skill names none.
+    public static let defaultLineup = ["Scout", "Quill", "Judge"]
+
     public static func team(for skill: Skill, coordinator: AgentProfile, providers: [ProviderConfig], hasKey: (ProviderConfig) -> Bool, saved: Team?) -> Team? {
-        if skill.specialists.isEmpty {
+        if skill.specialists.isEmpty && skill.origin == .migratedTeam {
             guard var team = saved, !team.workers.isEmpty else { return nil }
             if !skill.procedure.isEmpty, let index = team.agents.firstIndex(where: { $0.role == .coordinator }) {
                 team.agents[index].systemPrompt += procedureBlock(skill)
@@ -319,7 +323,7 @@ public enum SkillTeams {
         lead.systemPrompt += procedureBlock(skill)
         var agents = [lead]
         var seen = Set<String>()
-        for name in skill.specialists {
+        for name in skill.specialists.isEmpty ? defaultLineup : skill.specialists {
             guard let template = AgentProfile.rosterTemplates.first(where: { $0.name.lowercased() == name.lowercased() && $0.role != .coordinator }),
                   seen.insert(template.name).inserted else { continue }
             if template.role == .verifier && agents.contains(where: { $0.role == .verifier }) { continue }
@@ -384,8 +388,8 @@ public enum SkillTools {
             APIToolDef(
                 name: "skill_save",
                 description: """
-                Save or update one of your own skills: a procedure you will follow, with specialists, whenever a \
-                matching request comes in. Use it when the user asks you to remember how to handle a kind of \
+                Save or update one of your own skills: a procedure you (and the helpers you delegate to) will follow \
+                whenever a matching request comes in. Use it when the user asks you to remember how to handle a kind of \
                 request ("whenever I ask for X, do it this way"), or asks to change or turn off a skill you saved. \
                 Built-in skills cannot be changed. The skill is used from the next message on.
                 """,
@@ -398,11 +402,11 @@ public enum SkillTools {
                         ("specialists", .object([
                             ("type", .string("array")),
                             ("items", .object([("type", .string("string")), ("enum", .array(specialistNames.map { .string($0) }))])),
-                            ("description", .string("One to four specialists to bring in. At least one must not be Judge (the verifier).")),
+                            ("description", .string("Optional, for start_task only: one to four specialists to bring in, at least one not Judge. Leave out to use the default lineup.")),
                         ])),
                         ("enabled", .object([("type", .string("boolean")), ("description", .string("false turns the skill off. Defaults to true."))])),
                     ])),
-                    ("required", .array([.string("name"), .string("when_to_use"), .string("procedure"), .string("specialists")])),
+                    ("required", .array([.string("name"), .string("when_to_use"), .string("procedure")])),
                 ])
             ),
         ]
@@ -420,7 +424,7 @@ public enum SkillTools {
         guard !id.isEmpty, name.count <= 80 else { return ToolOutcome(resultText: "skill_save needs a name of at most 80 characters.", succeeded: false) }
         guard !whenToUse.isEmpty, whenToUse.count <= 600 else { return ToolOutcome(resultText: "skill_save needs when_to_use, at most 600 characters.", succeeded: false) }
         guard (1...8).contains(procedure.count), procedure.allSatisfy({ $0.count <= 400 }) else { return ToolOutcome(resultText: "skill_save needs one to eight procedure steps of at most 400 characters each.", succeeded: false) }
-        guard (1...4).contains(specialists.count), specialists.contains(where: { $0 != "Judge" }) else {
+        guard specialists.isEmpty || ((1...4).contains(specialists.count) && specialists.contains(where: { $0 != "Judge" })) else {
             return ToolOutcome(resultText: "skill_save needs one to four specialists from: \(specialistNames.joined(separator: ", ")), and at least one that is not Judge.", succeeded: false)
         }
         let skill = Skill(id: id, name: name, whenToUse: whenToUse, procedure: procedure, specialists: specialists, origin: .ada, enabled: args["enabled"]?.boolValue ?? true)
