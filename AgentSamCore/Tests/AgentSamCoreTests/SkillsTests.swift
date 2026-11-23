@@ -34,7 +34,7 @@ final class SkillsTests: XCTestCase {
     func testMigrationConvertsCustomTeamsOnceAndSkipsStockSoloAndSkillTeams() async throws {
         let custom = Team(name: "Ad Ops", goal: "Watch ad spend.", agents: [agent("Ada", role: .coordinator), agent("Penny", role: .worker)])
         let starter = Team.starterTeam()
-        let solo = ConversationEngine.soloTeam(coordinator: AgentProfile.rosterTemplates[0], language: "en")
+        let solo = Team(id: ConversationEngine.soloTeamID, name: "Ada (solo)", agents: [agent("Ada", role: .coordinator), agent("Ada", role: .worker)])
         let skillTeam = Team(id: Skill.builtIns[0].teamID, name: "Research", agents: [agent("Ada", role: .coordinator), agent("Scout", role: .worker)])
         let empty = Team(name: "Just Ada", agents: [agent("Ada", role: .coordinator)])
 
@@ -70,28 +70,6 @@ final class SkillsTests: XCTestCase {
         XCTAssertEqual(created.map(\.id), ["research-2"])
     }
 
-    func testBuiltInSkillTeamUsesAdaAndFallsBackToHerProvider() throws {
-        let ada = agent("Ada", role: .coordinator)
-        let skill = try XCTUnwrap(Skill.builtIns.first { $0.id == "research" })
-        let team = try XCTUnwrap(SkillTeams.team(for: skill, coordinator: ada, providers: [provider], hasKey: { _ in true }, saved: nil))
-        XCTAssertEqual(team.id, skill.teamID)
-        XCTAssertEqual(team.coordinator?.name, "Ada")
-        XCTAssertTrue(team.coordinator?.systemPrompt.contains("SKILL: Research") == true)
-        XCTAssertEqual(team.workers.map(\.name), ["Scout", "Quill"])
-        XCTAssertEqual(team.verifier?.name, "Judge")
-        // No Anthropic or DeepSeek provider is configured, so every specialist runs on Ada's.
-        XCTAssertTrue(team.agents.allSatisfy { $0.providerID == "test" && $0.model == "stub" })
-        XCTAssertEqual(team.toolScope, .readOnly)
-    }
-
-    func testMigratedSkillRunsItsSavedTeam() throws {
-        let saved = Team(name: "Ad Ops", agents: [agent("Ada", role: .coordinator), agent("Penny", role: .worker)])
-        let skill = Skill(id: "ad-ops", name: "Ad Ops", whenToUse: "Ads.", teamID: saved.id, origin: .migratedTeam)
-        let team = SkillTeams.team(for: skill, coordinator: agent("Ada", role: .coordinator), providers: [provider], hasKey: { _ in true }, saved: saved)
-        XCTAssertEqual(team, saved)
-        XCTAssertNil(SkillTeams.team(for: skill, coordinator: agent("Ada", role: .coordinator), providers: [provider], hasKey: { _ in true }, saved: nil))
-    }
-
     func testSkillSaveValidatesAndRefusesBuiltIns() async {
         let skills = SkillStore(root: directory)
         func call(_ json: String) -> APIToolCall {
@@ -110,15 +88,13 @@ final class SkillsTests: XCTestCase {
         let noSteps = await SkillTools.run(call: call(#"{"name":"Empty","when_to_use":"x","procedure":[],"specialists":["Scout"]}"#), skills: skills)
         XCTAssertFalse(noSteps.succeeded)
 
-        // A skill is procedure text: specialists are optional, and a task uses the default lineup.
+        // A skill is procedure text: specialists are optional, and helpers follow its steps.
         let textOnly = await SkillTools.run(call: call(#"{"name":"Invoice check","when_to_use":"Checking supplier invoices.","procedure":["Match each line to the order","Flag differences"]}"#), skills: skills)
         XCTAssertTrue(textOnly.succeeded, textOnly.resultText)
         let invoice = await skills.skill(id: "invoice-check")
         XCTAssertEqual(invoice?.specialists, [])
-        let coordinator = AgentProfile.rosterTemplates.first { $0.role == .coordinator }!
-        let team = invoice.flatMap { SkillTeams.team(for: $0, coordinator: coordinator, providers: [], hasKey: { _ in false }, saved: nil) }
-        XCTAssertEqual(team?.workers.map(\.name).sorted(), ["Quill", "Scout"])
-        XCTAssertEqual(team?.agents.filter { $0.role == .verifier }.map(\.name), ["Judge"])
+        let steps = invoice.map(SkillTeams.procedureBlock) ?? ""
+        XCTAssertTrue(steps.contains("Match each line to the order"), steps)
 
         // Updating keeps the skill's team, so its mission history stays linked.
         let firstTeam = skill?.teamID
@@ -145,8 +121,7 @@ final class SkillsTests: XCTestCase {
             func set(plan: String) { self.plan = plan }
         }
         let seen = Seen()
-        let missions = MissionEngine(store: store, keyRing: keys)
-        let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, missions: missions, completion: { _, _, _, system, _, _ in
+        let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, completion: { _, _, _, system, _, _ in
             if system.contains("Decide how to handle") {
                 await seen.set(routing: system)
                 return LLMReply(message: .assistant(#"{"action":"USE_SKILL","skillIDs":["research"],"rationale":"Looking into it"}"#), inputTokens: 0, outputTokens: 0, model: "stub")

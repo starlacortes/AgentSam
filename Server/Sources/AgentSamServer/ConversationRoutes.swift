@@ -190,10 +190,8 @@ func conversationRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
     api.post("conversations", ":id", "stop") { req async throws -> Response in
         let owner = try req.requirePrincipal().conversationOwnerID
         let id = try req.conversationID
-        guard let conversation = try await ctx.conversations.get(id: id, ownerID: owner) else { throw ConversationError.notFound }
-        for message in conversation.messages {
-            for missionID in message.missionIDs { await ctx.engine.stop(missionID: missionID) }
-        }
+        // Stopping the reply also stops any helper task running in it.
+        guard try await ctx.conversations.get(id: id, ownerID: owner) != nil else { throw ConversationError.notFound }
         await ctx.conversationEngine.stop(conversationID: id, ownerID: owner, language: SrvL10n.lang(for: req))
         return try req.json(AckResult(ok: true, detail: nil), status: .accepted)
     }

@@ -202,7 +202,7 @@ final class MCPServersTests: XCTestCase {
         if let rule { await access.permissions.save(ownerID: "owner", policy: PermissionPolicy(rules: [tool: rule])) }
         let conversations = ConversationStore(root: directory)
         let results = LockedStrings()
-        let engine = ConversationEngine(store: store, conversations: conversations, memory: WorkspaceMemoryStore(root: directory), keyRing: keys, missions: MissionEngine(store: store, keyRing: keys), access: access, completion: { _, _, _, system, messages, _ in
+        let engine = ConversationEngine(store: store, conversations: conversations, memory: WorkspaceMemoryStore(root: directory), keyRing: keys, access: access, completion: { _, _, _, system, messages, _ in
             if system.contains("Decide how to handle") {
                 return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub")
             }

@@ -12,7 +12,6 @@ public actor ConversationEngine {
     private let keyRing: KeyRing
     private let client: LLMClient
     private let connectors: ConnectorHub?
-    private let missions: MissionEngine
     private let promptStore: PromptStore
     private let access: ConversationAccess?
     private let skills: SkillStore
@@ -30,7 +29,7 @@ public actor ConversationEngine {
     /// Running helper tasks: mission ID to the reply they run in, so a task can be stopped from its page.
     private var taskReplies: [UUID: (conversationID: UUID, ownerID: String)] = [:]
 
-    public init(store: MissionStore, conversations: ConversationStore, memory: WorkspaceMemoryStore, workspace: ChatWorkspaceStore? = nil, keyRing: KeyRing, client: LLMClient = LLMClient(), connectors: ConnectorHub? = nil, missions: MissionEngine, promptStore: PromptStore? = nil, access: ConversationAccess? = nil, knowledge: WorkspaceKnowledgeStore? = nil, photos: ConversationPhotoStore? = nil, skills: SkillStore? = nil, helpers: HelperStore? = nil, routing: Bool = true) {
+    public init(store: MissionStore, conversations: ConversationStore, memory: WorkspaceMemoryStore, workspace: ChatWorkspaceStore? = nil, keyRing: KeyRing, client: LLMClient = LLMClient(), connectors: ConnectorHub? = nil, promptStore: PromptStore? = nil, access: ConversationAccess? = nil, knowledge: WorkspaceKnowledgeStore? = nil, photos: ConversationPhotoStore? = nil, skills: SkillStore? = nil, helpers: HelperStore? = nil, routing: Bool = true) {
         self.store = store
         self.conversations = conversations
         self.memory = memory
@@ -40,7 +39,6 @@ public actor ConversationEngine {
         self.keyRing = keyRing
         self.client = client
         self.connectors = connectors
-        self.missions = missions
         self.promptStore = promptStore ?? PromptStore(builtins: PromptStore.builtins)
         self.access = access
         self.skills = skills ?? SkillStore(root: store.root)
@@ -49,7 +47,7 @@ public actor ConversationEngine {
         self.completionOverride = nil
     }
 
-    init(store: MissionStore, conversations: ConversationStore, memory: WorkspaceMemoryStore, workspace: ChatWorkspaceStore? = nil, keyRing: KeyRing, connectors: ConnectorHub? = nil, missions: MissionEngine, promptStore: PromptStore? = nil, access: ConversationAccess? = nil, knowledge: WorkspaceKnowledgeStore? = nil, photos: ConversationPhotoStore? = nil, skills: SkillStore? = nil, helpers: HelperStore? = nil, routing: Bool = true, completion: @escaping Completion) {
+    init(store: MissionStore, conversations: ConversationStore, memory: WorkspaceMemoryStore, workspace: ChatWorkspaceStore? = nil, keyRing: KeyRing, connectors: ConnectorHub? = nil, promptStore: PromptStore? = nil, access: ConversationAccess? = nil, knowledge: WorkspaceKnowledgeStore? = nil, photos: ConversationPhotoStore? = nil, skills: SkillStore? = nil, helpers: HelperStore? = nil, routing: Bool = true, completion: @escaping Completion) {
         self.store = store
         self.conversations = conversations
         self.memory = memory
@@ -59,7 +57,6 @@ public actor ConversationEngine {
         self.keyRing = keyRing
         self.client = LLMClient()
         self.connectors = connectors
-        self.missions = missions
         self.promptStore = promptStore ?? PromptStore(builtins: PromptStore.builtins)
         self.access = access
         self.skills = skills ?? SkillStore(root: store.root)
@@ -119,6 +116,9 @@ public actor ConversationEngine {
             }
         }
     }
+
+    /// The missions of the helper tasks running now.
+    public var runningTaskIDs: [UUID] { Array(taskReplies.keys) }
 
     /// Whether a helper task is still running for this mission.
     public func isTaskRunning(missionID: UUID) -> Bool { taskReplies[missionID] != nil }
@@ -471,28 +471,9 @@ public actor ConversationEngine {
         return ada
     }
 
-    /// A one-agent team for SOLO missions: Ada is the coordinator *and* the only worker, so her
-    /// self-directed work gets the full mission pipeline — plan, workspace, run steps, report —
-    /// without a persisted specialist team. The team is a stable singleton so its missions
-    /// resolve in the UI; it is hidden from the routing roster because SOLO is the way to use it.
+    /// The ID of the one-agent "Ada (solo)" team older releases saved for SOLO missions. Kept so a
+    /// saved copy is never migrated into a skill.
     public static let soloTeamID = UUID(uuidString: "AE4DA0A1-5F1D-4C4B-9A5A-DACA0E1E0F1F")!
-
-    static func soloTeam(coordinator: AgentProfile, language: String, store: PromptStore = PromptStore(builtins: PromptStore.builtins)) -> Team {
-        var worker = coordinator
-        worker.id = UUID()
-        worker.role = .worker
-        worker.title = language == "es" ? "Especialista" : "Solo specialist"
-        worker.systemPrompt = store.render("ada_solo_worker")
-        return Team(
-            id: soloTeamID,
-            name: language == "es" ? "Ada (sola)" : "Ada (solo)",
-            emoji: "🧭",
-            goal: language == "es" ? "Ada completa el trabajo ella sola." : "Ada completes the work on her own.",
-            agents: [coordinator, worker],
-            // Ada's own work follows the Connections toggles, exactly like her direct chat.
-            toolScope: ToolScope(permissions: .all)
-        )
-    }
 
     /// Earlier turns as real chat messages, oldest first, ending on an assistant turn so the caller can
     /// append the user's latest message. Consecutive same-role turns are merged because providers

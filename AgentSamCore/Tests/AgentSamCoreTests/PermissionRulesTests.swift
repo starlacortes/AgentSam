@@ -211,7 +211,7 @@ final class PermissionRulesTests: XCTestCase {
         let access = ConversationAccess(root: directory)
         await access.permissions.save(ownerID: "owner", policy: PermissionPolicy(rules: ["cloudflare_dns_create": rule]))
         let conversations = ConversationStore(root: directory)
-        let engine = ConversationEngine(store: store, conversations: conversations, memory: WorkspaceMemoryStore(root: directory), keyRing: keys, connectors: hub, missions: MissionEngine(store: store, keyRing: keys), access: access, completion: { _, _, _, system, messages, _ in
+        let engine = ConversationEngine(store: store, conversations: conversations, memory: WorkspaceMemoryStore(root: directory), keyRing: keys, connectors: hub, access: access, completion: { _, _, _, system, messages, _ in
             if system.contains("Decide how to handle") {
                 return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub")
             }
@@ -232,7 +232,7 @@ final class PermissionRulesTests: XCTestCase {
         let conversations = ConversationStore(root: directory)
         let calls = LockedStrings()
         // A priced model, so each call costs a known amount: 1M input tokens of claude-sonnet-4-5 is $3.
-        let engine = ConversationEngine(store: store, conversations: conversations, memory: WorkspaceMemoryStore(root: directory), keyRing: keys, missions: MissionEngine(store: store, keyRing: keys), access: access, completion: { _, _, _, system, _, tools in
+        let engine = ConversationEngine(store: store, conversations: conversations, memory: WorkspaceMemoryStore(root: directory), keyRing: keys, access: access, completion: { _, _, _, system, _, tools in
             if system.contains("Decide how to handle") {
                 calls.append(contentsOf: ["route"])
                 return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 10, outputTokens: 10, model: "claude-sonnet-4-5")

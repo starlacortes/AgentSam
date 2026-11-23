@@ -23,20 +23,24 @@ The Mac and iPhone apps were retired to keep one product surface. They live in g
 
 ## Skills: how Ada brings in specialists
 
-People never set up or pick teams. Ada has a catalog of **skills**: each says when to use it, gives a short step-by-step procedure, and names the specialists it needs. Her routing prompt carries one "use when" line per skill; when a request matches, she routes it as `USE_SKILL` with up to three skill IDs. The server then builds each skill's specialist group (Ada coordinating with the procedure added to her prompt, specialists from the shared roster) and runs it as an ordinary mission, below. A specialist whose provider has no key runs on Ada's provider and model.
+People never set up or pick teams. Ada has a catalog of **skills**: each says when to use it and gives a short step-by-step procedure. Ada hands a skill to a helper with `delegate` (`skill: "<id>"`) or to a task with `start_task`; the helper, or the task's planning call, follows its steps. With the legacy routing call on, a `USE_SKILL` decision runs the skill as a helper task too.
 
-- **Built-in skills** (`Skill.builtIns`): Research, Content writing, Data analysis, News briefing, Idea pressure-test, and Deep reading. They replace the old team templates, with the same specialists.
-- **Ada's own skills:** when someone says "whenever I ask for X, do it this way", Ada saves a skill with the `skill_save` tool (name, when to use it, steps, or `enabled: false` to turn it off). A skill is procedure text: Ada can hand it to a helper with `delegate` (`skill: "<id>"`), and the helper follows its steps. Specialists are optional and only matter for missions started by the legacy routing call. Built-ins cannot be changed.
-- **Migrated teams:** on startup, and whenever Ada routes, any team saved in `teams/` that is not Ada's solo team, not already behind a skill, and not an unmodified starter or template team becomes a custom skill that runs that team exactly as saved. Team files are never changed or deleted. Custom skills live in `skills.json`; `GET /api/skills` lists them all, read-only.
+- **Built-in skills** (`Skill.builtIns`): Research, Content writing, Data analysis, News briefing, Idea pressure-test, and Deep reading. They replace the old team templates.
+- **Ada's own skills:** when someone says "whenever I ask for X, do it this way", Ada saves a skill with the `skill_save` tool (name, when to use it, steps, or `enabled: false` to turn it off). A skill is procedure text: Ada can hand it to a helper with `delegate` (`skill: "<id>"`), and the helper follows its steps. Specialist names from older releases are kept but no longer used. Built-ins cannot be changed.
+- **Migrated teams:** on startup, and whenever Ada routes, any team saved in `teams/` that is not Ada's solo team, not already behind a skill, and not an unmodified starter or template team becomes a custom skill, so its goal and steps are not lost. Team files are never changed or deleted. Custom skills live in `skills.json`; `GET /api/skills` lists them all, read-only.
 
-Teams remain the execution unit on disk (`teams/<uuid>.json`), so mission history keeps linking to who did the work.
+Team files from older releases stay on disk (`teams/<uuid>.json`) and are read-only, so older mission history keeps linking to who did the work.
 
-## How a mission runs
+## How a task runs
 
-1. **Plan** — the team's coordinator turns your objective into concrete tasks, each assigned to a worker by name with a deliverable filename (strict `TASK / Agent / Goal / Deliverable` contract, retried and gracefully degraded).
-2. **Work** — workers run **in parallel** (TaskGroup, up to 4 at a time). Each worker has sandboxed file tools (`write_file`, `read_file`, `list_dir`, `finish`) in the mission workspace, a step cap, and a handoff summary.
-3. **Verify** — mechanical checks (files exist, claims match disk) plus an independent verifier agent with a read-only toolset and a strict line-protocol verdict (`PASS|CONCERN|FAIL … VERDICT:`).
-4. **Report** — the coordinator merges handoffs into a final markdown report saved as `final-report.md`.
+Every larger job is a helper task (`start_task`, the missions API, a Maloon workflow, or a routed decision):
+
+1. **Plan** — one planning call splits the objective into one to four steps with `plan_steps`, each naming a helper (researchAda, writeAda…) and the tool groups it needs. Without a usable plan, one buildAda helper does the whole objective.
+2. **Work** — each step runs as a helper with Ada's own tools for those groups, under the same approvals, budgets and audit, and sees the reports of the steps before it.
+3. **Check** — judgeAda reads the files and reports, read-only, and gives a verdict (clean, concerns, failed, or unverified), saved as `verification.md`.
+4. **Report** — the step reports, the check and the files are saved as `final-report.md`, and Ada writes one answer from them.
+
+The older mission engine (team coordinator, parallel workers, verifier) was removed; its mission history, events and files still open read-only.
 
 Every turn, tool call, deliverable, finding, and cost is a `RunEvent`, appended to an append-only `events.jsonl` ledger, streamed live to the web app, and persisted for review.
 
@@ -46,13 +50,14 @@ Every turn, tool call, deliverable, finding, and cost is a `RunEvent`, appended 
 <data dir>/
   providers.json          provider configs (base URLs, models)
   keys.json               API keys (server only; chmod 600; or env vars)
-  teams/<uuid>.json       specialist groups that skills run as (backend only)
+  teams/<uuid>.json       teams from older releases (read-only, for mission history)
+  helpers.json            helper roles Ada saved, with their history
   skills.json             custom skills (Ada-saved and migrated teams); built-ins ship in the binary
   missions/<uuid>/
     mission.json          status, phase, cost, tokens, final report
     events.jsonl          append-only RunEvent ledger
-    deliverables/         agent-produced .md files + final-report.md + verification.md
-    conversations/        full per-agent message transcripts (JSON)
+    deliverables/         files the helpers wrote + final-report.md + verification.md
+    conversations/        per-agent transcripts from older team missions (JSON)
   conversations/
     <uuid>.json           chat history (the web app's conversations, with any recurring schedule)
     <uuid>/files/         files Ada wrote directly in chat (see below)
@@ -319,11 +324,9 @@ AgentSamCore/            the engine (Swift package)
   KeyRing.swift            file + env key storage
   Tools.swift              sandboxed agent file tools
   Connectors.swift, Gmail*, GoogleAds*, Web*, Cloudflare*   connectors (outside tools for agents)
-  PromptBuilder.swift      mission prompt rendering and typed context
-  PromptStore.swift        versioned Ada and mission prompt templates
-  MissionEngine.swift      the orchestrator: plan → parallel work → verify → report
+  PromptStore.swift        versioned Ada prompt templates
+  TaskTools.swift, HelperTools.swift   helper tasks: plan steps, helpers, judgeAda's check
   MissionStore.swift       file persistence, JSONL ledger, live event bus
-  Parsers.swift            plan parser + verifier line protocol
 Server/                   AgentSamServer (Vapor): REST + WebSocket API, serves the web app
 Web/                      the web app (Vite + React + TypeScript)
 deploy/Dockerfile         the one image Railway builds (web build + server)
@@ -332,7 +335,7 @@ design/, mockups/         icon sources and the original UI concept
 
 ## Languages
 
-The web app is in English. Each mission still carries an `outputLanguage` (`en` or `es`), and `PromptBuilder` writes the coordinator, worker, verifier and report prompts in that language, so Spanish missions plan, work and write deliverables in Spanish.
+The web app is in English. Each task still carries an `outputLanguage` (`en` or `es`), and its plan, helpers and check work in that language, so Spanish tasks write their deliverables in Spanish.
 
 ## Security notes
 

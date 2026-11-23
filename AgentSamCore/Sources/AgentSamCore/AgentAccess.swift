@@ -487,47 +487,6 @@ public actor AgentActionCenter {
         }
     }
 
-    /// Puts a mission worker's action on an approval card in the conversation that launched the
-    /// mission, then waits until it has run. The approve route runs the action (as it does for
-    /// chat cards), so the worker gets its real result instead of racing the route to run it.
-    public func awaitMissionAction(missionID: UUID, kind: AgentActionRequest.Kind, call: APIToolCall, title: String, detail: String, scope: ToolScope? = nil, lifetime: TimeInterval = 15 * 60, runAllowance: TimeInterval = 15 * 60, pollInterval: TimeInterval = 0.25) async -> ToolOutcome {
-        guard let link = links[missionID] else {
-            return .failure("No conversation owns this mission, so nobody can approve this. Launch missions from a conversation. Nothing ran.")
-        }
-        let action = AgentActionRequest(
-            ownerID: link.ownerID, conversationID: link.conversationID, missionID: missionID, kind: kind,
-            title: title, detail: detail,
-            toolName: call.function.name, arguments: .object([("raw", .string(call.function.arguments))]), toolScope: scope, lifetime: lifetime
-        )
-        let saved = request(action)
-        // Once approved, a command may run for minutes, so keep waiting past the card's expiry.
-        let giveUp = saved.expiresAt.addingTimeInterval(runAllowance)
-        while Date() < giveUp {
-            if Task.isCancelled { return .failure("The mission was stopped while waiting for approval (\(saved.id.uuidString)).") }
-            guard var current = get(ownerID: link.ownerID, id: saved.id) else { return .failure("The approval request disappeared. Nothing ran.") }
-            switch current.status {
-            case .pending:
-                if current.expiresAt < Date() {
-                    current.status = .expired
-                    save(current)
-                    return .failure("Not approved: the approval card expired. Nothing ran.")
-                }
-            case .denied:
-                return .failure("The person denied this on the approval card. Nothing ran.")
-            case .expired:
-                return .failure("Not approved: the approval card expired. Nothing ran.")
-            case .completed:
-                return ToolOutcome(resultText: "Approved by the person and run.\n\n" + (current.result ?? "(no output)"))
-            case .failed:
-                return .failure("Approved by the person, but it failed:\n\n" + (current.result ?? "(no output)"))
-            case .approved, .executing:
-                break
-            }
-            try? await Task.sleep(nanoseconds: UInt64(pollInterval * 1_000_000_000))
-        }
-        return .failure("Approved, but no result came back in time (\(saved.id.uuidString)). Check before running it again.")
-    }
-
     private func save(_ action: AgentActionRequest) {
         guard let data = try? Self.encoder.encode(action) else { return }
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

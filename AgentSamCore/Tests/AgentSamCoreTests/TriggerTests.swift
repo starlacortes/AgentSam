@@ -23,7 +23,7 @@ final class TriggerTests: XCTestCase {
         let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
         try keys.set("test-key", for: provider.keyAccount)
         let memory = WorkspaceMemoryStore(root: directory)
-        return ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, missions: MissionEngine(store: store, keyRing: keys)) { _, _, _, system, messages, tools in
+        return ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys) { _, _, _, system, messages, tools in
             if system.contains("Summarize only durable") { return LLMReply(message: .assistant("## Notes"), inputTokens: 0, outputTokens: 0, model: "stub") }
             if system.contains("Decide how to handle") { return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub") }
             guard let answer = reply(system, messages, tools) else { throw StubFailure() }

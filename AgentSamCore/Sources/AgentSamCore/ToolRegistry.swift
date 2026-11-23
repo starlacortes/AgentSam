@@ -86,16 +86,6 @@ public struct OfferedTools: Sendable {
         }
         return OfferedTools(order.map { ($0, groups[$0] ?? []) })
     }
-
-    /// A mission worker's tools: its workspace tools, the connectors its team's scope allows, and the
-    /// workstation when the mission's owner may use it.
-    public static func worker(connectorTools: [APIToolDef], hasWorkstation: Bool = false) -> OfferedTools {
-        OfferedTools([
-            (.worker, AgentTools.workerTools),
-            (.connector, connectorTools),
-            (.workstation, hasWorkstation ? WorkstationTools.definitions : []),
-        ])
-    }
 }
 
 /// What a tool call does to the world, which decides how carefully it runs.

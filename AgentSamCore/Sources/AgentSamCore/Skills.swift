@@ -21,13 +21,13 @@ public struct Skill: Codable, Identifiable, Hashable, Sendable {
     public var name: String
     /// The signals Ada looks out for: the kinds of requests this skill is for.
     public var whenToUse: String
-    /// The dedicated procedure, step by step. Given to the coordinating agent of every run.
+    /// The procedure, step by step. Helpers and task plans follow it.
     public var procedure: [String]
-    /// Roster names (see `AgentProfile.rosterTemplates`) of the specialists a task brings in.
-    /// Optional: a skill Ada saves is procedure text, and a task without specialists uses
-    /// `SkillTeams.defaultLineup`. A migrated team keeps it empty and runs with its saved agents.
+    /// Specialist names from older releases, when skills ran as teams. Kept for display and for
+    /// one release of compatibility; tasks plan their own helpers and do not use them.
     public var specialists: [String]
-    /// The team the skill runs as. Stable, so mission history links back to it.
+    /// The team an older release ran the skill as. Stable, so older mission history and team IDs
+    /// sent by older clients still map to the skill.
     public var teamID: UUID
     public var origin: Origin
     public var enabled: Bool
@@ -303,53 +303,7 @@ public enum SkillError: Error, LocalizedError, Sendable {
 // MARK: - Running a skill
 
 public enum SkillTeams {
-    /// The team a skill runs as. Ada coordinates, with the skill's procedure added to her prompt; the
-    /// specialists come from the shared roster. A specialist whose provider has no key uses Ada's
-    /// provider and model instead, so a skill always runs on what the server can actually call.
-    /// A migrated skill runs its saved team unchanged. Returns nil when there is nothing to run.
-    /// The specialists a task brings in when its skill names none.
-    public static let defaultLineup = ["Scout", "Quill", "Judge"]
-
-    public static func team(for skill: Skill, coordinator: AgentProfile, providers: [ProviderConfig], hasKey: (ProviderConfig) -> Bool, saved: Team?) -> Team? {
-        if skill.specialists.isEmpty && skill.origin == .migratedTeam {
-            guard var team = saved, !team.workers.isEmpty else { return nil }
-            if !skill.procedure.isEmpty, let index = team.agents.firstIndex(where: { $0.role == .coordinator }) {
-                team.agents[index].systemPrompt += procedureBlock(skill)
-            }
-            return team
-        }
-        var lead = coordinator
-        lead.id = UUID()
-        lead.systemPrompt += procedureBlock(skill)
-        var agents = [lead]
-        var seen = Set<String>()
-        for name in skill.specialists.isEmpty ? defaultLineup : skill.specialists {
-            guard let template = AgentProfile.rosterTemplates.first(where: { $0.name.lowercased() == name.lowercased() && $0.role != .coordinator }),
-                  seen.insert(template.name).inserted else { continue }
-            if template.role == .verifier && agents.contains(where: { $0.role == .verifier }) { continue }
-            var agent = template
-            agent.id = UUID()
-            if let provider = providers.first(where: { $0.id == template.providerID }), hasKey(provider) {
-                if !provider.models.contains(agent.model) { agent.model = provider.defaultModel ?? provider.models.first ?? coordinator.model }
-            } else {
-                agent.providerID = coordinator.providerID
-                agent.model = coordinator.model
-            }
-            agents.append(agent)
-        }
-        guard agents.contains(where: { $0.role == .worker }) else { return nil }
-        return Team(
-            id: skill.teamID,
-            name: skill.name,
-            emoji: "🧩",
-            goal: skill.whenToUse,
-            agents: agents,
-            toolScope: .readOnly,
-            createdAt: skill.createdAt
-        )
-    }
-
-    static func procedureBlock(_ skill: Skill) -> String {
+    public static func procedureBlock(_ skill: Skill) -> String {
         "\n\nSKILL: \(skill.name)\nFollow this procedure, adapting it to the objective:\n\(skill.procedureText)"
     }
 

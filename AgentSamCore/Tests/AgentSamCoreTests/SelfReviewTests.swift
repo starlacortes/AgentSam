@@ -87,7 +87,7 @@ final class SelfReviewTests: XCTestCase {
         let conversations = ConversationStore(root: directory)
         let memory = WorkspaceMemoryStore(root: directory)
         let results = LockedStrings()
-        let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, missions: MissionEngine(store: store, keyRing: keys), completion: { _, _, _, system, messages, tools in
+        let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, completion: { _, _, _, system, messages, tools in
             if system.contains("Decide how to handle") { return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub") }
             guard tools != nil else { return LLMReply(message: .assistant("Done."), inputTokens: 0, outputTokens: 0, model: "stub") }
             if messages.last?.role == "user" {
