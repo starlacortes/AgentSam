@@ -360,14 +360,16 @@ public struct SpeechClient: Sendable {
         for fence in ["```suggestions", "```details"] {
             if let range = text.range(of: fence, options: .caseInsensitive) { text = String(text[..<range.lowerBound]) }
         }
+        // What is said in place of skipped parts follows the language of the prose around them.
+        let spanish = language.map { SpokenNumbers.language(of: spokenProse(text), fallback: $0) == "es" } ?? false
         func replace(_ pattern: String, _ template: String) {
             text = text.replacingOccurrences(of: pattern, with: template, options: .regularExpression)
         }
-        replace("```[\\s\\S]*?```", " Code example omitted from speech. ")
+        replace("```[\\s\\S]*?```", spanish ? " Hay un ejemplo de código en pantalla. " : " Code example omitted from speech. ")
         replace("```[\\s\\S]*$", " ")
-        replace("(?m)(?:^[ \\t]*\\|.*(?:\\n|$))+", " The table is on screen.\n")
+        replace("(?m)(?:^[ \\t]*\\|.*(?:\\n|$))+", spanish ? " La tabla está en pantalla.\n" : " The table is on screen.\n")
         replace("\\[([^\\]]+)\\]\\([^)]*\\)", "$1")
-        replace("https?://[^\\s)]*[^\\s).,!?;:]", "the link on screen")
+        replace("https?://[^\\s)]*[^\\s).,!?;:]", spanish ? "el enlace en pantalla" : "the link on screen")
         replace("\\b[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\\b", "")
         replace("(?:[\\w.~-]+/)+([\\w-]+\\.[A-Za-z0-9]+)", "$1")
         replace("(?m)^[ \\t]*(?:#{1,6}|[-*+]|\\d+[.)])[ \\t]+(.*[^.!?:;,\\s])[ \\t]*$", "$1.")
@@ -381,9 +383,20 @@ public struct SpeechClient: Sendable {
         return SpokenNumbers.normalize(text, language: SpokenNumbers.language(of: text, fallback: language))
     }
 
-    /// Most characters Ada speaks in one reply. Longer replies stop at a sentence end with a short
-    /// pointer to the screen. The browser uses the same limit (`SPOKEN_LIMIT` in coordinator.ts).
-    public static let spokenLimit = 600
+    /// The prose of a reply, without code, tables and links, for telling which language it is in.
+    /// The browser's `replyLanguage` in coordinator.ts does the same; change both together.
+    public static func spokenProse(_ markdown: String) -> String {
+        markdown
+            .replacingOccurrences(of: "```[\\s\\S]*?(?:```|$)", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "(?m)(?:^[ \\t]*\\|.*(?:\\n|$))+", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "https?://\\S+", with: " ", options: .regularExpression)
+    }
+
+    /// Most characters of a reply spoken in ONE speech request (the provider limit, with room for the
+    /// tail). Replies are read in full: the browser asks for them piece by piece (`spokenChunks`),
+    /// which has no limit. Only a caller that wants the whole reply as one clip is cut here, at a
+    /// sentence end with a short pointer to the screen.
+    public static let spokenLimit = maxSpeechCharacters - 60
 
     /// Cuts spoken text at the last sentence end within `limit` and adds `tail`. Text within the limit is unchanged.
     public static func cappedSpeech(_ text: String, tail: String, limit: Int = spokenLimit) -> String {
@@ -413,6 +426,10 @@ public struct SpeechClient: Sendable {
             }
         }
         if !current.isEmpty { sentences.append(current) }
+        // A sentence too long for one speech request (it would be cut at `maxSpeechCharacters`) is broken
+        // at a comma or space, so nothing of a long reply is dropped. Shorter sentences stay whole, even
+        // past `limit`, so a number or amount is never split across pieces.
+        sentences = sentences.flatMap { Self.splitLong($0, limit: max(limit, 1_000)) }
 
         var chunks: [String] = []
         var buffer = ""
@@ -428,6 +445,23 @@ public struct SpeechClient: Sendable {
         return chunks
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+    }
+
+    static func splitLong(_ sentence: String, limit: Int) -> [String] {
+        var rest = Substring(sentence)
+        var parts: [String] = []
+        while rest.count > limit {
+            let head = rest.prefix(limit)
+            let cut = head.range(of: ", ", options: .backwards).map { head.index(after: $0.lowerBound) }
+                ?? head.lastIndex(of: " ")
+                ?? head.endIndex
+            let piece = rest[..<cut]
+            parts.append(String(piece) + " ")
+            rest = rest[cut...].drop(while: { $0 == " " })
+            if piece.isEmpty { break }
+        }
+        if !rest.isEmpty { parts.append(String(rest)) }
+        return parts
     }
 
     private func send(_ request: URLRequest) async throws -> (Data, URLResponse) {

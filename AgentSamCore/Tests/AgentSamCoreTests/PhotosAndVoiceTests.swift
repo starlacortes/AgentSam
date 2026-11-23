@@ -263,7 +263,7 @@ final class PhotosAndVoiceTests: XCTestCase {
         spoken.spoken = true
         XCTAssertFalse(ConversationPrompts.directResponseSystem(coordinator: ada, context: typed, connectorTools: [], hasLinkedMissions: false, store: prompts, language: "en").contains("VOICE REPLY"))
         XCTAssertTrue(ConversationPrompts.directResponseSystem(coordinator: ada, context: spoken, connectorTools: [], hasLinkedMissions: false, store: prompts, language: "en").contains("VOICE REPLY"))
-        XCTAssertTrue(ConversationPrompts.consolidationSystem(coordinator: ada, context: spoken, store: prompts, language: "es").contains("Plain spoken Spanish"))
+        XCTAssertTrue(ConversationPrompts.consolidationSystem(coordinator: ada, context: spoken, store: prompts, language: "es").contains("natural Spanish"))
     }
 
     // MARK: - Prompt seeds
@@ -297,7 +297,7 @@ final class PhotosAndVoiceTests: XCTestCase {
         XCTAssertEqual(ConversationPrompts.extractDetails("Short. ```details").screen, "Short.")
     }
 
-    func testSpokenReplyKeepsDetailOnScreenButNotInSpeech() async throws {
+    func testSpokenReplyIsOneReplyReadInFull() async throws {
         let (engine, conversations) = try await makeEngine(model: "stub") { _, _, _, system, _, _ in
             if system.contains("spoken acknowledgement") { return LLMReply(message: .assistant("On it."), inputTokens: 0, outputTokens: 0, model: "stub") }
             if system.contains("Decide how to handle") { return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub") }
@@ -308,7 +308,9 @@ final class PhotosAndVoiceTests: XCTestCase {
         _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Which campaigns are live?", launchedBy: "Owner", language: "en", spoken: true)
         let result = try await finished(conversations, id: conversation.id)
         let reply = try XCTUnwrap(result.messages.last)
-        XCTAssertEqual(reply.speech, "Three campaigns are live. The details are on screen.")
+        // The chat and the voice say the same thing: no separate spoken part, and a stray details
+        // line from the model is folded into the reply.
+        XCTAssertNil(reply.speech)
         XCTAssertEqual(reply.text, "Three campaigns are live. The details are on screen.\n\n- Spring\n- Summer\n- Fall")
         await engine.shutdown()
     }
@@ -384,8 +386,56 @@ final class PhotosAndVoiceTests: XCTestCase {
         XCTAssertTrue(ConversationEngine.acknowledgementSystem(language: "en", avoid: "Let me check that.").contains("Don't repeat your last one (\"Let me check that.\")"))
     }
 
-    func testVoiceStyleOffersTheDetailsLine() {
-        XCTAssertTrue(ConversationPrompts.voiceStyle(language: "en").contains("```details"))
+    func testVoiceStyleAsksForOneReplyReadInFull() {
+        let style = ConversationPrompts.voiceStyle(language: "en")
+        XCTAssertTrue(style.contains("read aloud to them in full"))
+        XCTAssertTrue(style.contains("Here's what we could do:"))
+        XCTAssertTrue(style.contains("don't write a ```details block"))
+        XCTAssertTrue(ConversationPrompts.voiceStyle(language: "es").contains("natural Spanish"))
+    }
+
+    func testSpokenTextNamesSkippedPartsInTheReplyLanguage() {
+        let english = SpeechClient.spokenText("Here it is.\n```js\nx = 1\n```\n| A | B |\n| --- | --- |\n| 1 | 2 |\nDone.", language: "en")
+        XCTAssertTrue(english.contains("on screen"), english)
+        XCTAssertFalse(english.contains("x = 1"), english)
+        let spanish = SpeechClient.spokenText("Aquí está el resumen de la semana.\n```js\nx = 1\n```\n| A | B |\n| --- | --- |\n| 1 | 2 |\nEso es todo.", language: "es")
+        XCTAssertTrue(spanish.contains("Hay un ejemplo de código en pantalla."), spanish)
+        XCTAssertTrue(spanish.contains("La tabla está en pantalla."), spanish)
+    }
+
+    func testOneHugeSentenceIsSplitSoNothingIsDropped() {
+        let sentence = (1...900).map { "word\($0)" }.joined(separator: " ") + "."
+        let pieces = SpeechClient.spokenChunks(sentence)
+        XCTAssertGreaterThan(pieces.count, 5)
+        XCTAssertGreaterThan(sentence.count, SpeechClient.maxSpeechCharacters)
+        XCTAssertTrue(pieces.allSatisfy { $0.count <= 1_000 }, "\(pieces.map(\.count))")
+        XCTAssertEqual(pieces.joined(separator: " "), sentence)
+    }
+
+    func testSkippedPartsFollowTheLanguageOfTheProseNotTheCode() {
+        let english = SpeechClient.spokenText("Here is the fix for the build.\n```js\n// añadir la función de búsqueda para el menú y la página\n```\nThat is all.", language: "es")
+        XCTAssertTrue(english.contains("Code example omitted from speech."), english)
+        let spanish = SpeechClient.spokenText("Aquí está la tabla de precios.\n| Plan | Price |\n| --- | --- |\n| The basic one | $10 |", language: "en")
+        XCTAssertTrue(spanish.contains("La tabla está en pantalla."), spanish)
+    }
+
+    func testAVeryLongReplyIsReadInFullPieceByPiece() {
+        let reply = (1...400).map { "Point \($0) is worth a sentence of its own." }.joined(separator: " ")
+        let spoken = SpeechClient.spokenText(reply)
+        let pieces = SpeechClient.spokenChunks(spoken)
+        XCTAssertGreaterThan(pieces.count, 20)
+        XCTAssertTrue(pieces.allSatisfy { $0.count <= SpeechClient.maxSpeechCharacters })
+        XCTAssertEqual(pieces.joined(separator: " "), spoken)
+        XCTAssertTrue(ConversationPrompts.voiceStyle(language: "en").contains("there is no length limit"))
+    }
+
+    func testOneClipForAWholeReplyStopsWithinTheProviderLimit() {
+        let reply = String(repeating: "This is a fairly ordinary sentence about nothing. ", count: 30).trimmingCharacters(in: .whitespaces)
+        XCTAssertEqual(SpeechClient.cappedSpeech(reply, tail: "The rest is on screen."), reply)
+        let huge = String(repeating: "This is a fairly ordinary sentence about nothing. ", count: 120)
+        let clip = SpeechClient.cappedSpeech(huge, tail: "The rest is on screen.")
+        XCTAssertTrue(clip.hasSuffix("nothing. The rest is on screen."))
+        XCTAssertLessThanOrEqual(clip.count, SpeechClient.maxSpeechCharacters)
     }
 }
 

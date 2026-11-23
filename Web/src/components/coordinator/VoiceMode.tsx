@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEve
 import { useI18n } from '../../i18n'
 import { api } from '../../api/client'
 import type { VoiceInfo } from '../../api/chatTypes'
-import { SPOKEN_LIMIT, takeSpeakable } from '../../lib/coordinator'
+import { replyLanguage, takeSpeakable } from '../../lib/coordinator'
 import { markVoice } from '../../lib/voiceTiming'
 import { canRecord, MIN_RECORDING_MS, Speaker, useRecorder } from '../../lib/voice'
 import { Icon } from './Icon'
@@ -318,9 +318,9 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null, tran
   const streamSpeech = () => {
     let from = 0
     let previous = ''
+    /** The reply's language, kept once something is spoken: offsets into the reply depend on it. */
+    let replyLang: 'en' | 'es' | null = null
     let spoke = false
-    let spokenLength = 0
-    let capped = false
     const startedAt = Date.now()
     let acknowledged = false
     let lastVoiced = startedAt
@@ -352,24 +352,22 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null, tran
       }
       if (text) markVoice('reply-first-text')
       if (final) markVoice('reply-complete')
-      if (!speechOutput || capped) return
-      // Once the spoken part is known, the rest of the reply is on-screen detail and is not read.
+      if (!speechOutput) return
+      // A voice reply is read in full, so the chat and the voice say the same thing. Older replies
+      // kept a separate spoken part; that is still honoured for them.
       const source = speech ?? text
       const done = final || speech !== undefined
       // Text Ada wrote before using a tool is replaced by the real answer. Start again from its top,
       // or the opening of the answer would be skipped.
-      if (startedOver(previous, source)) from = 0
+      if (startedOver(previous, source)) { from = 0; replyLang = null }
       previous = source
-      for (let next = takeSpeakable(source, from, done); next; next = takeSpeakable(source, from, done)) {
+      // Said in the reply's own language, which may not be the app's.
+      const words = replyLang ?? replyLanguage(source, lang)
+      for (let next = takeSpeakable(source, from, done, undefined, undefined, words); next; next = takeSpeakable(source, from, done, undefined, undefined, words)) {
         from = next.end
+        replyLang = words
         if (!next.text) continue
-        if (spoke && spokenLength + next.text.length > SPOKEN_LIMIT) {
-          capped = true
-          say(t('The rest is on screen.'))
-          return
-        }
         spoke = true
-        spokenLength += next.text.length
         markVoice('first-sentence')
         say(next.text, voiceInfo?.setup.tts ? speechPath : undefined)
       }

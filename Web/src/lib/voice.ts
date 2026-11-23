@@ -264,6 +264,16 @@ interface SpeechItem {
  */
 const MAX_SPEECH_REQUESTS = 1
 
+/**
+ * How far ahead of the listener a long reply is made. Ada reads replies in full, however long, so
+ * sentences are only fetched and scheduled while less than this much audio is waiting to play.
+ * That keeps memory and voice-server use flat for a reply that takes many minutes to read, and
+ * means stopping doesn't waste audio for the rest of it.
+ */
+const MAX_AHEAD_SECONDS = 30
+/** Fetched sentences waiting to be scheduled, at most (for playback without the audio graph). */
+const MAX_READY_CLIPS = 3
+
 interface SpeechAudio {
   data: ArrayBuffer
   type: string
@@ -293,6 +303,8 @@ export class Speaker {
   /** Sentences waiting for their turn with the voice server, oldest first. */
   private unfetched: SpeechItem[] = []
   private requests = 0
+  /** Sentences whose audio has arrived but that haven't been scheduled yet. */
+  private ready = 0
   private aborter = new AbortController()
   onChange: (speaking: boolean) => void = () => undefined
 
@@ -373,8 +385,15 @@ export class Speaker {
     item.audio = new Promise((resolve) => {
       item.begin = () => {
         item.begin = undefined
+        const generation = this.generation
         this.requests += 1
-        void fetchSpeech(postURL, text, this.aborter.signal).then(resolve, () => resolve(null)).finally(() => {
+        // Counted before the clip is handed over, so the pump's count down always comes after it.
+        // A clip from a reply that was stopped is not counted.
+        const arrived = (clip: SpeechAudio | null) => {
+          if (generation === this.generation) this.ready += 1
+          resolve(clip)
+        }
+        void fetchSpeech(postURL, text, this.aborter.signal).then(arrived, () => arrived(null)).finally(() => {
           this.requests -= 1
           this.fetchAhead()
         })
@@ -387,7 +406,17 @@ export class Speaker {
 
   /** Starts the next sentences' audio, oldest first, while keeping the voice server to a few requests. */
   private fetchAhead(): void {
-    while (this.requests < MAX_SPEECH_REQUESTS && this.unfetched.length > 0) this.unfetched.shift()?.begin?.()
+    // Behind a single clip longer than the limit, the next sentence may still be made, so there is no gap after it.
+    const roomAhead = () => this.secondsAhead() < MAX_AHEAD_SECONDS || (this.sources.size <= 1 && this.ready + this.requests === 0)
+    while (this.requests < MAX_SPEECH_REQUESTS && this.unfetched.length > 0 && this.ready < MAX_READY_CLIPS && roomAhead()) {
+      this.unfetched.shift()?.begin?.()
+    }
+  }
+
+  /** Seconds of scheduled audio still to play. */
+  private secondsAhead(): number {
+    if (!this.context || this.sources.size === 0) return 0
+    return Math.max(0, this.cursor - this.context.currentTime)
   }
 
   private push(item: SpeechItem): void {
@@ -399,6 +428,7 @@ export class Speaker {
     this.generation += 1
     this.queue = []
     this.unfetched = []
+    this.ready = 0
     this.aborter.abort()
     this.aborter = new AbortController()
     this.pumping = false
@@ -446,7 +476,9 @@ export class Speaker {
       if (item.audio) {
         const clip = await item.audio
         if (generation !== this.generation) return
+        this.ready = Math.max(0, this.ready - 1)
         if (!clip || !(await this.schedule(clip, generation))) await this.fallBack(item.text, generation)
+        this.fetchAhead()
       } else {
         await this.drained()
         if (generation !== this.generation) return
@@ -480,6 +512,8 @@ export class Speaker {
       this.sources.add(source)
       source.onended = () => {
         this.sources.delete(source)
+        // Time has passed, so there may be room to make the next sentences of a long reply.
+        this.fetchAhead()
         if (this.sources.size > 0) return
         this.releaseDrain()
         if (!this.pumping) this.setPlaying(false)
@@ -586,15 +620,56 @@ async function fetchSpeech(path: string, text: string, signal?: AbortSignal): Pr
 }
 
 /** The browser's built-in voice, used when the server has no text-to-speech provider. */
+/**
+ * Splits text for the browser's voice into pieces of at most `limit` characters, at sentence ends
+ * where possible, then at commas or spaces. Some browsers (Chrome on desktop in particular) go
+ * silent partway through one long utterance, so a long reply is read as many short ones.
+ */
+export function browserSpeechPieces(text: string, limit = 220): string[] {
+  const sentences = text.replace(/\s+/g, ' ').trim().match(/.+?(?:[.!?]+(?=\s|$)|$)/g) ?? []
+  const pieces: string[] = []
+  let buffer = ''
+  const flush = () => { if (buffer.trim()) pieces.push(buffer.trim()); buffer = '' }
+  for (let sentence of sentences) {
+    sentence = sentence.trim()
+    if (!sentence) continue
+    // A sentence longer than the limit is broken at its last comma, else its last space, before the limit.
+    while (sentence.length > limit) {
+      const head = sentence.slice(0, limit)
+      const comma = head.lastIndexOf(', ')
+      const space = head.lastIndexOf(' ')
+      const cut = comma > limit / 3 ? comma + 1 : space > 0 ? space : limit
+      flush()
+      pieces.push(sentence.slice(0, cut).trim())
+      sentence = sentence.slice(cut).trim()
+    }
+    if (buffer && buffer.length + 1 + sentence.length > limit) flush()
+    buffer = buffer ? `${buffer} ${sentence}` : sentence
+  }
+  flush()
+  return pieces
+}
+
 export function speakWithBrowser(text: string, lang = navigator.language): Promise<void> {
   return new Promise((resolve) => {
     if (!('speechSynthesis' in window)) return resolve()
-    const utterance = new SpeechSynthesisUtterance(text)
-    utterance.lang = lang
-    utterance.rate = 1.05
-    utterance.onend = () => resolve()
-    utterance.onerror = () => resolve()
-    window.speechSynthesis.speak(utterance)
+    const pieces = browserSpeechPieces(text)
+    if (pieces.length === 0) return resolve()
+    // All pieces are queued at once, so the browser reads them back to back. Stopping cancels the
+    // whole queue, which ends the pieces with a 'canceled' or 'interrupted' error. Any other error
+    // on one piece skips just that piece; the rest keep reading.
+    pieces.forEach((piece, index) => {
+      const last = index === pieces.length - 1
+      const utterance = new SpeechSynthesisUtterance(piece)
+      utterance.lang = lang
+      utterance.rate = 1.05
+      if (last) utterance.onend = () => resolve()
+      utterance.onerror = (event?: SpeechSynthesisErrorEvent) => {
+        const stopped = event?.error === 'canceled' || event?.error === 'interrupted'
+        if (last || stopped || !event) resolve()
+      }
+      window.speechSynthesis.speak(utterance)
+    })
   })
 }
 

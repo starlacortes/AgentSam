@@ -163,9 +163,10 @@ final class VoiceTests: XCTestCase {
 
     func testCappedSpeechStopsAtASentenceEnd() {
         let sentence = "This is a fairly ordinary sentence about nothing. "
-        let long = String(repeating: sentence, count: 20)
+        // Only one clip for a whole reply is capped (at the provider limit); replies read piece by piece are not.
+        let long = String(repeating: sentence, count: 120)
         let capped = SpeechClient.cappedSpeech(long, tail: "The rest is on screen.")
-        XCTAssertLessThanOrEqual(capped.count, SpeechClient.spokenLimit + 30)
+        XCTAssertLessThanOrEqual(capped.count, SpeechClient.maxSpeechCharacters)
         XCTAssertTrue(capped.hasSuffix("nothing. The rest is on screen."))
         XCTAssertEqual(SpeechClient.cappedSpeech("Short.", tail: "x"), "Short.")
     }
