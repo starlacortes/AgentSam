@@ -123,14 +123,14 @@ final class AuthTests: XCTestCase {
 
     func testCookieWritesNeedCSRFHeader() async throws {
         let cookie = try await setupAdmin()
-        let body = ["name": "Team", "emoji": "x", "goal": "g"]
-        try await app.test(.POST, "api/teams", beforeRequest: { req in
+        let body = InviteBody(email: "csrf@example.com", role: .member)
+        try await app.test(.POST, "api/invites", beforeRequest: { req in
             try self.withSession(cookie, csrf: false)(&req)
             try req.content.encode(body, as: .json)
         }, afterResponse: { res async in
             XCTAssertEqual(res.status, .forbidden)
         })
-        try await app.test(.POST, "api/teams", beforeRequest: { req in
+        try await app.test(.POST, "api/invites", beforeRequest: { req in
             try self.withSession(cookie)(&req)
             req.headers.replaceOrAdd(name: .host, value: "agentsam.example")
             req.headers.replaceOrAdd(name: .origin, value: "https://evil.example")
@@ -138,7 +138,7 @@ final class AuthTests: XCTestCase {
         }, afterResponse: { res async in
             XCTAssertEqual(res.status, .forbidden)
         })
-        try await app.test(.POST, "api/teams", beforeRequest: { req in
+        try await app.test(.POST, "api/invites", beforeRequest: { req in
             try self.withSession(cookie)(&req)
             try req.content.encode(body, as: .json)
         }, afterResponse: { res async in

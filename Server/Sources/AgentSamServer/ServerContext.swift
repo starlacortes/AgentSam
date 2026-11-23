@@ -324,29 +324,6 @@ struct ServerContext: Sendable {
         await store.saveTeam(team)
     }
 
-    func upsertTeam(input: TeamInput, id: UUID?, lang: String = "en") async throws -> Team {
-        let name = input.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty, name.count <= 80 else { throw Abort(.badRequest, reason: SrvL10n.t("srv.teamNameLength", lang: lang)) }
-        guard (input.agents ?? []).count <= 16 else { throw Abort(.badRequest, reason: SrvL10n.t("srv.teamAgentLimit", lang: lang)) }
-        let teamID = id ?? input.id ?? UUID()
-        var createdAt = Date()
-        if let existing = await store.team(id: teamID) {
-            createdAt = existing.createdAt
-        }
-        let team = Team(
-            id: teamID,
-            name: name,
-            emoji: input.emoji ?? "🛡️",
-            goal: input.goal ?? "",
-            agents: input.agents ?? [],
-            toolScope: id == nil ? .readOnly : await store.team(id: teamID)?.toolScope,
-            createdAt: createdAt,
-            updatedAt: Date()
-        )
-        await saveTeam(team)
-        return team
-    }
-
     func startMission(
         teamID: UUID?,
         objective rawObjective: String?,

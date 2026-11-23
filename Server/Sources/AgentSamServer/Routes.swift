@@ -120,7 +120,7 @@ func routes(_ app: Application, ctx: ServerContext) {
         try req.json(await ctx.skills.all())
     }
 
-    // MARK: Teams (backend: the specialist groups skills run as)
+    // MARK: Teams (read-only backend record: who worked on a mission)
 
     api.get("teams") { req async throws -> Response in
         let teams = await ctx.store.loadTeams()
@@ -136,34 +136,6 @@ func routes(_ app: Application, ctx: ServerContext) {
             throw Abort(.notFound, reason: SrvL10n.t("srv.teamNotFound", lang: lang))
         }
         return try req.json(team)
-    }
-
-    api.post("teams") { req async throws -> Response in
-        let input = try req.decodeJSON(TeamInput.self)
-        let team = try await ctx.upsertTeam(input: input, id: nil, lang: SrvL10n.lang(for: req))
-        return try req.json(team, status: .created)
-    }
-
-    api.put("teams", ":id") { req async throws -> Response in
-        let lang = SrvL10n.lang(for: req)
-        guard let idString = req.parameters.get("id"), let id = UUID(uuidString: idString) else {
-            throw Abort(.badRequest, reason: SrvL10n.t("srv.badTeamID", lang: lang))
-        }
-        let input = try req.decodeJSON(TeamInput.self)
-        let team = try await ctx.upsertTeam(input: input, id: id, lang: lang)
-        return try req.json(team)
-    }
-
-    api.delete("teams", ":id") { req async throws -> Response in
-        let lang = SrvL10n.lang(for: req)
-        guard let idString = req.parameters.get("id"), let id = UUID(uuidString: idString) else {
-            throw Abort(.badRequest, reason: SrvL10n.t("srv.badTeamID", lang: lang))
-        }
-        guard await ctx.store.team(id: id) != nil else {
-            throw Abort(.notFound, reason: SrvL10n.t("srv.teamNotFound", lang: lang))
-        }
-        await ctx.store.deleteTeam(id: id)
-        return try req.json(AckResult(ok: true, detail: nil))
     }
 
     // MARK: Providers
