@@ -23,30 +23,90 @@ export const MIN_RECORDING_MS = 400
 /** Long enough for a real request, short enough to stay under the server's upload cap. */
 export const MAX_RECORDING_MS = 120_000
 
-/** Mic level (0–1) above which we count the user as speaking. */
+/** Mic level (0–1) above which we count the user as speaking, in a quiet room. */
 export const SPEECH_LEVEL = 0.12
 /** How long the user must stay quiet, after speaking, before the recording ends on its own. */
 export const SILENCE_MS = 800
+/** How long Ada waits for the first words before she stops listening on her own. */
+export const NO_SPEECH_MS = 8000
+/** Sound has to last this long to count as talking, so a tap on the desk or a click doesn't. */
+export const MIN_VOICED_MS = 120
+
+/** How long the turn detector spends learning the room's background noise before it listens for words. */
+const CALIBRATION_MS = 300
+/** How far back the turn detector looks to judge the room's background level. */
+const FLOOR_WINDOW_MS = 3000
+/** Which share of recent frames counts as the room's background: the quieter fifth. */
+const FLOOR_PERCENTILE = 0.2
+
+/** Why a recording ended: they finished talking, never started, it was tapped off, or it hit the length cap. */
+export type RecordingEnd = 'silence' | 'no-speech' | 'manual' | 'limit'
 
 /**
- * Decides when someone has stopped talking: quiet for `silenceMs` after they were heard.
- * Silence before the first words never ends the recording.
+ * Decides when someone has finished their turn. Returns 'listening' while they may still talk,
+ * 'finished' once they have been quiet for `silenceMs` after speaking, and 'no-speech' when nothing
+ * was said for `noSpeechMs`. The speech threshold rises with a noisy room's background level, so a
+ * café or a fan doesn't keep the microphone open forever.
  */
-export function createSilenceDetector(silenceMs = SILENCE_MS, threshold = SPEECH_LEVEL) {
+export function createTurnDetector({ silenceMs = SILENCE_MS, threshold = SPEECH_LEVEL, noSpeechMs = NO_SPEECH_MS, minVoicedMs = MIN_VOICED_MS } = {}) {
+  let startedAt: number | null = null
+  let previous: number | null = null
+  /** Recent levels, for the room's background level. */
+  const recent: { at: number; level: number }[] = []
+  let floor = 0
+  let wasLoud = false
+  /** How long the current stretch of loud frames has lasted. */
+  let run = 0
   let lastVoice: number | null = null
-  return (level: number, now: number): boolean => {
-    if (level >= threshold) lastVoice = now
-    return lastVoice !== null && now - lastVoice >= silenceMs
+  /** A word heard while the room was still being learned: confirmed once it goes quiet after it. */
+  let early: { end: number; quietest: number } | null = null
+  let earlyRun = 0
+  let earlyQuietest = 1
+  return (level: number, now: number): 'listening' | 'finished' | 'no-speech' => {
+    if (startedAt === null) startedAt = now
+    const elapsed = previous === null ? 0 : Math.max(0, now - previous)
+    previous = now
+    while (recent.length && now - recent[0]!.at > FLOOR_WINDOW_MS) recent.shift()
+    // The background level is a low percentile of the last few seconds: not the quietest moment,
+    // so a fan or a café that flickers up and down doesn't look like someone talking, and low
+    // enough that the gaps between someone's words keep it under their voice.
+    if (recent.length) floor = percentile(recent.map((frame) => frame.level), FLOOR_PERCENTILE)
+    recent.push({ at: now, level })
+    if (now - startedAt < CALIBRATION_MS) {
+      // Still learning the room. A loud stretch here might be noise or an answer given the
+      // moment the microphone opened; it counts as speech only if the room then goes quiet.
+      const above = level >= threshold
+      earlyRun = above ? earlyRun + (wasLoud ? elapsed : 0) : 0
+      earlyQuietest = above ? Math.min(earlyQuietest, level) : 1
+      if (earlyRun >= minVoicedMs) early = { end: now, quietest: earlyQuietest }
+      wasLoud = above
+    } else {
+      const loud = level >= Math.max(threshold, floor + threshold * 0.8)
+      // Only time between two loud frames counts, so one click after a stalled frame isn't talking.
+      run = loud ? run + (wasLoud ? elapsed : 0) : 0
+      wasLoud = loud
+      // Once they have spoken, a shorter stretch keeps the turn going (a word after a pause).
+      if (run >= (lastVoice === null ? minVoicedMs : minVoicedMs / 2)) lastVoice = now
+      if (lastVoice === null && early && level < threshold && level <= early.quietest / 2) lastVoice = early.end
+    }
+    if (lastVoice !== null) return now - lastVoice >= silenceMs ? 'finished' : 'listening'
+    return now - startedAt >= noSpeechMs ? 'no-speech' : 'listening'
   }
+}
+
+function percentile(values: number[], fraction: number): number {
+  const sorted = [...values].sort((a, b) => a - b)
+  return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * fraction))] ?? 0
 }
 
 export type RecorderState = 'idle' | 'starting' | 'recording'
 
 /**
- * Tap to start, tap again to finish. Resolves the finished recording through `onDone`.
- * Echo cancellation stays on so a reply playing from the speakers isn't picked up.
+ * Tap to start; it ends on its own when the user stops talking (or tap again to finish). Resolves
+ * the finished recording through `onDone`, with why it ended. Echo cancellation stays on as a
+ * second guard, but the voice screen never records while Ada is speaking.
  */
-export function useRecorder(onDone: (audio: Blob, durationMs: number) => void, onError: (message: string) => void) {
+export function useRecorder(onDone: (audio: Blob, durationMs: number, ended: RecordingEnd) => void, onError: (message: string) => void) {
   const [state, setState] = useState<RecorderState>('idle')
   // The mic level changes every frame, so it lives in a ref the orb reads, not in state:
   // state would re-render the whole voice screen sixty times a second.
@@ -56,6 +116,9 @@ export function useRecorder(onDone: (audio: Blob, durationMs: number) => void, o
   const startedAt = useRef(0)
   const limitTimer = useRef<number | null>(null)
   const meter = useRef<{ ctx: AudioContext; frame: number } | null>(null)
+  const ending = useRef<RecordingEnd>('manual')
+  /** Set when stop is asked for while the microphone is still being opened, so it closes as soon as it opens. */
+  const cancelStart = useRef(false)
   const done = useRef(onDone)
   done.current = onDone
 
@@ -73,19 +136,31 @@ export function useRecorder(onDone: (audio: Blob, durationMs: number) => void, o
   }, [])
 
   useEffect(() => () => {
+    cancelStart.current = true
     if (recorder.current?.state === 'recording') recorder.current.stop()
     cleanup()
   }, [cleanup])
 
   const stop = useCallback(() => {
-    if (recorder.current?.state === 'recording') recorder.current.stop()
+    if (!recorder.current) cancelStart.current = true
+    if (recorder.current?.state === 'recording') {
+      ending.current = 'manual'
+      recorder.current.stop()
+    }
   }, [])
 
   const start = useCallback(async () => {
     if (state !== 'idle') return
+    cancelStart.current = false
     setState('starting')
     try {
       const media = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } })
+      if (cancelStart.current) {
+        // Stopped while the permission prompt was up (they typed instead, or closed voice mode).
+        media.getTracks().forEach((track) => track.stop())
+        setState('idle')
+        return
+      }
       stream.current = media
       const mimeType = pickRecordingType()
       const rec = new MediaRecorder(media, mimeType ? { mimeType } : undefined)
@@ -99,13 +174,18 @@ export function useRecorder(onDone: (audio: Blob, durationMs: number) => void, o
         cleanup()
         recorder.current = null
         setState('idle')
-        done.current(new Blob(chunks, { type }), duration)
+        done.current(new Blob(chunks, { type }), duration, ending.current)
       }
       recorder.current = rec
+      ending.current = 'manual'
       startedAt.current = Date.now()
       rec.start(250)
       setState('recording')
-      limitTimer.current = window.setTimeout(() => rec.state === 'recording' && rec.stop(), MAX_RECORDING_MS)
+      limitTimer.current = window.setTimeout(() => {
+        if (rec.state !== 'recording') return
+        ending.current = 'limit'
+        rec.stop()
+      }, MAX_RECORDING_MS)
       startMeter(media)
     } catch (err) {
       cleanup()
@@ -124,19 +204,25 @@ export function useRecorder(onDone: (audio: Blob, durationMs: number) => void, o
   function startMeter(media: MediaStream) {
     try {
       const ctx = new AudioContext()
+      // Made after an await, so some browsers start it suspended; a suspended meter reads silence.
+      void ctx.resume().catch(() => undefined)
       const analyser = ctx.createAnalyser()
       analyser.fftSize = 512
       ctx.createMediaStreamSource(media).connect(analyser)
       const samples = new Uint8Array(analyser.fftSize)
-      const finishedTalking = createSilenceDetector()
+      const turn = createTurnDetector()
       const tick = () => {
         analyser.getByteTimeDomainData(samples)
         let peak = 0
         for (const s of samples) peak = Math.max(peak, Math.abs(s - 128))
         const current = Math.min(1, peak / 64)
         level.current = current
-        // Hands-free: end the recording once they stop talking, which sends it for transcription.
-        if (finishedTalking(current, performance.now()) && recorder.current?.state === 'recording') {
+        // Hands-free: end the recording once they stop talking, which sends it for transcription,
+        // or once nothing has been said for a while, which just closes the microphone.
+        // A meter that isn't running hears only silence, so it must not end the recording.
+        const state = ctx.state === 'running' ? turn(current, performance.now()) : 'listening'
+        if (state !== 'listening' && recorder.current?.state === 'recording') {
+          ending.current = state === 'finished' ? 'silence' : 'no-speech'
           recorder.current.stop()
           return
         }
@@ -269,7 +355,7 @@ export class Speaker {
     audio.src = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA='
     void audio.play()?.catch(() => undefined)
     void this.audioContext()?.resume().catch(() => undefined)
-    if ('speechSynthesis' in window) window.speechSynthesis.resume()
+    if ('speechSynthesis' in window) window.speechSynthesis.resume?.()
   }
 
   enqueue(text: string, url?: string): void {

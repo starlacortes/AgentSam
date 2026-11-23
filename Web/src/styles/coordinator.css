@@ -273,6 +273,29 @@
 .co-voice-controls form .co-send-button, .co-voice-controls form button[type='submit'] { color: var(--em); }
 .co-voice-buttons { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; margin-top: 13px; }
 .co-voice-buttons > button { font-size: 10px; }
+/* The stage and, once there is a conversation, the chat beside it (below it on phones). */
+.co-voice-body { flex: 1; min-height: 0; display: flex; }
+.co-voice-body > .co-voice-stage { flex: 1; }
+.co-voice-chat { flex: none; width: min(480px, 44vw); min-height: 0; display: flex; flex-direction: column; border-left: 1px solid var(--line); background: rgba(8,14,11,.6); }
+.co-voice-chat .co-message-inner { padding: 18px 18px 26px; }
+/* What state Ada is in, in words, beside the orb's color. */
+.co-voice-state { display: inline-flex; align-items: center; gap: 7px; padding: 4px 11px 4px 9px; border: 1px solid color-mix(in srgb, var(--state) 35%, transparent); border-radius: 999px; background: color-mix(in srgb, var(--state) 9%, transparent); color: var(--state); font-family: var(--mono); font-size: 9px; letter-spacing: .14em; text-transform: uppercase; transition: color .4s ease, border-color .4s ease, background-color .4s ease; --state: var(--em); }
+.co-voice-state > i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.co-voice-state.idle { --state: #8fb8a3; }
+.co-voice-state.listening { --state: #6ff5b8; }
+.co-voice-state.listening > i { animation: co-pulse 1s ease-in-out infinite; }
+.co-voice-state.thinking { --state: #7cc9f2; }
+.co-voice-state.thinking > i { animation: co-pulse .7s ease-in-out infinite; }
+.co-voice-state.speaking { --state: var(--gold2); }
+.co-voice-state.error { --state: #efa79f; }
+/* What they said, while Ada answers (when the chat isn't on screen to show it). */
+.co-voice-said { max-width: 510px; margin-top: 10px; color: var(--ink2); font-size: 12px; line-height: 1.55; }
+.co-voice-said > b { margin-right: 7px; color: var(--dim); font-family: var(--mono); font-size: 9px; letter-spacing: .12em; text-transform: uppercase; }
+/* Replay: big enough to find without looking twice, gold like Ada's voice. */
+.co-voice-replay { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; margin-top: 16px; padding: 0 20px 0 17px; border: 1px solid rgba(212,184,120,.45); border-radius: 999px; background: rgba(201,169,106,.12); color: var(--gold2); font-size: 13px; font-weight: 600; transition: background-color .2s ease, border-color .2s ease; animation: co-fade-in .25s ease-out; }
+.co-voice-replay:hover { border-color: rgba(212,184,120,.75); background: rgba(201,169,106,.2); }
+.co-voice-replay:focus-visible { outline: 2px solid rgba(212,184,120,.7); outline-offset: 3px; }
+.co-voice-replay.playing { border-color: var(--line2); background: transparent; color: var(--ink2); }
 
 .co-guide-error { margin: 0; padding: 10px 20px; border-top: 1px solid rgba(229,99,91,.3); background: var(--danger-bg); color: #efa79f; font-size: 11px; }
 .co-messages:has(> .co-empty-chat) { display: flex; }
@@ -354,8 +377,24 @@
   .co-voice-stage h1 { font-size: 23px; }
   .co-voice-response { max-height: 140px; }
   .co-voice-controls { padding: 12px 15px calc(15px + env(safe-area-inset-bottom)); }
+  /* Phones: a compact orb on top, the conversation under it, the keyboard at the bottom. */
+  .co-voice.with-chat .co-voice-body { flex-direction: column; }
+  .co-voice.with-chat .co-voice-stage { flex: 0 1 auto; min-height: 0; max-height: 62%; padding: 12px 15px 10px; justify-content: flex-start; }
+  .co-voice.with-chat .co-voice-stage h1 { font-size: 17px; }
+  .co-voice.with-chat .co-voice-status { min-height: 0; margin: 4px 0; }
+  .co-voice.with-chat .co-voice-status:not(.on) { display: none; }
+  .co-voice.with-chat .co-voice-transcript { margin-top: 4px; font-size: 11px; }
+  .co-voice.with-chat .co-voice-replay { min-height: 40px; margin-top: 10px; }
+  .co-voice.with-chat .co-voice-hint { display: none; }
+  .co-voice-chat { flex: 1; min-height: 140px; width: auto; border-left: 0; border-top: 1px solid var(--line); }
+  .co-voice-chat .co-message-inner { padding: 14px 15px 20px; }
+  .co-voice.with-chat .co-voice-controls { padding-top: 10px; }
+  .co-voice.with-chat .co-voice-buttons { margin-top: 9px; }
 }
 
+@media (max-width: 1000px) and (min-width: 761px) {
+  .co-voice-chat { width: min(400px, 46vw); }
+}
 @media (max-height: 700px) and (min-width: 761px) {
   .co-voice-stage { padding-top: 15px; padding-bottom: 15px; }
   .co-voice-controls { padding-top: 8px; padding-bottom: 12px; }

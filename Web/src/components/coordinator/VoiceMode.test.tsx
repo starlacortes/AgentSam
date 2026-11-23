@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { I18nProvider } from '../../i18n'
 import { startedOver, VoiceMode } from './VoiceMode'
 
@@ -31,7 +31,7 @@ describe('VoiceMode', () => {
     expect(screen.getByText(/Voice recognition isn’t supported here/)).toBeTruthy()
     fireEvent.change(screen.getByRole('textbox', { name: 'Message Ada with your keyboard' }), { target: { value: '  Hello Ada  ' } })
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
-    await waitFor(() => expect(onSend).toHaveBeenCalledWith('Hello Ada', true, expect.any(Function)))
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith('Hello Ada', true, expect.any(Function), true))
     await waitFor(() => expect(synthesis.speak).toHaveBeenCalledTimes(1))
     expect(synthesis.speak.mock.calls[0]?.[0].text).toBe('A clear answer from Ada.')
     fireEvent.click(screen.getAllByRole('button', { name: 'Return to chat' })[0]!)
@@ -61,17 +61,17 @@ describe('VoiceMode', () => {
     vi.stubGlobal('SpeechSynthesisUtterance', TestUtterance)
     Object.defineProperty(window, 'speechSynthesis', { value: synthesis, configurable: true })
     render(<I18nProvider><VoiceMode onSend={onSend} onTranscribe={vi.fn()} onClose={vi.fn()} /></I18nProvider>)
-    expect(screen.queryByRole('button', { name: 'Replay Ada’s answer' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Replay answer' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Mute Ada' }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Message Ada with your keyboard' }), { target: { value: 'Hello' } })
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
-    const replay = await screen.findByRole('button', { name: 'Replay Ada’s answer' })
+    const replay = await screen.findByRole('button', { name: 'Replay answer' })
     expect(synthesis.speak).not.toHaveBeenCalled()
     fireEvent.click(replay)
     await waitFor(() => expect(synthesis.speak).toHaveBeenCalledTimes(1))
     expect(synthesis.speak.mock.calls[0]?.[0].text).toBe(reply)
-    await screen.findByRole('button', { name: 'Replay Ada’s answer' })
-    fireEvent.click(screen.getByRole('button', { name: 'Replay Ada’s answer' }))
+    await screen.findByRole('button', { name: 'Replay answer' })
+    fireEvent.click(screen.getByRole('button', { name: 'Replay answer' }))
     await waitFor(() => expect(synthesis.speak).toHaveBeenCalledTimes(2))
   })
 
@@ -89,6 +89,148 @@ describe('VoiceMode', () => {
     expect(status().textContent).toBe('Searching Gmail')
     view.rerender(<I18nProvider><VoiceMode {...props} activity={null} /></I18nProvider>)
     expect(status().classList.contains('on')).toBe(false)
+  })
+})
+
+class TestRecognition {
+  static made: TestRecognition[] = []
+  continuous = false
+  interimResults = false
+  lang = ''
+  onresult: ((event: { results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }> }) => void) | null = null
+  onerror: ((event: { error?: string }) => void) | null = null
+  onend: (() => void) | null = null
+  start = vi.fn()
+  stop = vi.fn(() => this.onend?.())
+  abort = vi.fn()
+  constructor() { TestRecognition.made.push(this) }
+  say(text: string) { this.onresult?.({ results: [{ isFinal: true, 0: { transcript: text } }] }) }
+}
+
+describe('VoiceMode hands-free', () => {
+  afterEach(() => {
+    cleanup()
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+    TestRecognition.made = []
+  })
+
+  function setUp(speak: (utterance: TestUtterance) => void = (utterance) => { window.setTimeout(() => utterance.onend?.(), 0) }) {
+    const synthesis = { speak: vi.fn(speak), cancel: vi.fn(), resume: vi.fn() }
+    vi.stubGlobal('SpeechSynthesisUtterance', TestUtterance)
+    vi.stubGlobal('webkitSpeechRecognition', TestRecognition)
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')))
+    Object.defineProperty(window, 'speechSynthesis', { value: synthesis, configurable: true })
+    return synthesis
+  }
+
+  it('starts listening as soon as voice mode opens', async () => {
+    setUp()
+    render(<I18nProvider><VoiceMode onSend={vi.fn()} onTranscribe={vi.fn()} onClose={vi.fn()} /></I18nProvider>)
+    await waitFor(() => expect(TestRecognition.made).toHaveLength(1))
+    expect(TestRecognition.made[0]!.start).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('Listening…')).toBeTruthy()
+    expect(document.querySelector('.co-voice-orb')!.classList.contains('listening')).toBe(true)
+  })
+
+  it('closes the microphone quietly when nothing is said', async () => {
+    setUp()
+    render(<I18nProvider><VoiceMode onSend={vi.fn()} onTranscribe={vi.fn()} onClose={vi.fn()} /></I18nProvider>)
+    await waitFor(() => expect(TestRecognition.made).toHaveLength(1))
+    act(() => TestRecognition.made[0]!.onerror?.({ error: 'no-speech' }))
+    expect(screen.getByText('I stopped listening. Tap the orb when you’re ready.')).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('sends what was said, speaks the answer, then stays quiet until tapped', async () => {
+    let finishSpeaking = () => {}
+    const synthesis = setUp((utterance) => { finishSpeaking = () => utterance.onend?.() })
+    const onSend = vi.fn(async (_text: string, _wait: boolean, onPartial?: (update: { text: string; final: boolean; speechPath: string }) => void) => {
+      onPartial?.({ text: 'It is sunny.', final: true, speechPath: '/speech' })
+      return { text: 'It is sunny.' }
+    })
+    render(<I18nProvider><VoiceMode onSend={onSend} onTranscribe={vi.fn()} onClose={vi.fn()} /></I18nProvider>)
+    await waitFor(() => expect(TestRecognition.made).toHaveLength(1))
+    const first = TestRecognition.made[0]!
+    act(() => first.say('What is the weather'))
+    act(() => first.onend?.())
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith('What is the weather', true, expect.any(Function), true))
+    await waitFor(() => expect(synthesis.speak).toHaveBeenCalledTimes(1))
+    await screen.findByText('Speaking')
+    // The microphone stays closed while Ada talks…
+    expect(TestRecognition.made).toHaveLength(1)
+    act(() => finishSpeaking())
+    // …and after she finishes, she doesn't start listening again on her own.
+    await screen.findByText('Tap the orb to reply.')
+    expect(TestRecognition.made).toHaveLength(1)
+    expect(screen.getByRole('button', { name: 'Replay answer' })).toBeTruthy()
+  })
+
+  it('cuts Ada off and listens when the orb is tapped while she speaks', async () => {
+    const synthesis = setUp(() => {})
+    const onSend = vi.fn(async (_text: string, _wait: boolean, onPartial?: (update: { text: string; final: boolean; speechPath: string }) => void) => {
+      onPartial?.({ text: 'A long answer.', final: true, speechPath: '/speech' })
+      return { text: 'A long answer.' }
+    })
+    render(<I18nProvider><VoiceMode onSend={onSend} onTranscribe={vi.fn()} onClose={vi.fn()} /></I18nProvider>)
+    await waitFor(() => expect(TestRecognition.made).toHaveLength(1))
+    act(() => TestRecognition.made[0]!.onerror?.({ error: 'no-speech' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message Ada with your keyboard' }), { target: { value: 'Tell me a story' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+    const orb = await screen.findByRole('button', { name: 'Stop Ada and talk' })
+    fireEvent.click(orb)
+    expect(synthesis.cancel).toHaveBeenCalled()
+    // The microphone opens a moment later, once the speakers are quiet.
+    expect(TestRecognition.made).toHaveLength(1)
+    await waitFor(() => expect(TestRecognition.made).toHaveLength(2))
+    expect(TestRecognition.made[1]!.start).toHaveBeenCalled()
+  })
+
+  it('stops talking for the rest of a reply still being written when the orb is tapped', async () => {
+    const synthesis = setUp(() => {})
+    let push: (update: { text: string; final: boolean; speechPath: string }) => void = () => {}
+    let finish: () => void = () => {}
+    const onSend = vi.fn((_text: string, _wait: boolean, onPartial?: (update: { text: string; final: boolean; speechPath: string }) => void) => {
+      push = onPartial ?? (() => {})
+      return new Promise<{ text: string }>((resolve) => { finish = () => resolve({ text: 'Here is the first part of the answer, read aloud right away. And here comes the second part of it.' }) })
+    })
+    render(<I18nProvider><VoiceMode onSend={onSend} onTranscribe={vi.fn()} onClose={vi.fn()} /></I18nProvider>)
+    await waitFor(() => expect(TestRecognition.made).toHaveLength(1))
+    act(() => TestRecognition.made[0]!.onerror?.({ error: 'no-speech' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Message Ada with your keyboard' }), { target: { value: 'Go' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+    act(() => push({ text: 'Here is the first part of the answer, read aloud right away. And here comes', final: false, speechPath: '/speech' }))
+    await waitFor(() => expect(synthesis.speak).toHaveBeenCalledTimes(1))
+    await screen.findByText('Speaking')
+    const orb = document.querySelector('.co-voice-orb')!
+    expect(orb.getAttribute('aria-label')).toBe('Stop speaking')
+    fireEvent.click(orb)
+    act(() => push({ text: 'Here is the first part of the answer, read aloud right away. And here comes the second part of it.', final: true, speechPath: '/speech' }))
+    await act(async () => finish())
+    // The second sentence stays on screen but isn't read, and the microphone didn't open mid-reply.
+    expect(synthesis.speak).toHaveBeenCalledTimes(1)
+    expect(TestRecognition.made).toHaveLength(1)
+  })
+
+  it('closes the microphone when they start typing, and keeps what they typed', async () => {
+    setUp()
+    render(<I18nProvider><VoiceMode onSend={vi.fn()} onTranscribe={vi.fn()} onClose={vi.fn()} /></I18nProvider>)
+    await waitFor(() => expect(TestRecognition.made).toHaveLength(1))
+    const box = screen.getByRole('textbox', { name: 'Message Ada with your keyboard' })
+    fireEvent.change(box, { target: { value: 'Typed instead' } })
+    expect(TestRecognition.made[0]!.abort).toHaveBeenCalled()
+    expect((box as HTMLInputElement).value).toBe('Typed instead')
+    expect(document.querySelector('.co-voice-orb')!.classList.contains('idle')).toBe(true)
+  })
+
+  it('shows the conversation beside the orb, and sends picks from it through voice', async () => {
+    setUp()
+    const onSend = vi.fn().mockResolvedValue({ text: 'Done.' })
+    render(<I18nProvider><VoiceMode onSend={onSend} onTranscribe={vi.fn()} onClose={vi.fn()} transcript={(voice) => <button onClick={() => voice.send('Yes, go ahead')}>Quick reply</button>} /></I18nProvider>)
+    expect(screen.getByRole('complementary', { name: 'Conversation' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Quick reply' }))
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith('Yes, go ahead', true, expect.any(Function), false))
   })
 })
 

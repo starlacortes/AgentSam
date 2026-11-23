@@ -101,6 +101,13 @@ function useCopy(): [boolean, (text: string) => void] {
 let sharedSpeaker: Speaker | null = null
 let sharedOwner: ((playing: boolean) => void) | null = null
 
+/** Stops any reply being read aloud, such as before voice mode opens the microphone. */
+export function stopReadAloud(): void {
+  sharedSpeaker?.stop()
+  sharedOwner?.(false)
+  sharedOwner = null
+}
+
 /** Reads a finished reply aloud with server speech, or the browser's voice when none is set up. */
 function useReadAloud(conversationID: string, message: ConversationMessage, language: string): [boolean, () => void] {
   const [playing, setPlaying] = useState(false)
@@ -156,7 +163,7 @@ function UserMessage({ conversationID, message, onEdit, onSave }: { conversation
   </div>
 }
 
-function Message({ conversationID, message, latest, busy, handlers, retry }: { conversationID: string; message: ConversationMessage; latest: boolean; busy: boolean; handlers: MessageHandlers; retry: () => void }) {
+function Message({ conversationID, message, latest, busy, handlers, retry, readAloud }: { conversationID: string; message: ConversationMessage; latest: boolean; busy: boolean; handlers: MessageHandlers; retry: () => void; readAloud: boolean }) {
   const { t, lang } = useI18n()
   const [copied, copy] = useCopy()
   const [playing, togglePlay] = useReadAloud(conversationID, message, lang)
@@ -189,7 +196,7 @@ function Message({ conversationID, message, latest, busy, handlers, retry }: { c
       </div> : null}
       {message.status === 'complete' ? <div className="co-message-actions">
         <button onClick={() => copy(message.text)}><Icon name={copied ? 'check' : 'copy'} size={12} />{copied ? t('Copied') : t('Copy')}</button>
-        <button onClick={togglePlay} aria-pressed={playing}><Icon name={playing ? 'stop' : 'play'} size={12} />{playing ? t('Stop') : t('Play')}</button>
+        {readAloud ? <button onClick={togglePlay} aria-pressed={playing}><Icon name={playing ? 'stop' : 'play'} size={12} />{playing ? t('Stop') : t('Play')}</button> : null}
         {latest ? <button onClick={retry} disabled={busy}><Icon name="retry" size={12} />{t('Retry')}</button> : null}
       </div> : null}
       {latest && message.status === 'complete' ? <QuickReplies replies={message.quickReplies ?? []} onPick={handlers.onQuickReply} disabled={busy} /> : null}
@@ -197,7 +204,7 @@ function Message({ conversationID, message, latest, busy, handlers, retry }: { c
   </article>
 }
 
-export function ConversationMessages({ conversation, busy = false, handlers, actions = [], onActions = () => {}, promptCards = [] }: { conversation: Conversation | null; busy?: boolean; handlers: MessageHandlers; actions?: AgentActionRequest[]; onActions?: (actions: AgentActionRequest[]) => void; /** The person's saved prompts, shown on the empty chat in place of the built-in starters. */ promptCards?: PromptCard[] }) {
+export function ConversationMessages({ conversation, busy = false, handlers, actions = [], onActions = () => {}, promptCards = [], readAloud = true }: { conversation: Conversation | null; busy?: boolean; handlers: MessageHandlers; actions?: AgentActionRequest[]; onActions?: (actions: AgentActionRequest[]) => void; /** The person's saved prompts, shown on the empty chat in place of the built-in starters. */ promptCards?: PromptCard[]; /** False in voice mode, which reads replies itself: a second speaker would talk over Ada and into the microphone. */ readAloud?: boolean }) {
   const { t } = useI18n()
   const box = useRef<HTMLDivElement>(null)
   const pinned = useRef(true)
@@ -207,6 +214,15 @@ export function ConversationMessages({ conversation, busy = false, handlers, act
     const element = box.current
     if (element && pinned.current) element.scrollTop = element.scrollHeight
   }, [conversation?.messages.length, last?.status, last?.steps?.length, last?.text])
+  // Stay at the latest message when the list's box changes size, such as under voice mode's orb.
+  const hasMessages = Boolean(conversation?.messages.length)
+  useEffect(() => {
+    const element = box.current
+    if (!element || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(() => { if (pinned.current) element.scrollTop = element.scrollHeight })
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [hasMessages])
   if (!conversation || (!conversation.messages.length && !actions.length)) return <div className="co-messages" ref={box}><div className="co-empty-chat"><span className="co-empty-orb">A</span><h1>{t('What can Ada help with?')}</h1><p>{t('Ask directly, or describe the outcome you need. Ada brings in specialists behind the scenes only when it helps.')}</p><div className="co-starters">
     {promptCards.length ? promptCards.slice(0, EMPTY_CHAT_CARDS).map((card) => <button key={card.id} className="co-prompt-card" onClick={() => handlers.onStarter(card.text)}><Icon name="spark" /><b>{card.title}</b><span>{card.text}</span></button>) : <>
       <button onClick={() => handlers.onStarter(t('What can you help me accomplish?'))}><Icon name="spark" /><b>{t('Start with a question')}</b><span>{t('Get a direct, concise answer.')}</span></button>
@@ -224,7 +240,7 @@ export function ConversationMessages({ conversation, busy = false, handlers, act
     <div className="co-messages" ref={box} onScroll={(event) => { const el = event.currentTarget; const near = el.scrollHeight - el.scrollTop - el.clientHeight < 70; pinned.current = near; setAway(!near) }}><div className="co-message-inner">
       {cards(-1)}
       {conversation.messages.map((message, index) => <Fragment key={message.id}>
-        <Message conversationID={conversation.id} message={message} latest={index === lastAssistant} busy={busy} handlers={handlers} retry={() => { const previous = conversation.messages.slice(0, index).reverse().find((item) => item.role === 'user'); if (previous) handlers.onRetry(previous.text) }} />
+        <Message conversationID={conversation.id} message={message} latest={index === lastAssistant} busy={busy} handlers={handlers} readAloud={readAloud} retry={() => { const previous = conversation.messages.slice(0, index).reverse().find((item) => item.role === 'user'); if (previous) handlers.onRetry(previous.text) }} />
         {cards(index)}
       </Fragment>)}
     </div></div>
