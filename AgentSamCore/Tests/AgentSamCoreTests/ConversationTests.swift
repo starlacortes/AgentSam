@@ -776,6 +776,79 @@ final class ConversationTests: XCTestCase {
         await engine.shutdown()
     }
 
+    func testLaunchedTaskRunsInItsOwnConversationWithItsContextFile() async throws {
+        let store = MissionStore(root: directory)
+        await store.saveProviders([provider])
+        let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
+        try keys.set("test-key", for: provider.keyAccount)
+        let conversations = ConversationStore(root: directory)
+        let memory = WorkspaceMemoryStore(root: directory)
+        let engine = engine(store, conversations, memory, keys: keys, completion: { _, _, _, system, messages, _ in
+            if system.contains("Summarize only durable") { return LLMReply(message: .assistant("## Notes"), inputTokens: 0, outputTokens: 0, model: "stub") }
+            if messages.contains(where: { ($0.content ?? "").contains("Produce one unified response") }) {
+                return LLMReply(message: .assistant("Done from the API."), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
+            if system.contains("You are judgeAda") { return LLMReply(message: .assistant("VERDICT: PASS"), inputTokens: 0, outputTokens: 0, model: "stub") }
+            return LLMReply(message: .assistant("Followed up on 3 quotes."), inputTokens: 0, outputTokens: 0, model: "stub")
+        })
+        let mission = try await engine.launchTask(ownerID: "owner", launchedBy: "Owner", objective: "Follow up on open quotes", attachment: (name: "snapshot.md", content: "# Quotes\n- 3 open"), language: "en", sourceName: "Maloon", workflowID: "quote-follow-ups")
+        XCTAssertEqual(mission.teamID, TaskTools.teamID)
+        XCTAssertEqual(mission.sourceName, "Maloon")
+        XCTAssertEqual(mission.workflowID, "quote-follow-ups")
+        XCTAssertEqual(mission.inputContext, "# Quotes\n- 3 open")
+        XCTAssertEqual(mission.status, .running)
+        let list = try await conversations.list(ownerID: "owner")
+        let conversationID = try XCTUnwrap(list.first?.id)
+        let workspace = ChatWorkspaceStore(root: directory)
+        let saved = await workspace.read(conversationID: conversationID, name: "snapshot.md")
+        XCTAssertTrue(saved?.contains("3 open") == true)
+        let result = try await finishedConversation(conversations, id: conversationID)
+        XCTAssertEqual(result.messages.count, 2)
+        XCTAssertTrue(result.messages[0].text.contains("snapshot.md"), "the task says where its context is")
+        let answer = try XCTUnwrap(result.messages.last)
+        XCTAssertEqual(answer.status, .complete)
+        XCTAssertEqual(answer.text, "Done from the API.")
+        XCTAssertEqual(answer.missionIDs, [mission.id])
+        let loaded = await store.mission(id: mission.id)
+        let finished = try XCTUnwrap(loaded)
+        XCTAssertEqual(finished.status, .completed)
+        XCTAssertTrue(finished.finalReport?.contains("Followed up on 3 quotes.") == true)
+        let stillRunning = await engine.isTaskRunning(missionID: mission.id)
+        XCTAssertFalse(stillRunning)
+        await engine.shutdown()
+    }
+
+    func testLaunchedTaskCanBeStoppedFromItsMission() async throws {
+        let store = MissionStore(root: directory)
+        await store.saveProviders([provider])
+        let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
+        try keys.set("test-key", for: provider.keyAccount)
+        let conversations = ConversationStore(root: directory)
+        let memory = WorkspaceMemoryStore(root: directory)
+        let engine = engine(store, conversations, memory, keys: keys, completion: { _, _, _, _, _, _ in
+            try await Task.sleep(nanoseconds: 5_000_000_000)
+            return LLMReply(message: .assistant("late"), inputTokens: 0, outputTokens: 0, model: "stub")
+        })
+        let mission = try await engine.launchTask(ownerID: "owner", launchedBy: "Owner", objective: "A long job", language: "en")
+        let running = await engine.isTaskRunning(missionID: mission.id)
+        XCTAssertTrue(running)
+        let stopped = await engine.stopTask(missionID: mission.id, language: "en")
+        XCTAssertTrue(stopped)
+        var status: MissionStatus?
+        for _ in 0..<150 {
+            status = await store.mission(id: mission.id)?.status
+            if status == .stopped { break }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        XCTAssertEqual(status, .stopped)
+        let list = try await conversations.list(ownerID: "owner")
+        let conversation = try await conversations.get(id: try XCTUnwrap(list.first?.id), ownerID: "owner")
+        XCTAssertEqual(conversation?.messages.last?.status, .failed)
+        let missing = await engine.stopTask(missionID: UUID(), language: "en")
+        XCTAssertFalse(missing)
+        await engine.shutdown()
+    }
+
     func testTaskPlansAndVerdictsAreReadSafely() {
         let call = APIToolCall(id: "p", function: .init(name: "plan_steps", arguments: #"{"steps":[{"function":"research","task":"a"},{"function":"","task":"b"},{"function":"write","task":"c","tools":["files","bogus"]},{"function":"x","task":"d"},{"function":"y","task":"e"},{"function":"z","task":"f"}]}"#))
         let steps = try? XCTUnwrap(TaskTools.steps(from: call))

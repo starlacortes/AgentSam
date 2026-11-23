@@ -308,6 +308,8 @@ public struct Mission: Codable, Identifiable, Hashable, Sendable {
     public var objective: String
     public var sourceName: String?
     public var workflowID: String?
+    /// The skill a helper task followed, so Run again can follow it too. Nil for team missions.
+    public var skillID: String?
     public var inputContext: String?
     public var status: MissionStatus
     public var phase: MissionPhase

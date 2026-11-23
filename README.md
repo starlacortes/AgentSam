@@ -122,7 +122,7 @@ Set these variables in Railway:
 
 - `AGENTSAM_TOKEN` — a long random token used by scripts and to create the first account; required by the production container.
 - `AGENTSAM_KEY_PROVIDER_ANTHROPIC`, `AGENTSAM_KEY_PROVIDER_OPENAI`, or another provider key — at least one key for server-side missions.
-- Optional Maloon integration: `AGENTSAM_MALOON_URL=https://<indigo-host>` and `AGENTSAM_MALOON_TOKEN=<matching-integration-token>`. The web app has no screen for its owner workflows yet; start one with `POST /api/missions` and a `workflowID`.
+- Optional Maloon integration: `AGENTSAM_MALOON_URL=https://<indigo-host>` and `AGENTSAM_MALOON_TOKEN=<matching-integration-token>`. The web app has no screen for its owner workflows yet; start one with `POST /api/missions` and a `workflowID`. It runs as a helper task in a conversation of its own, with the business snapshot saved there as `maloon-snapshot.md`.
 - On Indigo's existing Railway service, set the same random token as `AGENTSAM_INTEGRATION_TOKEN` and set `AGENTSAM_BUSINESS_TIMEZONE` to the owner's IANA timezone (for example `America/Chicago`). It defaults to UTC.
 
 Generate a public HTTPS domain in Railway. The container honors Railway's `PORT`; `AGENTSAM_PORT` remains available as an explicit override. Keep backups of the `/data` volume: it contains provider configuration and file-backed keys (written with 0600 permissions), teams, mission history, deliverables, and any Maloon snapshots used as mission context. A restart marks interrupted missions stopped rather than repeating billable model calls automatically.
@@ -194,7 +194,7 @@ POST   /api/connectors/cloudflare/token
 POST   /api/connectors/github/token
 POST   /api/connectors/googleads/credentials
 POST   /api/connectors/:id/authorize
-POST   /api/missions         { teamID, objective } or { workflowID, objective } → launches the run
+POST   /api/missions         { objective, skillID? } or { workflowID, objective? } → starts a helper task in its own conversation (teamID still accepted for one release)
 GET    /api/missions         GET /api/missions/:id  POST /api/missions/:id/stop
 GET    /api/missions/:id/events?afterSeq=N
 GET    /api/missions/:id/deliverables/:name

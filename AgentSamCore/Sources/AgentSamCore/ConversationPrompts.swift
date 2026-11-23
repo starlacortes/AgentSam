@@ -232,7 +232,7 @@ public struct ConversationPromptContext: Sendable {
     /// The context for a mission. Missions get no chat turns, so unlike chat calls (which send the
     /// history as real messages) the recent conversation is included here as text.
     public var missionHandoff: String {
-        promptBlock + "\n\nRecent conversation before the current message:\n" + (recent.isEmpty ? "No earlier messages." : recent) + "\n\nPrivate conversation files are copied into this mission at their original paths. Shared project files are copied under project/. Mission outputs and updates to project/ files synchronize back to this owner's shared project when the mission finishes. Use list_dir and read_file to inspect them."
+        promptBlock + "\n\nRecent conversation before the current message:\n" + (recent.isEmpty ? "No earlier messages." : recent) + "\n\nHelpers work in this conversation's files and the shared project files with their file tools."
     }
 }
 

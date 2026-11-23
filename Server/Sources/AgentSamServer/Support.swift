@@ -51,7 +51,9 @@ extension Mission {
 }
 
 struct MissionStartBody: Decodable {
+    /// Accepted for one release from older clients; its migrated skill, if any, guides the task.
     var teamID: UUID?
+    var skillID: String?
     var workflowID: String?
     var objective: String?
     var language: String?

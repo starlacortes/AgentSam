@@ -12,7 +12,6 @@ struct OwnerWorkflow: Sendable {
 
 struct MaloonIntegration: Sendable {
     static let sourceName = "Maloon"
-    static let ownerTeamID = UUID(uuidString: "5F4A1D63-3F54-4D5D-A16B-0B97E3654D00")!
 
     static let workflows: [OwnerWorkflow] = [
         OwnerWorkflow(
@@ -166,47 +165,5 @@ struct MaloonIntegration: Sendable {
         } catch {
             throw Abort(.badGateway, reason: SrvL10n.t("srv.indigoMalformed", lang: lang))
         }
-    }
-
-    func ownerTeam(store: MissionStore, keyRing: KeyRing, lang: String = "en") async throws -> Team {
-        let providers = await store.loadProviders()
-        if let existing = await store.team(id: Self.ownerTeamID) {
-            let isUsable = existing.agents.allSatisfy { agent in
-                guard let provider = providers.first(where: { $0.id == agent.providerID }) else { return false }
-                let key = keyRing.get(provider.keyAccount)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                return !key.isEmpty && !agent.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            }
-            guard isUsable, existing.coordinator != nil, !existing.workers.isEmpty else {
-                throw Abort(.badRequest, reason: SrvL10n.t("srv.maloonRosterIncomplete", lang: lang))
-            }
-            return existing
-        }
-        guard let provider = providers.first(where: {
-            let key = keyRing.get($0.keyAccount)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let model = ($0.defaultModel ?? $0.models.first ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            return !key.isEmpty && !model.isEmpty
-        }) else {
-            throw Abort(.badRequest, reason: SrvL10n.t("srv.maloonProviderMissing", lang: lang))
-        }
-        let model = provider.defaultModel ?? provider.models.first ?? ""
-        let rosterNames = ["Ada", "Plot", "Scout", "Quill", "Judge"]
-        let agents = rosterNames.compactMap { name in
-            AgentProfile.rosterTemplates.first(where: { $0.name == name })
-        }.map { original in
-            var agent = original
-            agent.id = UUID()
-            agent.providerID = provider.id
-            agent.model = model
-            return agent
-        }
-        let team = Team(
-            id: Self.ownerTeamID,
-            name: SrvL10n.t("srv.maloonTeamName", lang: lang),
-            emoji: "🧭",
-            goal: SrvL10n.t("srv.maloonTeamGoal", lang: lang),
-            agents: agents
-        )
-        await store.saveTeam(team)
-        return team
     }
 }
