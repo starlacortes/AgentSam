@@ -224,6 +224,21 @@ func accessRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
                 }
                 let outcome = await mcp.call(action.toolName, rawArguments: raw)
                 await ctx.access.actions.finish(ownerID: conversation.ownerID, id: id, result: outcome.resultText, succeeded: outcome.succeeded)
+            case .helperSave:
+                // Ada's proposed role for one of her helpers. It only writes helpers.json.
+                guard await ctx.access.actions.consumeApproved(ownerID: conversation.ownerID, id: id) != nil,
+                      let raw = action.arguments.objectValue?["raw"]?.stringValue else {
+                    throw Abort(.conflict, reason: "The helper change could not be applied.")
+                }
+                let call = APIToolCall(id: action.id.uuidString, function: .init(name: action.toolName, arguments: raw))
+                switch HelperTools.saveRequest(from: call) {
+                case .failure(let error):
+                    await ctx.access.actions.finish(ownerID: conversation.ownerID, id: id, result: error.message, succeeded: false)
+                case .success(let request):
+                    let outcome = await HelperTools.apply(request, to: HelperStore(root: ctx.dataDir))
+                    await ctx.access.actions.finish(ownerID: conversation.ownerID, id: id, result: outcome.resultText, succeeded: outcome.succeeded)
+                    await ctx.access.audit.record(ownerID: conversation.ownerID, action: request.undo ? "helper.undone" : "helper.saved", detail: "\(request.name): \(outcome.resultText.prefix(200))")
+                }
             case .fileDelete:
                 guard await ctx.access.actions.consumeApproved(ownerID: conversation.ownerID, id: id) != nil,
                       let scope = action.fileScope,

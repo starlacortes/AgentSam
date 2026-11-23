@@ -109,9 +109,9 @@ public enum PermissionDecision: Sendable, Equatable {
 /// Owner-scoped standing permissions for Ada's write tools, with daily usage counts.
 public actor PermissionStore {
     /// The tools a rule can be set for: every connector write in the tool catalog. File deletion
-    /// keeps its one-use card.
+    /// keeps its one-use card, and so does helper_save: Ada changing her own helpers is always asked.
     public static let ruleTools: Set<String> = Set(
-        ToolCatalog.specs.filter { $0.access == .approval && !$0.name.hasSuffix("_delete_file") }.map(\.name)
+        ToolCatalog.specs.filter { $0.access == .approval && !$0.name.hasSuffix("_delete_file") && $0.name != HelperTools.saveToolName }.map(\.name)
     )
 
     private struct Usage: Codable {

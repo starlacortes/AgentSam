@@ -258,7 +258,7 @@ export interface AgentActionRequest {
   ownerID: string
   conversationID: string
   missionID?: string
-  kind: 'connectorWrite' | 'fileDelete' | 'workstation' | 'mcpCall'
+  kind: 'connectorWrite' | 'fileDelete' | 'workstation' | 'mcpCall' | 'helperSave'
   title: string
   detail: string
   toolName: string
