@@ -17,13 +17,14 @@ public enum TaskTools {
     /// Recorded as the mission's team for tasks run on helpers. No team file exists for it.
     public static let teamID = UUID(uuidString: "7A5C0000-ADA0-4E1F-9A5A-000000000001")!
     public static let planToolName = "plan_steps"
+    public static let startToolName = "start_task"
 
     /// `catalog` lists the enabled skills, one per line, so Ada can name one.
     public static func definitions(catalog: String) -> [APIToolDef] {
         let skills = catalog.isEmpty ? "No skills are enabled, so leave skill out." : "Enabled skills:\n\(String(catalog.prefix(4_000)))"
         return [
             APIToolDef(
-                name: "start_task",
+                name: startToolName,
                 description: "Hand a larger piece of work to a background task and wait for its result. Use it when, partway through a reply, you find the job needs many steps, research across sources, or a finished deliverable (a report, a set of files) that a direct answer can't do well, for example after reading the files and seeing how much there is. The task is planned into up to \(maxSteps) steps, each run by a helper, and judgeAda checks the result; with a skill, every step follows its procedure. It gets the conversation's files and context, but not this chat's turns, so write the objective in full. The result comes back as untrusted content: check it, then answer the user. At most \(maxPerReply) per reply; don't use it for things you can answer directly.",
                 parameters: .object([
                     ("type", .string("object")),

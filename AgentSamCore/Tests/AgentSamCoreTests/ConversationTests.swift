@@ -25,9 +25,9 @@ final class ConversationTests: XCTestCase {
         Team(name: name, goal: "Research and write", agents: [agent("Ada", role: .coordinator), agent("Scout", role: .worker), agent("Judge", role: .verifier)])
     }
 
-    private func engine(_ store: MissionStore, _ conversations: ConversationStore, _ memory: WorkspaceMemoryStore, keys: FileKeyRing, routing: Bool = true, completion: @escaping ConversationEngine.Completion, missionRunner: ConversationEngine.MissionRunner? = nil) -> ConversationEngine {
+    private func engine(_ store: MissionStore, _ conversations: ConversationStore, _ memory: WorkspaceMemoryStore, keys: FileKeyRing, routing: Bool = true, completion: @escaping ConversationEngine.Completion) -> ConversationEngine {
         let missions = MissionEngine(store: store, keyRing: keys)
-        return ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, missions: missions, routing: routing, completion: completion, missionRunner: missionRunner)
+        return ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, missions: missions, routing: routing, completion: completion)
     }
 
     private func finishedConversation(_ conversations: ConversationStore, id: UUID, owner: String = "owner") async throws -> Conversation {
@@ -462,58 +462,7 @@ final class ConversationTests: XCTestCase {
         await engine.shutdown()
     }
 
-    func testActivityRemainsStableBetweenMissionEventUpdates() async throws {
-        actor Recorder {
-            var snapshots: [[AgentActivity]] = []
-            func record(_ activity: [AgentActivity]) { snapshots.append(activity) }
-        }
-        let store = MissionStore(root: directory)
-        await store.saveProviders([provider])
-        let research = team("Research")
-        await store.saveTeam(research)
-        let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
-        try keys.set("test-key", for: provider.keyAccount)
-        let conversations = ConversationStore(root: directory)
-        let memory = WorkspaceMemoryStore(root: directory)
-        let engine = engine(store, conversations, memory, keys: keys, completion: { _, _, _, system, _, _ in
-            if system.contains("Decide how to handle") {
-                return LLMReply(message: .assistant("{\"action\":\"ROUTE_TEAM\",\"teamIDs\":[\"\(research.id.uuidString)\"]}"), inputTokens: 0, outputTokens: 0, model: "stub")
-            }
-            return LLMReply(message: .assistant("One answer."), inputTokens: 0, outputTokens: 0, model: "stub")
-        }, missionRunner: { team, objective, _, _, _ in
-            var mission = await store.createMission(team: team, objective: objective)
-            mission.status = .running
-            await store.saveMission(mission)
-            await store.appendEvent(mission.id, kind: .taskStarted, agent: team.workers[0], text: "Reviewing the evidence")
-            let missionID = mission.id
-            Task {
-                try? await Task.sleep(nanoseconds: 800_000_000)
-                guard var finished = await store.mission(id: missionID) else { return }
-                finished.status = .completed
-                finished.phase = .done
-                finished.finalReport = "Findings"
-                await store.saveMission(finished)
-            }
-            return mission
-        })
-        let conversation = try await conversations.create(ownerID: "owner")
-        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Investigate", launchedBy: "Owner", language: "en")
-        let recorder = Recorder()
-        for _ in 0..<35 {
-            if let current = try await conversations.get(id: conversation.id, ownerID: "owner") {
-                await recorder.record(current.messages.last?.activity ?? [])
-                if current.messages.last?.status != .running { break }
-            }
-            try await Task.sleep(nanoseconds: 30_000_000)
-        }
-        let snapshots = await recorder.snapshots
-        XCTAssertTrue(snapshots.contains(where: { activity in activity.contains(where: { $0.agentName == "Scout" && $0.summary == "Reviewing the evidence" && $0.state == "working" }) }))
-        XCTAssertFalse(snapshots.contains(where: { activity in activity.contains(where: { $0.agentName == "Scout" && $0.summary == "Waiting for an assignment" && $0.state == "idle" }) }))
-        _ = try await finishedConversation(conversations, id: conversation.id)
-        await engine.shutdown()
-    }
-
-    func testMultipleTeamsProduceOneConsolidatedMessage() async throws {
+    func testRoutedTeamsRunAsHelperTasksAndProduceOneConsolidatedMessage() async throws {
         let store = MissionStore(root: directory)
         await store.saveProviders([provider])
         let teams = [team("Research"), team("Writing")]
@@ -523,7 +472,6 @@ final class ConversationTests: XCTestCase {
         let conversations = ConversationStore(root: directory)
         let memory = WorkspaceMemoryStore(root: directory)
         let ids = teams.map(\.id)
-        let root = directory!
         let engine = engine(store, conversations, memory, keys: keys, completion: { _, _, _, system, _, _ in
             if system.contains("Decide how to handle") {
                 let json = "{\"action\":\"ROUTE_TEAM\",\"teamIDs\":[\"\(ids[0].uuidString)\",\"\(ids[1].uuidString)\"]}"
@@ -533,22 +481,24 @@ final class ConversationTests: XCTestCase {
                 return LLMReply(message: .assistant("## Projects\n- A shared project."), inputTokens: 0, outputTokens: 0, model: "stub")
             }
             return LLMReply(message: .assistant("One answer from Ada."), inputTokens: 0, outputTokens: 0, model: "stub")
-        }, missionRunner: { team, objective, _, _, _ in
-            let store = MissionStore(root: root)
-            var mission = await store.createMission(team: team, objective: objective)
-            mission.status = .completed
-            mission.phase = .done
-            mission.finalReport = "\(team.name) findings"
-            await store.saveMission(mission)
-            return mission
         })
         let conversation = try await conversations.create(ownerID: "owner")
         _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Research and summarize this", launchedBy: "Owner", language: "en")
         let result = try await finishedConversation(conversations, id: conversation.id)
         XCTAssertEqual(result.messages.filter { $0.role == .assistant }.count, 1)
         XCTAssertEqual(result.messages.last?.text, "One answer from Ada.")
-        XCTAssertEqual(result.messages.last?.missionIDs.count, 2)
-        XCTAssertEqual(result.messages.last?.teamIDs, ids)
+        // Each saved team became a skill, and each skill ran as its own helper task.
+        let missionIDs = result.messages.last?.missionIDs ?? []
+        XCTAssertEqual(missionIDs.count, 2)
+        var names: [String] = []
+        for id in missionIDs {
+            let loaded = await store.mission(id: id)
+            let mission = try XCTUnwrap(loaded)
+            XCTAssertEqual(mission.teamID, TaskTools.teamID)
+            names.append(mission.teamName)
+        }
+        XCTAssertEqual(names, ["Research", "Writing"])
+        XCTAssertEqual(result.messages.last?.teamIDs, [])
         await engine.shutdown()
     }
 
@@ -957,14 +907,13 @@ final class ConversationTests: XCTestCase {
         }
     }
 
-    func testSoloRunsAsAMissionWithAdaAsWorkerAndProducesFiles() async throws {
+    func testSoloRunsAsAHelperTaskWithoutTheSoloTeam() async throws {
         let store = MissionStore(root: directory)
         await store.saveProviders([provider])
         let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
         try keys.set("test-key", for: provider.keyAccount)
         let conversations = ConversationStore(root: directory)
         let memory = WorkspaceMemoryStore(root: directory)
-        let root = directory!
         let engine = engine(store, conversations, memory, keys: keys, completion: { _, _, _, system, messages, _ in
             if system.contains("Summarize only durable") { return LLMReply(message: .assistant("## Notes"), inputTokens: 0, outputTokens: 0, model: "stub") }
             if system.contains("Decide how to handle") {
@@ -973,23 +922,10 @@ final class ConversationTests: XCTestCase {
             if messages.contains(where: { ($0.content ?? "").contains("Produce one unified response") }) {
                 return LLMReply(message: .assistant("Here is what I made."), inputTokens: 0, outputTokens: 0, model: "stub")
             }
-            return LLMReply(message: .assistant("planning"), inputTokens: 0, outputTokens: 0, model: "stub")
-        }, missionRunner: { team, objective, _, _, _ in
-            // The solo team: Ada as coordinator and her worker copy, exactly one worker.
-            XCTAssertEqual(team.workers.count, 1)
-            XCTAssertEqual(team.coordinator?.name, "Ada")
-            XCTAssertEqual(team.workers.first?.name, "Ada")
-            XCTAssertEqual(team.id, ConversationEngine.soloTeamID)
-            // The solo team is persisted so its missions resolve in the UI.
-            let saved = await store.team(id: team.id)
-            XCTAssertNotNil(saved)
-            let store = MissionStore(root: root)
-            var mission = await store.createMission(team: team, objective: objective)
-            mission.status = .completed
-            mission.phase = .done
-            mission.finalReport = "Solo report"
-            await store.saveMission(mission)
-            return mission
+            if system.contains("You are judgeAda") {
+                return LLMReply(message: .assistant("VERDICT: PASS\nThe page is there."), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
+            return LLMReply(message: .assistant("Built the page."), inputTokens: 0, outputTokens: 0, model: "stub")
         })
         let conversation = try await conversations.create(ownerID: "owner")
         _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Build and verify a page yourself", launchedBy: "Owner", language: "en")
@@ -997,9 +933,16 @@ final class ConversationTests: XCTestCase {
         let answer = try XCTUnwrap(result.messages.last)
         XCTAssertEqual(answer.text, "Here is what I made.")
         XCTAssertEqual(answer.missionIDs.count, 1)
-        XCTAssertEqual(answer.teamIDs, [ConversationEngine.soloTeamID])
-        // The solo mission is linked and its activity shows Ada doing the work.
-        XCTAssertTrue(answer.activity.contains { $0.agentName == "Ada" && $0.summary == "Work completed" })
+        XCTAssertTrue(answer.teamIDs.isEmpty)
+        let loaded = await store.mission(id: answer.missionIDs[0])
+        let mission = try XCTUnwrap(loaded)
+        XCTAssertEqual(mission.teamID, TaskTools.teamID)
+        XCTAssertEqual(mission.status, .completed)
+        XCTAssertTrue(mission.finalReport?.contains("Built the page.") == true)
+        // No solo team is saved any more, and the helpers who worked stay on the reply.
+        let solo = await store.team(id: ConversationEngine.soloTeamID)
+        XCTAssertNil(solo)
+        XCTAssertTrue(answer.activity.contains { $0.teamName == HelperTools.activityLabel })
         await engine.shutdown()
     }
 
