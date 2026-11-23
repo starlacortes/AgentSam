@@ -16,6 +16,19 @@ public enum MissionEngineError: Error, LocalizedError {
     }
 }
 
+/// How mission workers reach Ada's workstation. The server supplies it: `available` says whether the
+/// mission's owner may use the workstation, and `run` runs one workstation call for a mission, with
+/// the same standing permissions and approval cards as in chat.
+public struct MissionWorkstation: Sendable {
+    public let available: @Sendable (UUID) async -> Bool
+    public let run: @Sendable (UUID, APIToolCall) async -> ToolOutcome
+
+    public init(available: @escaping @Sendable (UUID) async -> Bool, run: @escaping @Sendable (UUID, APIToolCall) async -> ToolOutcome) {
+        self.available = available
+        self.run = run
+    }
+}
+
 public actor MissionEngine {
     public struct Config: Sendable {
         public var maxParallel: Int
@@ -57,6 +70,7 @@ public actor MissionEngine {
     private let config: Config
     private let promptBuilder: PromptBuilder
     private let connectorWrite: (@Sendable (UUID, APIToolCall, ToolScope?) async -> ToolOutcome)?
+    private let workstation: MissionWorkstation?
     private var runningTasks: [UUID: Task<Void, Never>] = [:]
     private let summaryStates = SummaryStates()
 
@@ -67,7 +81,8 @@ public actor MissionEngine {
         connectors: ConnectorHub? = nil,
         config: Config = Config(),
         promptStore: PromptStore? = nil,
-        connectorWrite: (@Sendable (UUID, APIToolCall, ToolScope?) async -> ToolOutcome)? = nil
+        connectorWrite: (@Sendable (UUID, APIToolCall, ToolScope?) async -> ToolOutcome)? = nil,
+        workstation: MissionWorkstation? = nil
     ) {
         self.store = store
         self.keyRing = keyRing
@@ -75,6 +90,7 @@ public actor MissionEngine {
         self.connectors = connectors
         self.config = config
         self.connectorWrite = connectorWrite
+        self.workstation = workstation
         self.promptBuilder = PromptBuilder(store: promptStore ?? PromptStore(
             builtins: PromptStore.builtins,
             fileURL: store.root.appendingPathComponent("prompts.json")
@@ -387,7 +403,8 @@ public actor MissionEngine {
         await store.appendEvent(mission.id, kind: .taskStarted, agent: agent, text: task.goal)
         let connectorDefs = await connectors?.toolDefs(scope: team.toolScope) ?? []
         let externalToolNames = connectorDefs.map(\.function.name)
-        let offered = OfferedTools.worker(connectorTools: connectorDefs)
+        let hasWorkstation = await workstation?.available(mission.id) ?? false
+        let offered = OfferedTools.worker(connectorTools: connectorDefs, hasWorkstation: hasWorkstation)
         let tools = offered.definitions
 
         do {
@@ -397,7 +414,7 @@ public actor MissionEngine {
                     agent: agent,
                     registry: registry,
                     missionID: mission.id,
-                    system: promptBuilder.workerSystem(agent: agent, team: team, mission: mission, externalTools: externalToolNames),
+                    system: promptBuilder.workerSystem(agent: agent, team: team, mission: mission, externalTools: externalToolNames, hasWorkstation: hasWorkstation),
                     messages: messages,
                     tools: tools,
                     stats: &workerStats
@@ -424,7 +441,14 @@ public actor MissionEngine {
                             outcome = .failure("Connectors are not available in this mission.")
                         }
                     case .worker?:
-                        outcome = AgentTools.run(call: call, workspace: workspace, protecting: store.root)
+                        let ran = AgentTools.run(call: call, workspace: workspace, protecting: store.root)
+                        outcome = Self.workerWorkstationFallback(toolName: call.function.name, outcome: ran, hasWorkstation: hasWorkstation)
+                    case .workstation?:
+                        if let workstation {
+                            outcome = await workstation.run(mission.id, call)
+                        } else {
+                            outcome = .failure("Workstation access is not available in this mission.")
+                        }
                     default:
                         outcome = .failure(ConversationEngine.unknownToolMessage(call.function.name, offered: offered.names))
                     }
@@ -452,6 +476,25 @@ public actor MissionEngine {
             let failed = MissionStats(inputTokens: workerStats.inputTokens, outputTokens: workerStats.outputTokens, costUSD: workerStats.costUSD, turns: workerStats.turns)
             return WorkerResult(task: task, agent: agent, handoff: l10n("engine.taskFailed", mission: mission), deliverables: deliverables, stats: failed, error: l10nf("engine.workerFailed", agent.name, task.deliverable, errorText(error, mission: mission), mission: mission))
         }
+    }
+
+    /// Who reviews a mission: the team's verifier, or else its coordinator in a read-only reviewer
+    /// role. Without this, teams with no verifier (Ada's solo team, skills without a Judge) ended
+    /// every mission UNVERIFIED, even when the work was done.
+    static func reviewer(for team: Team) -> AgentProfile? {
+        if let verifier = team.verifier { return verifier }
+        guard var reviewer = team.coordinator ?? team.agents.first else { return nil }
+        reviewer.role = .verifier
+        reviewer.title = "reviewer"
+        reviewer.systemPrompt = "Check the work strictly and fairly. Do not redo it."
+        return reviewer
+    }
+
+    /// A worker's `run_program` fails where the server has no OS sandbox (Railway). When the
+    /// workstation is offered, the failure points the worker there instead of ending the task.
+    static func workerWorkstationFallback(toolName: String, outcome: ToolOutcome, hasWorkstation: Bool) -> ToolOutcome {
+        guard hasWorkstation, toolName == "run_program", !outcome.succeeded else { return outcome }
+        return .failure(outcome.resultText + "\n\nThe mission sandbox cannot run programs here, but your workstation is available: run the program there with workstation_run instead of giving up (write the file there first, for example with a heredoc).")
     }
 
     private func verify(
@@ -483,8 +526,9 @@ public actor MissionEngine {
         }
 
         var verdict: VerificationReport.Verdict = .unverified
-        if let verifier = team.verifier, config.verifyWithAgent, !deliverableNames.isEmpty {
-            var messages: [APIMessage] = [.user(promptBuilder.verifyPrompt(deliverables: deliverableNames, mission: mission))]
+        if let verifier = Self.reviewer(for: team), config.verifyWithAgent, !deliverableNames.isEmpty {
+            let handoffs = results.map { "\($0.agent.name) — \($0.task.deliverable): \($0.handoff.prefix(1_500))" }
+            var messages: [APIMessage] = [.user(promptBuilder.verifyPrompt(deliverables: deliverableNames, mission: mission, handoffs: handoffs))]
             var verifierFindings: [VerificationReport.Finding] = []
             do {
                 // The verifier reads the workspace, then submits its review
@@ -557,8 +601,9 @@ public actor MissionEngine {
             verdict = .unverified
         }
 
+        let mechanicalCheck = l10n("engine.checkMechanical", mission: mission)
         let mechanicalWorst = findings
-            .filter { $0.check == "mechanical" }
+            .filter { $0.check == mechanicalCheck }
             .map(\.level)
             .max()
 

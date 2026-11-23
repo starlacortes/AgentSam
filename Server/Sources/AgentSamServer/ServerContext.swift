@@ -128,15 +128,53 @@ struct ServerContext: Sendable {
                 case .ask:
                     break
                 }
+                // The approve route runs the write; the worker waits for its result.
                 let lifetime = await access.permissions.approvalLifetime(ownerID: owner)
-                let decision = await access.actions.awaitConnectorApproval(missionID: missionID, call: call, scope: scope, lifetime: lifetime)
-                guard decision.hasPrefix("approved:"), let id = UUID(uuidString: String(decision.dropFirst("approved:".count))) else {
-                    return .failure(decision)
+                return await access.actions.awaitMissionAction(
+                    missionID: missionID, kind: .connectorWrite, call: call,
+                    title: "Approve \(call.function.name)", detail: "A mission worker requested an external connector write. Review its exact arguments before approving.",
+                    scope: scope, lifetime: lifetime
+                )
+            },
+            workstation: MissionWorkstation(
+                available: { missionID in
+                    guard let machine = access.workstation, await machine.enabled, let owner = await access.actions.owner(missionID: missionID) else { return false }
+                    return await access.workstationOwner(owner)
+                },
+                run: { missionID, call in
+                    guard let machine = access.workstation, await machine.enabled,
+                          let owner = await access.actions.owner(missionID: missionID), await access.workstationOwner(owner) else {
+                        return .failure("Workstation access is not available in this mission. Nothing ran.")
+                    }
+                    guard WorkstationTools.approvalNames.contains(call.function.name) else {
+                        return await WorkstationTools.run(call: call, workstation: machine)
+                    }
+                    let command = (AgentTools.arguments(of: call)["command"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !command.isEmpty else { return .failure("A command is required. Nothing ran.") }
+                    let shown = command.count > 80 ? String(command.prefix(77)) + "…" : command
+                    switch await access.permissions.decide(ownerID: owner, toolName: call.function.name, arguments: AgentTools.arguments(of: call)) {
+                    case .deny(let reason):
+                        return .failure(reason)
+                    case .allow:
+                        let outcome = await WorkstationTools.execute(toolName: call.function.name, rawArguments: call.function.arguments, workstation: machine)
+                        let record = AgentActionRequest(
+                            ownerID: owner, conversationID: await access.actions.conversation(missionID: missionID) ?? UUID(), missionID: missionID, kind: .workstation,
+                            title: "Ran on the workstation: \(shown)", detail: "A mission worker's command was allowed by your standing permission for this tool.",
+                            toolName: call.function.name, arguments: .object([("raw", .string(call.function.arguments))])
+                        )
+                        await access.actions.recordAutomatic(record, result: outcome.resultText, succeeded: outcome.succeeded)
+                        return outcome
+                    case .ask(let reason):
+                        let lifetime = await access.permissions.approvalLifetime(ownerID: owner)
+                        return await access.actions.awaitMissionAction(
+                            missionID: missionID, kind: .workstation, call: call,
+                            title: "Run on the workstation: \(shown)",
+                            detail: "A mission worker wants to run this on Ada's Linux workstation, outside the sandbox. Nothing has run yet." + (reason.map { " " + $0 } ?? ""),
+                            lifetime: lifetime
+                        )
+                    }
                 }
-                let outcome = await connectors.run(call: call, scope: scope, approved: true)
-                await access.actions.finish(ownerID: owner, id: id, result: outcome.resultText, succeeded: outcome.succeeded)
-                return outcome
-            }
+            )
         )
         let conversations = ConversationStore(root: store.root)
         let memory = WorkspaceMemoryStore(root: store.root)

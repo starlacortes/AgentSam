@@ -265,4 +265,107 @@ final class WorkstationTests: XCTestCase {
         XCTAssertTrue(actions.isEmpty)
         await engine.shutdown()
     }
+
+    // MARK: Mission workers
+
+    func testMissionWorkersAreOfferedTheWorkstationOnlyWhenAvailable() {
+        let without = OfferedTools.worker(connectorTools: [])
+        XCTAssertTrue(without.names.isDisjoint(with: WorkstationTools.names))
+        let with = OfferedTools.worker(connectorTools: [], hasWorkstation: true)
+        for name in WorkstationTools.names { XCTAssertEqual(with.family(of: name), .workstation, name) }
+        XCTAssertEqual(with.family(of: "write_file"), .worker)
+    }
+
+    func testWorkerSystemExplainsTheWorkstationAndGitOnlyWhenOffered() {
+        let team = Team.starterTeam()
+        let mission = Mission(teamID: team.id, teamName: team.name, objective: "Publish the fix")
+        let builder = PromptBuilder(store: PromptStore(builtins: PromptStore.builtins))
+        let plain = builder.workerSystem(agent: team.workers[0], team: team, mission: mission)
+        XCTAssertFalse(plain.contains("workstation_run"))
+        let system = builder.workerSystem(agent: team.workers[0], team: team, mission: mission, hasWorkstation: true)
+        XCTAssertTrue(system.contains("workstation_run"))
+        XCTAssertTrue(system.contains("cat ~/GIT.md"))
+        XCTAssertTrue(system.contains("pull request"))
+        XCTAssertFalse(system.lowercased().contains("deploy key"))
+    }
+
+    func testWorkerRunProgramFailurePointsToTheWorkstation() {
+        let failed = ToolOutcome.failure("bwrap: Permission denied")
+        XCTAssertTrue(MissionEngine.workerWorkstationFallback(toolName: "run_program", outcome: failed, hasWorkstation: true).resultText.contains("workstation_run"))
+        XCTAssertEqual(MissionEngine.workerWorkstationFallback(toolName: "run_program", outcome: failed, hasWorkstation: false).resultText, failed.resultText)
+        let ok = ToolOutcome(resultText: "done")
+        XCTAssertEqual(MissionEngine.workerWorkstationFallback(toolName: "run_program", outcome: ok, hasWorkstation: true).resultText, "done")
+    }
+
+    func testMissionActionWaitsForTheApprovedRunAndReturnsItsResult() async throws {
+        let access = ConversationAccess(root: directory)
+        let mission = UUID(), conversation = UUID()
+        await access.actions.link(missionID: mission, conversationID: conversation, ownerID: "owner")
+        let call = APIToolCall(id: "c1", function: .init(name: "workstation_run", arguments: #"{"command":"git push"}"#))
+        let actions = access.actions
+        // Stands in for the approve route: approve the card, run it, record the result.
+        let approver = Task {
+            while true {
+                if let card = await actions.list(ownerID: "owner", conversationID: conversation).first(where: { $0.status == .pending }) {
+                    _ = await actions.resolve(ownerID: "owner", id: card.id, approve: true)
+                    _ = await actions.consumeApproved(ownerID: "owner", id: card.id)
+                    await actions.finish(ownerID: "owner", id: card.id, result: "pushed fix/branch", succeeded: true)
+                    return
+                }
+                try await Task.sleep(nanoseconds: 20_000_000)
+            }
+        }
+        let outcome = await actions.awaitMissionAction(missionID: mission, kind: .workstation, call: call, title: "Run", detail: "d", pollInterval: 0.02)
+        _ = try await approver.value
+        XCTAssertTrue(outcome.succeeded)
+        XCTAssertTrue(outcome.resultText.contains("pushed fix/branch"))
+        let cards = await actions.list(ownerID: "owner", conversationID: conversation)
+        let card = try XCTUnwrap(cards.first)
+        XCTAssertEqual(card.missionID, mission)
+        XCTAssertEqual(card.kind, .workstation)
+    }
+
+    func testMissionActionReportsADenialAndNeedsALinkedConversation() async throws {
+        let access = ConversationAccess(root: directory)
+        let call = APIToolCall(id: "c1", function: .init(name: "workstation_run", arguments: #"{"command":"ls"}"#))
+        let unlinked = await access.actions.awaitMissionAction(missionID: UUID(), kind: .workstation, call: call, title: "Run", detail: "d")
+        XCTAssertFalse(unlinked.succeeded)
+
+        let mission = UUID(), conversation = UUID()
+        await access.actions.link(missionID: mission, conversationID: conversation, ownerID: "owner")
+        let actions = access.actions
+        let denier = Task {
+            while true {
+                if let card = await actions.list(ownerID: "owner", conversationID: conversation).first(where: { $0.status == .pending }) {
+                    _ = await actions.resolve(ownerID: "owner", id: card.id, approve: false)
+                    return
+                }
+                try await Task.sleep(nanoseconds: 20_000_000)
+            }
+        }
+        let outcome = await actions.awaitMissionAction(missionID: mission, kind: .workstation, call: call, title: "Run", detail: "d", pollInterval: 0.02)
+        _ = try await denier.value
+        XCTAssertFalse(outcome.succeeded)
+        XCTAssertTrue(outcome.resultText.contains("denied"))
+    }
+
+    // MARK: Mission review
+
+    func testTeamsWithoutAVerifierAreReviewedByTheirCoordinator() {
+        let ada = AgentProfile.rosterTemplates[0]
+        let solo = ConversationEngine.soloTeam(coordinator: { var a = ada; a.role = .coordinator; return a }(), language: "en")
+        XCTAssertNil(solo.verifier)
+        let reviewer = MissionEngine.reviewer(for: solo)
+        XCTAssertEqual(reviewer?.role, .verifier)
+        let starter = Team.starterTeam()
+        XCTAssertEqual(MissionEngine.reviewer(for: starter)?.id, starter.verifier?.id)
+    }
+
+    func testVerifyPromptCarriesHandoffsAndJudgesOutsideGoalsFromEvidence() {
+        let builder = PromptBuilder(store: PromptStore(builtins: PromptStore.builtins))
+        let text = builder.verifyPrompt(deliverables: ["report.md"], handoffs: ["Ada — report.md: opened https://github.com/o/r/pull/7"])
+        XCTAssertTrue(text.contains("pull/7"))
+        XCTAssertTrue(text.contains("clean verdict"))
+        XCTAssertFalse(text.contains("{{"))
+    }
 }
