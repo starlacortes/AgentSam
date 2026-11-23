@@ -3,13 +3,22 @@
 Ada's server cannot run a browser itself, so the browser lives on her SSH workstation
 (`AGENTSAM_WORKSTATION_SSH`). This folder is what runs there.
 
-- `install.sh` installs Chromium and TigerVNC with pacman, creates the `adabrowser` user (no
+- `install.sh` installs Chromium, TigerVNC and Node.js with pacman, creates the `adabrowser` user (no
   password, no sudo, no SSH keys), and installs the files below. Run it as root on the workstation.
 - `ada-browser.service` runs `run-browser.sh` as `adabrowser`. It has no `[Install]` section: it
   never starts at boot. Ada's server starts it when an admin opens the live window and stops it
   after 15 minutes with nobody watching.
-- `run-browser.sh` starts `Xvnc` on display `:77`, listening on `127.0.0.1:5977` only, and one
-  normal Chromium window with a fresh profile. Stopping the service erases that profile.
+- `run-browser.sh` starts `Xvnc` on display `:77`, listening on `127.0.0.1:5977` only, and the
+  browser agent.
+- `browser-agent.mjs` (Node, no packages) starts one normal Chromium window and carries out Ada's
+  browser actions in it. It talks to Chromium over `--remote-debugging-pipe`, so no debugging port
+  is open, and listens for Ada's server on `127.0.0.1:5978` only. Each request must carry the VNC
+  password, the same secret that already gives full control of the window. It keeps who is in
+  control (Ada, paused, or the person), refuses to type into password and one-time-code fields,
+  never reports what they hold, opens only http and https addresses, and has no way to read
+  cookies or run arbitrary scripts.
+- The profile (`profiles/main`) is kept between starts, so sites the person signed in to stay
+  signed in. "Erase sign-ins" in the live window deletes it and opens a fresh window.
 - `chromium-policy.json` turns off Chromium's password manager, autofill, sync and browser sign-in.
 
 ## How the picture reaches the web app
@@ -27,7 +36,25 @@ the VNC stream over a WebSocket (`/api/browser/live`) to admins signed in to the
    says where to read it), then redeploy. The startup log says "Ada's browser is on".
 4. In the web app, open a chat's "⋯" menu and choose "Open Ada's browser".
 
-## What this step does not do yet
+## Ada's browser tools
 
-This is the live window only. Ada has no browser tools yet, there are no accounts or saved
-sign-ins, and the window is for the public web. Those come in later steps of the design.
+Ada drives the window with the `browser_*` tools (open, look, click, type, select, key, scroll,
+go, tabs, wait, screenshot), and admins watch every step live. Signing in, submitting a form,
+paying, sending, deleting and security settings create an approval card on Ada's server; the
+approved action runs once, and the agent refuses it if the page or element changed meanwhile.
+To sign in to a site, the person presses **Take over** in the live window, signs in, and presses
+**Hand back**. While the person is in control, the agent refuses all of Ada's requests.
+
+Updating an existing install: copy this folder to the workstation, run `sudo ./install.sh` again,
+then `sudo systemctl restart ada-browser.service` (or let it stop for idleness). Nothing new is
+needed on Ada's server: the agent uses the VNC password it already has.
+
+Run the agent's tests with `node --test deploy/browser-agent/browser-agent.test.mjs`; set
+`ADA_BROWSER_CHROMIUM` to a Chromium or Chrome binary to include the real-browser test.
+
+## Not done yet
+
+One profile for every site (not one per account), no per-site grants or daily limits, Ada's
+cursor is not drawn on the picture, and iframes (some embedded sign-in and payment widgets) are
+not readable. The profile sits on the workstation, where Ada's own `sudo pacman` could reach it:
+keep `workstation_run` on approval until the browser has a machine of its own.

@@ -1,7 +1,10 @@
 #!/bin/sh
 # Runs Ada's browser: one Chromium window on a virtual display that is shared over VNC on
-# 127.0.0.1 only. Started by ada-browser.service as the adabrowser user; stopping the service
-# closes the window and erases the profile, so nothing is kept between sessions.
+# 127.0.0.1 only, and the agent that carries out Ada's actions in it (browser-agent.mjs, on
+# 127.0.0.1 only). Started by ada-browser.service as the adabrowser user.
+#
+# The profile is kept between starts, so the sites the person signed in to stay signed in.
+# Ada's "erase sign-ins" (or deleting profiles/main) starts it fresh.
 set -eu
 
 HOME_DIR="${ADA_BROWSER_HOME:-/var/lib/ada-browser}"
@@ -9,19 +12,23 @@ DISPLAY_NUMBER="${ADA_BROWSER_DISPLAY:-77}"
 VNC_PORT="${ADA_BROWSER_VNC_PORT:-5977}"
 SIZE="${ADA_BROWSER_SIZE:-1280x800}"
 PASSWORD_FILE="$HOME_DIR/vnc.passwd"
-PROFILE="$HOME_DIR/profiles/public"
+PROFILE="$HOME_DIR/profiles/main"
+AGENT_PORT="${ADA_BROWSER_AGENT_PORT:-5978}"
 
 [ -s "$PASSWORD_FILE" ] || { echo "Missing $PASSWORD_FILE. Run install.sh first." >&2; exit 1; }
 
-# A fresh profile every time: this window is for the public web, with no accounts.
-rm -rf "$PROFILE"
+[ -s "$HOME_DIR/vnc-password.txt" ] || { echo "Missing $HOME_DIR/vnc-password.txt. Run install.sh first." >&2; exit 1; }
+
+# The window of step 1 used a throwaway profile; it is not needed any more.
+rm -rf "$HOME_DIR/profiles/public"
 mkdir -p "$PROFILE"
 chmod 700 "$PROFILE"
+# A browser that was killed leaves its lock behind, and would then refuse to start.
+rm -f "$PROFILE/SingletonLock" "$PROFILE/SingletonSocket" "$PROFILE/SingletonCookie"
 
 cleanup() {
-    [ -n "${CHROMIUM_PID:-}" ] && kill "$CHROMIUM_PID" 2>/dev/null || true
+    [ -n "${AGENT_PID:-}" ] && kill "$AGENT_PID" 2>/dev/null || true
     [ -n "${XVNC_PID:-}" ] && kill "$XVNC_PID" 2>/dev/null || true
-    rm -rf "$PROFILE"
 }
 trap cleanup EXIT
 trap 'exit 0' TERM INT
@@ -41,16 +48,13 @@ done
 
 # A normal window, not headless and without automation flags: the address bar, pop-ups and file
 # pickers must be visible to the person watching, and sites refuse headless browsers more often.
-DISPLAY=":$DISPLAY_NUMBER" chromium \
-    --user-data-dir="$PROFILE" \
-    --no-first-run --no-default-browser-check \
-    --password-store=basic \
-    --window-position=0,0 --window-size="$(echo "$SIZE" | tr x ,)" \
-    --disable-features=Translate \
-    about:blank &
-CHROMIUM_PID=$!
+# The agent starts Chromium itself and talks to it over a pipe, so no debugging port is open.
+DISPLAY=":$DISPLAY_NUMBER" ADA_BROWSER_HOME="$HOME_DIR" ADA_BROWSER_PROFILE="$PROFILE" \
+    ADA_BROWSER_SIZE="$SIZE" ADA_BROWSER_AGENT_PORT="$AGENT_PORT" \
+    node "$HOME_DIR/bin/browser-agent.mjs" &
+AGENT_PID=$!
 
 # The service lives as long as both parts do.
-while kill -0 "$CHROMIUM_PID" 2>/dev/null && kill -0 "$XVNC_PID" 2>/dev/null; do
+while kill -0 "$AGENT_PID" 2>/dev/null && kill -0 "$XVNC_PID" 2>/dev/null; do
     sleep 2
 done

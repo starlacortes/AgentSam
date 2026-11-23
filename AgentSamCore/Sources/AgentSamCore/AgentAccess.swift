@@ -275,7 +275,7 @@ public actor HostAccessStore {
 }
 
 public struct AgentActionRequest: Codable, Identifiable, Hashable, Sendable {
-    public enum Kind: String, Codable, Sendable { case connectorWrite, fileDelete, workstation, mcpCall, helperSave }
+    public enum Kind: String, Codable, Sendable { case connectorWrite, fileDelete, workstation, mcpCall, helperSave, browser }
     public enum Status: String, Codable, Sendable { case pending, approved, executing, completed, denied, expired, failed }
     public enum FileScope: String, Codable, Sendable { case conversation, project }
 
@@ -333,9 +333,12 @@ public struct ConversationAccess: Sendable {
     public let workstationOwner: @Sendable (String) async -> Bool
     /// MCP servers an admin connected; their tools are offered in every conversation with access.
     public let mcp: MCPRegistry?
+    /// Ada's browser on the workstation; the same owners as the workstation may use it.
+    public let browser: BrowserLink?
 
-    public init(root: URL, workstation: Workstation? = nil, workstationOwner: @escaping @Sendable (String) async -> Bool = { _ in false }, mcp: MCPRegistry? = nil) {
+    public init(root: URL, workstation: Workstation? = nil, workstationOwner: @escaping @Sendable (String) async -> Bool = { _ in false }, mcp: MCPRegistry? = nil, browser: BrowserLink? = nil) {
         self.mcp = mcp
+        self.browser = browser
         self.workstation = workstation
         self.workstationOwner = workstationOwner
         spend = SpendLedger(root: root)
@@ -484,6 +487,7 @@ public actor AgentActionCenter {
         case .workstation: return "workstation.executed"
         case .mcpCall: return "mcp.executed"
         case .helperSave: return "helper.saved"
+        case .browser: return "browser.approved-action"
         }
     }
 

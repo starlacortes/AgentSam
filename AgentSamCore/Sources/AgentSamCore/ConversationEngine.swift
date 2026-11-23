@@ -542,8 +542,9 @@ public actor ConversationEngine {
         let taskTools = ref == nil ? [] : TaskTools.definitions(catalog: SkillTeams.catalog(await skills.enabled()))
         // Helpers run inside this reply, so they need a user-owned reply to show their work in too.
         // Proposing a saved helper role needs an approval card, so it is offered only with access.
-        let delegateTools = ref == nil ? [] : HelperTools.definitions(hasWorkstation: workstation != nil, hasMCP: !mcpTools.isEmpty, saved: await helpers.all(), canSave: access != nil, skills: await skills.enabled().map(\.id))
-        let offered = OfferedTools.direct(connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedAccess: access != nil, hasWorkstation: workstation != nil, mcpTools: mcpTools, taskTools: taskTools, delegateTools: delegateTools)
+        let hasBrowser = await browser(ownerID: ref?.ownerID) != nil
+        let delegateTools = ref == nil ? [] : HelperTools.definitions(hasWorkstation: workstation != nil, hasMCP: !mcpTools.isEmpty, hasBrowser: hasBrowser, saved: await helpers.all(), canSave: access != nil, skills: await skills.enabled().map(\.id))
+        let offered = OfferedTools.direct(connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedAccess: access != nil, hasWorkstation: workstation != nil, hasBrowser: hasBrowser, mcpTools: mcpTools, taskTools: taskTools, delegateTools: delegateTools)
         return (offered, connectorTools, workstation)
     }
 
@@ -742,6 +743,30 @@ public actor ConversationEngine {
             ) {
                 await WorkstationTools.execute(toolName: call.function.name, rawArguments: call.function.arguments, workstation: workstation)
             }
+        case .browser:
+            guard let access, let ref, let link = await browser(ownerID: ref.ownerID) else { outcome = .failure("Ada's browser is not available here."); break }
+            let workspace = self.workspace
+            let step = await BrowserTools.run(call: call, link: link) { name, data in
+                await workspace.writeData(conversationID: conversationID, name: name, data: data)
+            }
+            switch step {
+            case .done(let result):
+                outcome = result
+                if !result.wroteFiles.isEmpty { state.writtenFiles.append(contentsOf: result.wroteFiles) }
+                if !BrowserTools.readNames.contains(call.function.name) {
+                    await access.audit.record(ownerID: ref.ownerID, action: "browser.action", detail: BrowserTools.auditLine(call: call) + (result.succeeded ? "" : " (did not run)"))
+                }
+            case .needsApproval(let title, let detail, let arguments, let risk):
+                let lifetime = await access.permissions.approvalLifetime(ownerID: ref.ownerID)
+                let action = AgentActionRequest(
+                    ownerID: ref.ownerID, conversationID: conversationID, kind: .browser,
+                    title: title, detail: detail,
+                    toolName: call.function.name, arguments: .object([("raw", .string(arguments))]), lifetime: lifetime
+                )
+                let saved = await access.actions.request(action)
+                await access.audit.record(ownerID: ref.ownerID, action: "browser.approval-requested", detail: "\(risk.rawValue): \(title.prefix(200))")
+                outcome = ToolOutcome(resultText: "Approval requested (\(saved.id.uuidString)): this would \(risk.phrase), so the person approves it on a card; this is the routine flow. Do not retry it and do not ask whether to go ahead. Nothing has happened yet. Do other work that does not depend on it, or end your reply saying it is waiting for approval. Once approved it runs once, only on this same page, and the outcome appears under approval requests on a later turn; look at the page again then.")
+            }
         case .mcp:
             guard let mcp = access?.mcp else { outcome = .failure("MCP servers are not available here."); break }
             if await mcp.isReadOnly(call.function.name) {
@@ -920,6 +945,12 @@ public actor ConversationEngine {
     }
 
     /// The workstation, when the server turned it on and this owner may use it.
+    /// Ada's browser, when the server has one she can drive and this owner may use it (admins only).
+    private func browser(ownerID: String?) async -> BrowserLink? {
+        guard let ownerID, let access, let browser = access.browser, browser.drivable, await access.workstationOwner(ownerID) else { return nil }
+        return browser
+    }
+
     private func workstation(ownerID: String?) async -> Workstation? {
         guard let ownerID, let access, let workstation = access.workstation, await workstation.enabled, await access.workstationOwner(ownerID) else { return nil }
         return workstation
@@ -1109,7 +1140,8 @@ public actor ConversationEngine {
         do {
             // Plan.
             let hasMCP = parent.definitions.contains { parent.family(of: $0.function.name) == .mcp }
-            let planTool = TaskTools.planDefinition(hasWorkstation: workstation != nil, hasMCP: hasMCP)
+            let hasBrowser = parent.definitions.contains { parent.family(of: $0.function.name) == .browser }
+            let planTool = TaskTools.planDefinition(hasWorkstation: workstation != nil, hasMCP: hasMCP, hasBrowser: hasBrowser)
             var plan: [TaskTools.Step]?
             let planMessages: [APIMessage] = [.user("OBJECTIVE:\n\(request.objective)\(context.missionHandoff.isEmpty ? "" : "\n\nCONTEXT FROM THE CONVERSATION:\n\(context.missionHandoff.prefix(6_000))")")]
             if let reply = try? await complete(coordinator: coordinator, system: TaskTools.planSystemPrompt(language: language, procedure: procedure), messages: planMessages, tools: [planTool]) {

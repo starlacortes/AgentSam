@@ -22,6 +22,8 @@ public enum ToolFamily: Sendable, Equatable {
     case selfReview
     /// Ada's own Linux machine (`WorkstationTools`): admins only, when the server turns it on.
     case workstation
+    /// Ada's browser on the workstation (`BrowserTools`): admins only, when the server turns it on.
+    case browser
     /// Tools of MCP servers an admin connected (`MCPRegistry`). Reads the admin marked run at once; the rest need approval.
     case mcp
     /// External services through `ConnectorHub`. Reads run at once; writes need an approval.
@@ -58,7 +60,7 @@ public struct OfferedTools: Sendable {
     public func family(of name: String) -> ToolFamily? { families[name] }
 
     /// Ada's direct-reply tools. Extended tools need workspace access; mission tools need a linked mission.
-    public static func direct(connectorTools: [APIToolDef], hasLinkedMissions: Bool, hasExtendedAccess: Bool, hasWorkstation: Bool = false, mcpTools: [APIToolDef] = [], taskTools: [APIToolDef] = [], delegateTools: [APIToolDef] = []) -> OfferedTools {
+    public static func direct(connectorTools: [APIToolDef], hasLinkedMissions: Bool, hasExtendedAccess: Bool, hasWorkstation: Bool = false, hasBrowser: Bool = false, mcpTools: [APIToolDef] = [], taskTools: [APIToolDef] = [], delegateTools: [APIToolDef] = []) -> OfferedTools {
         OfferedTools([
             (.connector, connectorTools),
             (.chat, ChatWorkspaceTools.definitions),
@@ -71,6 +73,7 @@ public struct OfferedTools: Sendable {
             (.memory, MemoryTools.definitions),
             (.selfReview, SelfReviewTools.definitions),
             (.workstation, hasWorkstation ? WorkstationTools.definitions : []),
+            (.browser, hasBrowser ? BrowserTools.definitions : []),
             (.mcp, mcpTools),
         ])
     }
@@ -181,6 +184,17 @@ public enum ToolCatalog {
         ToolSpec("workstation_job", .read, en: "Checking a workstation job", es: "Revisando una tarea de la estación"),
         ToolSpec("workstation_jobs", .read, en: "Listing workstation jobs", es: "Revisando las tareas de la estación"),
         ToolSpec("workstation_stop_job", .write, en: "Stopping a workstation job", es: "Deteniendo una tarea de la estación"),
+        ToolSpec("browser_open", .write, en: "Opening a page in my browser", es: "Abriendo una página en mi navegador"),
+        ToolSpec("browser_look", .read, en: "Reading the page", es: "Leyendo la página"),
+        ToolSpec("browser_click", .write, en: "Clicking in the browser", es: "Haciendo clic en el navegador"),
+        ToolSpec("browser_type", .write, en: "Typing in the browser", es: "Escribiendo en el navegador"),
+        ToolSpec("browser_select", .write, en: "Choosing an option", es: "Eligiendo una opción"),
+        ToolSpec("browser_key", .write, en: "Pressing a key in the browser", es: "Pulsando una tecla en el navegador"),
+        ToolSpec("browser_scroll", .write, en: "Scrolling the page", es: "Desplazando la página"),
+        ToolSpec("browser_go", .write, en: "Moving between pages", es: "Cambiando de página"),
+        ToolSpec("browser_tabs", .read, en: "Checking the browser tabs", es: "Revisando las pestañas"),
+        ToolSpec("browser_wait", .read, en: "Waiting for the page", es: "Esperando a la página"),
+        ToolSpec("browser_screenshot", .read, en: "Taking a screenshot", es: "Haciendo una captura"),
         ToolSpec("cloudflare_dns_create", .approval, en: "Preparing a DNS change", es: "Preparando un cambio de DNS"),
         ToolSpec("cloudflare_dns_update", .approval, en: "Preparing a DNS change", es: "Preparando un cambio de DNS"),
         ToolSpec("cloudflare_dns_delete", .approval, en: "Preparing a DNS change", es: "Preparando un cambio de DNS"),

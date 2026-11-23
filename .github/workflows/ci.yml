@@ -24,6 +24,7 @@ jobs:
       web: ${{ github.event_name == 'push' || steps.filter.outputs.web == 'true' }}
       swift: ${{ github.event_name == 'push' || steps.filter.outputs.swift == 'true' }}
       docker: ${{ github.event_name == 'push' || steps.filter.outputs.docker == 'true' }}
+      browser: ${{ github.event_name == 'push' || steps.filter.outputs.browser == 'true' }}
     steps:
       - uses: dorny/paths-filter@v3
         id: filter
@@ -36,6 +37,9 @@ jobs:
             swift:
               - 'AgentSamCore/**'
               - 'Server/**'
+              - '.github/workflows/**'
+            browser:
+              - 'deploy/browser-agent/**'
               - '.github/workflows/**'
             # The image's Swift and web code is already compiled and tested by the server and
             # web jobs. This release build only runs on pull requests that change how the image
@@ -70,6 +74,21 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  # The agent that drives Ada's browser on the workstation, against the runner's Chrome.
+  browser-agent:
+    needs: changes
+    if: needs.changes.outputs.browser == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Test the browser agent
+        env:
+          ADA_BROWSER_CHROMIUM: google-chrome
+        run: node --test deploy/browser-agent/browser-agent.test.mjs
 
   # Server and engine tests run side by side instead of one after the other.
   server:

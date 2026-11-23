@@ -10,6 +10,17 @@ struct BrowserView: Content {
     var state: String?
     /// How long the browser keeps running with nobody watching.
     var idleMinutes: Int?
+    /// Whether Ada can drive it (the browser agent is set up), so the window shows the controls.
+    var drivable: Bool?
+}
+
+/// Who is in control of the browser: "ada", "paused" or "person".
+struct BrowserControlView: Content {
+    var control: String
+}
+
+struct BrowserControlBody: Content {
+    var control: String
 }
 
 /// The answer to starting the browser: its state, and what the viewer needs to connect.
@@ -18,6 +29,10 @@ struct BrowserSessionView: Content {
     /// The VNC password of the browser's display. The display is only reachable through this
     /// server's relay, which is limited to signed-in admins.
     var password: String
+    /// Whether Ada can drive this browser; the window then shows who is in control.
+    var drivable: Bool? = nil
+    /// Who is in control right now, when the browser agent answered.
+    var control: String? = nil
 }
 
 /// Who may watch and use the live window: an admin signed in with a browser session, from this
@@ -49,10 +64,10 @@ func browserRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
     api.get("browser") { req async throws -> Response in
         let principal = try req.requirePrincipal()
         guard principal.isAdmin, let browser = ctx.browser else {
-            return try req.json(BrowserView(available: false, state: nil, idleMinutes: nil))
+            return try req.json(BrowserView(available: false, state: nil, idleMinutes: nil, drivable: nil))
         }
         let state = await browser.state()
-        return try req.json(BrowserView(available: true, state: state.rawValue, idleMinutes: Int(browser.config.idleSeconds / 60)))
+        return try req.json(BrowserView(available: true, state: state.rawValue, idleMinutes: Int(browser.config.idleSeconds / 60), drivable: browser.drivable))
     }
 
     api.post("browser", "start") { req async throws -> Response in
@@ -61,7 +76,12 @@ func browserRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
         let outcome = await browser.start()
         await ctx.access.audit.record(ownerID: principal.conversationOwnerID, action: "browser.start", detail: outcome.succeeded ? "ok" : "failed")
         guard outcome.succeeded else { throw Abort(.badGateway, reason: outcome.resultText) }
-        return try req.json(BrowserSessionView(state: BrowserState.running.rawValue, password: ctx.browserPassword))
+        var control: String?
+        if browser.drivable {
+            let status = await browser.call("status")
+            control = status.ok ? status.control : nil
+        }
+        return try req.json(BrowserSessionView(state: BrowserState.running.rawValue, password: ctx.browserPassword, drivable: browser.drivable && control != nil, control: control))
     }
 
     api.post("browser", "stop") { req async throws -> Response in
@@ -70,7 +90,38 @@ func browserRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
         let outcome = await browser.stop()
         await ctx.access.audit.record(ownerID: principal.conversationOwnerID, action: "browser.stop", detail: outcome.succeeded ? "ok" : "failed")
         guard outcome.succeeded else { throw Abort(.badGateway, reason: outcome.resultText) }
-        return try req.json(BrowserView(available: true, state: BrowserState.stopped.rawValue, idleMinutes: Int(browser.config.idleSeconds / 60)))
+        return try req.json(BrowserView(available: true, state: BrowserState.stopped.rawValue, idleMinutes: Int(browser.config.idleSeconds / 60), drivable: browser.drivable))
+    }
+
+    // Who drives: Ada, nobody (paused), or the person watching. The agent on the workstation
+    // enforces it, so Ada's tools are refused while the person is in control.
+    api.get("browser", "control") { req async throws -> Response in
+        _ = try admin(req)
+        let browser = try browser()
+        let reply = await browser.call("status", startIfNeeded: false)
+        guard reply.ok, let control = reply.control else { throw Abort(.serviceUnavailable, reason: reply.message.isEmpty ? "The browser is not running." : reply.message) }
+        return try req.json(BrowserControlView(control: control))
+    }
+
+    api.post("browser", "control") { req async throws -> Response in
+        let principal = try admin(req)
+        let browser = try browser()
+        let body = try req.decodeJSON(BrowserControlBody.self)
+        guard ["ada", "paused", "person"].contains(body.control) else { throw Abort(.badRequest, reason: "Unknown control state.") }
+        let reply = await browser.call("control", ["state": .string(body.control)], startIfNeeded: false)
+        await ctx.access.audit.record(ownerID: principal.conversationOwnerID, action: "browser.control", detail: "\(body.control): \(reply.ok ? "ok" : "failed")")
+        guard reply.ok else { throw Abort(.badGateway, reason: reply.message.isEmpty ? "The browser did not answer." : reply.message) }
+        return try req.json(BrowserControlView(control: reply.control ?? body.control))
+    }
+
+    // Signs out of every site by erasing the browser's profile, then opens a fresh window.
+    api.post("browser", "erase") { req async throws -> Response in
+        let principal = try admin(req)
+        let browser = try browser()
+        let reply = await browser.call("erase", startIfNeeded: false)
+        await ctx.access.audit.record(ownerID: principal.conversationOwnerID, action: "browser.erase", detail: reply.ok ? "ok" : "failed")
+        guard reply.ok else { throw Abort(.badGateway, reason: reply.message.isEmpty ? "The browser did not answer." : reply.message) }
+        return try req.json(BrowserControlView(control: reply.control ?? "ada"))
     }
 
     // The live picture: raw VNC bytes in binary WebSocket frames, relayed over the workstation's SSH link.

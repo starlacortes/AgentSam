@@ -780,6 +780,10 @@
 .co-browser-title strong { font-size: 14px; font-weight: 630; }
 .co-browser-status { color: var(--mut); font-size: 11.5px; }
 .co-browser-status.live { color: var(--em); }
+.co-browser-driver { padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line2); color: var(--mut); font-size: 11px; white-space: nowrap; }
+.co-browser-driver.ada { color: var(--em); border-color: color-mix(in srgb, var(--em) 45%, transparent); }
+.co-browser-driver.person { color: var(--ink); border-color: var(--ink); }
+.co-browser-note .co-text-button { font-size: 11px; padding: 0; text-decoration: underline; }
 .co-browser-window .error { margin: 10px 12px 0; }
 .co-browser-screen { position: relative; flex: 1; min-height: 0; background: var(--deep); }
 .co-browser-screen canvas { outline: none; }

@@ -216,6 +216,20 @@ func accessRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
                     let outcome = await WorkstationTools.execute(toolName: tool, rawArguments: raw, workstation: machine)
                     await actions.finish(ownerID: owner, id: id, result: outcome.resultText, succeeded: outcome.succeeded)
                 }
+            case .browser:
+                // A browser action that signs in, submits, pays, sends, deletes or changes security.
+                // The agent runs it only if the page and element still match what was approved.
+                guard let link = ctx.access.browser, await ctx.access.workstationOwner(conversation.ownerID) else {
+                    await ctx.access.actions.finish(ownerID: conversation.ownerID, id: id, result: "Ada's browser is off on this server. Nothing was done.", succeeded: false)
+                    break
+                }
+                guard await ctx.access.actions.consumeApproved(ownerID: conversation.ownerID, id: id) != nil,
+                      let raw = action.arguments.objectValue?["raw"]?.stringValue else {
+                    throw Abort(.conflict, reason: "The browser action could not be started.")
+                }
+                let outcome = await BrowserTools.execute(rawArguments: raw, link: link)
+                await ctx.access.actions.finish(ownerID: conversation.ownerID, id: id, result: outcome.resultText, succeeded: outcome.succeeded)
+                await ctx.access.audit.record(ownerID: conversation.ownerID, action: "browser.approved-action", detail: "\(action.title.prefix(200)): \(outcome.succeeded ? "done" : "not done")")
             case .mcpCall:
                 guard let mcp = ctx.access.mcp,
                       await ctx.access.actions.consumeApproved(ownerID: conversation.ownerID, id: id) != nil,

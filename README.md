@@ -113,9 +113,12 @@ Workspace knowledge is discovered on each user's first launch and maintained as 
 With `AGENTSAM_BROWSER=1` and a workstation over SSH, admins get **Open Ada's browser** in a chat's "⋯" menu. It opens a live window onto a real Chromium window that runs on the workstation, not on the server: the server starts a systemd service there over the workstation's SSH link, relays the picture (VNC, drawn in the page by noVNC) through `ssh -W` to the workstation's loopback interface, and stops the service after 15 minutes with nobody watching. The workstation opens no new port.
 
 - Only admins signed in with a browser session can watch, and only from Ada's own pages. Server and app tokens are refused for the live window, because whoever holds the stream sees everything in it.
-- The window starts with a fresh profile for the public web, and the profile is erased when the browser stops. Chromium's password manager, autofill and sync are off by policy.
-- This is the window only: the person is in control, and Ada has no browser tools yet. Accounts, sign-ins and Ada's own use of the browser are later steps.
-- Starting, stopping and opening the window are written to the access audit log.
+- Ada drives the same window with the `browser_*` tools (open, look, click, type, select, key, scroll, go, tabs, wait, screenshot), offered to admins only and to helpers given the `browser` tool group. She reads pages as a text outline with numbered elements, marked as untrusted content. The browser starts by itself when she opens a page and stops after 15 minutes with nobody watching or using it.
+- Ordinary clicks and typing run at once. Signing in, submitting a form (POST), paying, sending, deleting and security settings create an approval card; the approved action runs once and the agent refuses it if the page or element changed.
+- Ada never types into password or one-time-code fields and never sees what they hold. The person signs in with **Take over** and gives the window back with **Hand back**; while they are in control the agent refuses every request from Ada. Closing the window hands it back.
+- The profile is kept between starts, so sign-ins stay. **Erase sign-ins** deletes it. Chromium's password manager, autofill and sync are off by policy.
+- The agent on the workstation (`deploy/browser-agent/browser-agent.mjs`) talks to Chromium over a pipe and to the server on `127.0.0.1:5978` through the same SSH link, authenticated with `AGENTSAM_BROWSER_VNC_PASSWORD`; nothing new is needed on the server.
+- Starting, stopping, opening the window, taking over, erasing, every action of Ada's (typed text as a character count only) and every approval are written to the access audit log.
 
 `deploy/browser-agent/` holds the installer, the service and its README.
 

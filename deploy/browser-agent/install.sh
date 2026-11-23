@@ -10,11 +10,12 @@ HOME_DIR=/var/lib/ada-browser
 
 # --needed skips what is already installed. On Arch, refresh and upgrade the whole system first
 # (pacman -Syu) if this step reports packages that can no longer be downloaded.
-pacman -S --needed --noconfirm chromium tigervnc
+pacman -S --needed --noconfirm chromium tigervnc nodejs
 
 id adabrowser >/dev/null 2>&1 || useradd --system --home-dir "$HOME_DIR" --shell /usr/bin/nologin adabrowser
 install -d -o adabrowser -g adabrowser -m 0700 "$HOME_DIR" "$HOME_DIR/bin" "$HOME_DIR/profiles"
 install -o adabrowser -g adabrowser -m 0700 "$HERE/run-browser.sh" "$HOME_DIR/bin/run-browser.sh"
+install -o adabrowser -g adabrowser -m 0600 "$HERE/browser-agent.mjs" "$HOME_DIR/bin/browser-agent.mjs"
 
 install -d -m 0755 /etc/chromium/policies/managed
 install -m 0644 "$HERE/chromium-policy.json" /etc/chromium/policies/managed/ada-browser.json

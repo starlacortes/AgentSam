@@ -139,6 +139,19 @@ public actor ChatWorkspaceStore {
         return lines[(startLine - 1)...].joined(separator: "\n")
     }
 
+    /// Writes binary data (a screenshot) into the conversation's workspace.
+    @discardableResult
+    public func writeData(conversationID: UUID, name: String, data: Data) -> String? {
+        guard let url = AgentTools.resolve(name, in: directory(conversationID)), data.count <= AgentTools.maxFileBytes else { return nil }
+        do {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: url, options: [.atomic])
+            return AgentTools.normalized(name)
+        } catch {
+            return nil
+        }
+    }
+
     @discardableResult
     public func write(conversationID: UUID, name: String, content: String) -> String? {
         guard let url = AgentTools.resolve(name, in: directory(conversationID)) else { return nil }
