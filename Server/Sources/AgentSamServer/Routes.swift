@@ -419,9 +419,11 @@ func routes(_ app: Application, ctx: ServerContext) {
         let body = try req.decodeJSON(MissionStartBody.self)
         let language = body.language ?? SrvL10n.lang(for: req)
         let mission = try await ctx.startMission(
+            ownerID: try req.requirePrincipal().conversationOwnerID,
             teamID: body.teamID,
             objective: body.objective,
             workflowID: body.workflowID,
+            skillID: body.skillID,
             launchedBy: req.principal?.name,
             language: language
         )
@@ -445,7 +447,7 @@ func routes(_ app: Application, ctx: ServerContext) {
         }
         let events = await ctx.store.events(missionID: id, afterSeq: 0)
         let deliverables = await ctx.store.deliverables(missionID: id)
-        let running = await ctx.engine.isRunning(missionID: id)
+        let running = await ctx.engine.isRunning(missionID: id) || ctx.conversationEngine.isTaskRunning(missionID: id)
         return try req.json(MissionDetail(mission: mission.publicRepresentation, events: events, deliverables: deliverables, running: running))
     }
 
@@ -483,6 +485,7 @@ func routes(_ app: Application, ctx: ServerContext) {
             throw Abort(.badRequest, reason: SrvL10n.t("srv.badMissionID", lang: lang))
         }
         await ctx.engine.stop(missionID: id)
+        await ctx.conversationEngine.stopTask(missionID: id, language: lang)
         return try req.json(AckResult(ok: true, detail: SrvL10n.t("srv.stopRequested", lang: lang)))
     }
 
@@ -492,6 +495,7 @@ func routes(_ app: Application, ctx: ServerContext) {
             throw Abort(.badRequest, reason: SrvL10n.t("srv.badMissionID", lang: lang))
         }
         await ctx.engine.stop(missionID: id)
+        await ctx.conversationEngine.stopTask(missionID: id, language: lang)
         try? await Task.sleep(nanoseconds: 500_000_000)
         await ctx.store.deleteMission(id: id)
         return try req.json(AckResult(ok: true, detail: nil))

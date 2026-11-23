@@ -332,6 +332,10 @@ export interface Mission {
   totalInputTokens: number
   totalOutputTokens: number
   launchedBy?: string
+  /** The Maloon workflow a mission ran, if any. */
+  workflowID?: string
+  /** The skill a helper task followed, if any. */
+  skillID?: string
 }
 
 export type RunEventKind =

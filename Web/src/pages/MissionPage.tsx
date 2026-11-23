@@ -60,8 +60,6 @@ export function MissionPage() {
   const deliverables = detail?.deliverables ?? []
   const hasReport = deliverables.includes(REPORT)
   const finished = mission ? !running && mission.status !== 'queued' : false
-  // A task Ada ran on helpers has no team behind it: it is stopped from the chat and started again by asking Ada.
-  const fromTeam = Boolean(team)
 
   // A finished mission opens on its final report.
   useEffect(() => {
@@ -90,7 +88,11 @@ export function MissionPage() {
     setBusy(true)
     setActionError(null)
     try {
-      const next = await api<Mission>('missions', { method: 'POST', body: { teamID: mission.teamID, objective: mission.objective } })
+      // A workflow runs again from a fresh snapshot; any other task runs again on helpers, following the same skill.
+      const body = mission.workflowID
+        ? { workflowID: mission.workflowID }
+        : { objective: mission.objective, skillID: mission.skillID, teamID: team ? mission.teamID : undefined }
+      const next = await api<Mission>('missions', { method: 'POST', body })
       navigate(`/missions/${next.id}`)
     } catch (err) {
       setActionError(errorMessage(err))
@@ -136,7 +138,7 @@ export function MissionPage() {
           </div>
         </div>
         <div className="row">
-          {running && fromTeam ? (
+          {running ? (
             <button className="btn danger" onClick={() => void stop()}>
               {t('Stop')}
             </button>
@@ -146,11 +148,9 @@ export function MissionPage() {
               <Link className="btn ghost" to="/">
                 {t('Follow up with Ada')}
               </Link>
-              {fromTeam ? (
-                <button className="btn ghost" disabled={busy} onClick={() => void runAgain()}>
-                  {busy ? t('Launching…') : t('Run again')}
-                </button>
-              ) : null}
+              <button className="btn ghost" disabled={busy} onClick={() => void runAgain()}>
+                {busy ? t('Launching…') : t('Run again')}
+              </button>
             </>
           ) : null}
           {isAdmin && finished ? (

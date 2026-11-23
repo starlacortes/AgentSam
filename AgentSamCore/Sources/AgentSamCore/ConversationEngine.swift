@@ -27,6 +27,8 @@ public actor ConversationEngine {
     private let completionOverride: Completion?
     private var running: [UUID: Task<Void, Never>] = [:]
     private var memoryJobs: [UUID: Task<Void, Never>] = [:]
+    /// Running helper tasks: mission ID to the reply they run in, so a task can be stopped from its page.
+    private var taskReplies: [UUID: (conversationID: UUID, ownerID: String)] = [:]
 
     public init(store: MissionStore, conversations: ConversationStore, memory: WorkspaceMemoryStore, workspace: ChatWorkspaceStore? = nil, keyRing: KeyRing, client: LLMClient = LLMClient(), connectors: ConnectorHub? = nil, missions: MissionEngine, promptStore: PromptStore? = nil, access: ConversationAccess? = nil, knowledge: WorkspaceKnowledgeStore? = nil, photos: ConversationPhotoStore? = nil, skills: SkillStore? = nil, helpers: HelperStore? = nil, routing: Bool = true) {
         self.store = store
@@ -111,6 +113,103 @@ public actor ConversationEngine {
             _ = try? await conversations.updateMessage(id: conversationID, ownerID: ownerID, messageID: message.id) { message in
                 message.status = .failed
                 message.text = language == "es" ? "Respuesta detenida." : "Response stopped."
+                message.activity = []
+                Self.settleSteps(&message.steps, as: "failed")
+                message.completedAt = Date()
+            }
+        }
+    }
+
+    /// Whether a helper task is still running for this mission.
+    public func isTaskRunning(missionID: UUID) -> Bool { taskReplies[missionID] != nil }
+
+    /// Stops the reply a helper task runs in, which stops the task. False when no task is running.
+    @discardableResult
+    public func stopTask(missionID: UUID, language: String) async -> Bool {
+        guard let reply = taskReplies[missionID] else { return false }
+        await stop(conversationID: reply.conversationID, ownerID: reply.ownerID, language: language)
+        return true
+    }
+
+    /// Starts a helper task outside a chat: the missions API and the Maloon workflows. The task gets
+    /// a conversation of its own, so its approval cards, files and progress have a home, and runs
+    /// exactly like `start_task` there (same tools, approvals, budgets and audit). `attachment` is
+    /// saved as a file in that conversation for the helpers to read. Returns the running mission.
+    public func launchTask(ownerID: String, launchedBy: String, objective rawObjective: String, attachment: (name: String, content: String)? = nil, skillID: String? = nil, language: String, sourceName: String = "Ada task", workflowID: String? = nil) async throws -> Mission {
+        let lang = language.lowercased().hasPrefix("es") ? "es" : "en"
+        let objective = rawObjective.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !objective.isEmpty else { throw ConversationError.emptyMessage }
+        guard objective.count <= 20_000 else { throw ConversationError.messageTooLong }
+        if let notice = await dailyCapNotice(ownerID: ownerID, language: lang) { throw ConversationError.persistence(notice) }
+        let skill: Skill?
+        switch await enabledSkill(skillID) {
+        case .failure(let error): throw ConversationError.persistence(error.message)
+        case .success(let found): skill = found
+        }
+        let coordinator = try coordinator(providers: await store.loadProviders())
+        var conversation = try await conversations.create(ownerID: ownerID)
+        var text = objective
+        if let attachment, let saved = await workspace.write(conversationID: conversation.id, name: attachment.name, content: attachment.content) {
+            text += lang == "es" ? "\n\nEl contexto está en el archivo \(saved) de esta conversación." : "\n\nThe context is in the file \(saved) in this conversation."
+        }
+        let planning = lang == "es" ? "Planificando la tarea" : "Planning the task"
+        let userMessage = ConversationMessage(role: .user, text: text)
+        let pending = ConversationMessage(role: .assistant, text: "", status: .running, activity: [AgentActivity(agentID: coordinator.id, agentName: "Ada", summary: planning, state: "working")], steps: [MessageStep(label: planning)])
+        _ = try await conversations.append(id: conversation.id, ownerID: ownerID, message: userMessage)
+        conversation = try await conversations.append(id: conversation.id, ownerID: ownerID, message: pending)
+        let ref = ResponseRef(conversationID: conversation.id, ownerID: ownerID, responseID: pending.id, launchedBy: launchedBy)
+        let history = conversation.messages.filter { $0.status != .running }
+        let context = await promptContext(conversation: conversation, history: history, memory: await memory.state(ownerID: ownerID).promptText, knowledge: "", scheduled: false, personName: launchedBy)
+        let mission = await prepareTask(objective: text, skill: skill, context: context, language: lang, ref: ref, sourceName: sourceName, workflowID: workflowID, inputContext: attachment?.content)
+        let conversationID = conversation.id
+        running[conversationID] = Task {
+            let meter = CostMeter()
+            await CostMeter.$current.withValue(meter) {
+                await self.driveTask(mission, skill: skill, userMessage: userMessage, coordinator: coordinator, context: context, history: history, language: lang, ref: ref)
+            }
+            await self.access?.spend.add(ownerID: ownerID, usd: meter.total)
+        }
+        return mission
+    }
+
+    /// Runs a launched task in its own reply, then writes Ada's answer from its report.
+    private func driveTask(_ mission: Mission, skill: Skill?, userMessage: ConversationMessage, coordinator: AgentProfile, context: ConversationPromptContext, history: [ConversationMessage], language: String, ref: ResponseRef) async {
+        defer { running[ref.conversationID] = nil }
+        let es = language == "es"
+        do {
+            let tools = await directTools(ref: ref, context: context)
+            let state = ToolRunState()
+            let run = await performTask(mission, skill: skill, reason: nil, parent: tools.offered, state: state, coordinator: coordinator, context: context, language: language, ref: ref, conversationID: ref.conversationID, workstation: tools.workstation)
+            try Task.checkCancellation()
+            await beginStep(es ? "Redactando la respuesta" : "Writing the answer", in: ref)
+            var answer = try await consolidate(userText: userMessage.text, missions: run.mission.map { [$0] } ?? [], coordinator: coordinator, context: context, history: history, language: language)
+            let split = ConversationPrompts.extractSuggestions(answer)
+            if !split.text.isEmpty { answer = split.text }
+            let trimmed = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+            let fileIDs = Array(NSOrderedSet(array: state.writtenFiles).array.compactMap { $0 as? String }) as [String]
+            let completed = try await conversations.updateMessage(id: ref.conversationID, ownerID: ref.ownerID, messageID: ref.responseID) { message in
+                message.text = trimmed.isEmpty ? (run.mission?.finalReport ?? run.outcome.resultText) : trimmed
+                message.status = .complete
+                message.activity = message.activity.map { line in
+                    var line = line
+                    if line.agentName == "Ada" { line.summary = es ? "Respuesta consolidada" : "Response consolidated" }
+                    line.state = "done"
+                    return line
+                }
+                message.fileIDs = fileIDs
+                message.quickReplies = split.suggestions
+                Self.settleSteps(&message.steps, as: "done")
+                message.completedAt = Date()
+            }
+            if let assistant = completed.messages.first(where: { $0.id == ref.responseID }) {
+                remember(conversationID: ref.conversationID, ownerID: ref.ownerID, user: userMessage, assistant: assistant, coordinator: coordinator)
+            }
+        } catch {
+            let stopped = error is CancellationError
+            _ = try? await conversations.updateMessage(id: ref.conversationID, ownerID: ref.ownerID, messageID: ref.responseID) { message in
+                guard message.status == .running else { return }
+                message.status = .failed
+                message.text = stopped ? (es ? "Tarea detenida." : "Task stopped.") : (es ? "No pude terminar la tarea. \(error.localizedDescription)" : "I couldn’t finish the task. \(error.localizedDescription)")
                 message.activity = []
                 Self.settleSteps(&message.steps, as: "failed")
                 message.completedAt = Date()
@@ -956,29 +1055,52 @@ public actor ConversationEngine {
         case .failure(let error): return (.failure(error.message), nil)
         case .success(let valid): request = valid
         }
-        let es = language == "es"
-        var skill: Skill?
-        if let id = request.skill {
-            let enabled = await skills.enabled()
-            guard let found = await skills.skill(id: id), found.enabled else {
-                let known = enabled.map(\.id).joined(separator: ", ")
-                return (.failure("No enabled skill \"\(id)\". Enabled skills: \(known.isEmpty ? "none" : known). Leave skill out to plan it yourself."), nil)
-            }
-            skill = found
+        let skill: Skill?
+        switch await enabledSkill(request.skill) {
+        case .failure(let error): return (.failure(error.message), nil)
+        case .success(let found): skill = found
         }
-        let procedure = skill.map { String(SkillTeams.procedureBlock($0).trimmingCharacters(in: .whitespacesAndNewlines).prefix(4_000)) }
-        let started = CostMeter.current?.total ?? 0
-        var mission = Mission(teamID: TaskTools.teamID, teamName: skill?.name ?? (es ? "Tarea de Ada" : "Ada's task"), objective: request.objective, sourceName: "Ada conversation", inputContext: context.missionHandoff, status: .running, phase: .planning, outputLanguage: language)
+        let mission = await prepareTask(objective: request.objective, skill: skill, context: context, language: language, ref: ref, sourceName: "Ada conversation")
+        return await performTask(mission, skill: skill, reason: request.reason, parent: parent, state: state, coordinator: coordinator, context: context, language: language, ref: ref, conversationID: conversationID, workstation: workstation)
+    }
+
+    /// The enabled skill with this ID, nil for none, or an error that lists the enabled skills.
+    private func enabledSkill(_ id: String?) async -> Result<Skill?, TriggerError> {
+        guard let id else { return .success(nil) }
+        guard let found = await skills.skill(id: id), found.enabled else {
+            let known = await skills.enabled().map(\.id).joined(separator: ", ")
+            return .failure(.invalid("No enabled skill \"\(id)\". Enabled skills: \(known.isEmpty ? "none" : known). Leave skill out to plan it yourself."))
+        }
+        return .success(found)
+    }
+
+    /// Records a new task as a running mission linked to the reply, so it shows up at once.
+    private func prepareTask(objective: String, skill: Skill?, context: ConversationPromptContext, language: String, ref: ResponseRef, sourceName: String, workflowID: String? = nil, inputContext: String? = nil) async -> Mission {
+        let es = language == "es"
+        var mission = Mission(teamID: TaskTools.teamID, teamName: skill?.name ?? (es ? "Tarea de Ada" : "Ada's task"), objective: objective, sourceName: sourceName, workflowID: workflowID, inputContext: inputContext ?? context.missionHandoff, status: .running, phase: .planning, outputLanguage: language)
         mission.launchedBy = ref.launchedBy
+        mission.skillID = skill?.id
         mission.startedAt = Date()
         await store.saveMission(mission)
-        await access?.actions.link(missionID: mission.id, conversationID: conversationID, ownerID: ref.ownerID)
-        await access?.audit.record(ownerID: ref.ownerID, action: "task.start", detail: "\(mission.id.uuidString)\(skill.map { " [\($0.id)]" } ?? ""): \(request.objective.prefix(200))")
+        taskReplies[mission.id] = (ref.conversationID, ref.ownerID)
+        await access?.actions.link(missionID: mission.id, conversationID: ref.conversationID, ownerID: ref.ownerID)
+        await access?.audit.record(ownerID: ref.ownerID, action: "task.start", detail: "\(mission.id.uuidString)\(skill.map { " [\($0.id)]" } ?? ""): \(objective.prefix(200))")
         _ = try? await conversations.updateMessage(id: ref.conversationID, ownerID: ref.ownerID, messageID: ref.responseID) { message in
             if !message.missionIDs.contains(mission.id) { message.missionIDs.append(mission.id) }
         }
         await store.appendEvent(mission.id, kind: .missionStart, text: mission.objective)
         await store.appendEvent(mission.id, kind: .phase, text: MissionPhase.planning.rawValue)
+        return mission
+    }
+
+    /// Plans, works and checks a task recorded by `prepareTask`, and finishes its mission.
+    private func performTask(_ prepared: Mission, skill: Skill?, reason: String?, parent: OfferedTools, state: ToolRunState, coordinator: AgentProfile, context: ConversationPromptContext, language: String, ref: ResponseRef, conversationID: UUID, workstation: Workstation?) async -> (outcome: ToolOutcome, mission: Mission?) {
+        var mission = prepared
+        let request = (objective: mission.objective, reason: reason)
+        let es = language == "es"
+        let procedure = skill.map { String(SkillTeams.procedureBlock($0).trimmingCharacters(in: .whitespacesAndNewlines).prefix(4_000)) }
+        let started = CostMeter.current?.total ?? 0
+        defer { taskReplies[prepared.id] = nil }
         await beginStep(request.reason ?? (es ? "Planificando la tarea" : "Planning the task"), in: ref)
 
         func finish(_ status: MissionStatus, report: String, verdict: VerificationReport.Verdict?) async -> Mission {

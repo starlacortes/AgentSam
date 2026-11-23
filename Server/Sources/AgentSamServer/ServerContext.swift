@@ -324,56 +324,53 @@ struct ServerContext: Sendable {
         await store.saveTeam(team)
     }
 
+    /// Starts a task from the missions API. It runs on helpers in a conversation of its own, with
+    /// the same tools, approvals and budgets as a task Ada starts in chat. A Maloon workflow passes
+    /// the business snapshot as a file in that conversation. Older clients (and Run again on an
+    /// older team mission) send a team ID: the skill migrated from that team, if any, guides the task.
     func startMission(
+        ownerID: String,
         teamID: UUID?,
         objective rawObjective: String?,
         workflowID: String? = nil,
+        skillID: String? = nil,
         launchedBy: String? = nil,
         language: String? = nil
     ) async throws -> Mission {
         let lang = (language ?? "en").trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("es") ? "es" : "en"
-        if let workflowID {
-            let workflow = try maloon.workflow(id: workflowID, lang: lang)
-            let team = try await maloon.ownerTeam(store: store, keyRing: keyRing, lang: lang)
-            let notes = (rawObjective ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            guard notes.count <= 4_000 else {
-                throw Abort(.badRequest, reason: SrvL10n.t("srv.ownerNotesLimit", lang: lang))
+        let launcher = launchedBy ?? "Ada"
+        do {
+            if let workflowID {
+                let workflow = try maloon.workflow(id: workflowID, lang: lang)
+                let notes = (rawObjective ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                guard notes.count <= 4_000 else {
+                    throw Abort(.badRequest, reason: SrvL10n.t("srv.ownerNotesLimit", lang: lang))
+                }
+                let snapshot = try await maloon.snapshot(lang: lang)
+                let objective = workflow.objective + (notes.isEmpty ? "" : "\n\nOwner notes:\n\(notes)")
+                return try await conversationEngine.launchTask(
+                    ownerID: ownerID, launchedBy: launcher, objective: objective,
+                    attachment: (name: "maloon-snapshot.md", content: snapshot),
+                    language: lang, sourceName: MaloonIntegration.sourceName, workflowID: workflowID
+                )
             }
-            let snapshot = try await maloon.snapshot(lang: lang)
-            let objective = workflow.objective + (notes.isEmpty ? "" : "\n\nOwner notes:\n\(notes)")
-            var mission = await store.createMission(
-                team: team,
-                objective: objective,
-                sourceName: MaloonIntegration.sourceName,
-                workflowID: workflowID,
-                inputContext: snapshot,
-                outputLanguage: lang
-            )
-            if let launchedBy {
-                mission.launchedBy = launchedBy
-                await store.saveMission(mission)
-            }
-            await engine.launch(missionID: mission.id, team: team)
-            return mission
-        }
 
-        let objective = (rawObjective ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !objective.isEmpty else {
-            throw Abort(.badRequest, reason: SrvL10n.t("srv.objectiveRequired", lang: lang))
+            let objective = (rawObjective ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !objective.isEmpty else {
+                throw Abort(.badRequest, reason: SrvL10n.t("srv.objectiveRequired", lang: lang))
+            }
+            guard objective.count <= 20_000 else {
+                throw Abort(.badRequest, reason: SrvL10n.t("srv.objectiveLimit", lang: lang))
+            }
+            var skill = skillID?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            if skill?.isEmpty != false { skill = nil }
+            if skill == nil, let teamID {
+                skill = await skills.enabled().first(where: { $0.teamID == teamID })?.id
+            }
+            return try await conversationEngine.launchTask(ownerID: ownerID, launchedBy: launcher, objective: objective, skillID: skill, language: lang)
+        } catch let error as ConversationError {
+            throw Abort(.badRequest, reason: error.localizedDescription)
         }
-        guard objective.count <= 20_000 else {
-            throw Abort(.badRequest, reason: SrvL10n.t("srv.objectiveLimit", lang: lang))
-        }
-        guard let teamID, let team = await store.team(id: teamID) else {
-            throw Abort(.notFound, reason: SrvL10n.t("srv.teamNotFound", lang: lang))
-        }
-        var mission = await store.createMission(team: team, objective: objective, outputLanguage: lang)
-        if let launchedBy {
-            mission.launchedBy = launchedBy
-            await store.saveMission(mission)
-        }
-        await engine.launch(missionID: mission.id, team: team)
-        return mission
     }
 }
 
