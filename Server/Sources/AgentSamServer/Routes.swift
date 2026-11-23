@@ -103,7 +103,7 @@ func routes(_ app: Application, ctx: ServerContext) {
     api.get("info") { req async throws -> Response in
         let teams = await ctx.store.loadTeams()
         let missions = await ctx.store.listMissions(limit: 500)
-        let running = await ctx.engine.activeMissionIDs
+        let running = await ctx.conversationEngine.runningTaskIDs
         let info = ServerInfo(
             name: "AgentSam Server",
             teams: teams.count,
@@ -447,7 +447,7 @@ func routes(_ app: Application, ctx: ServerContext) {
         }
         let events = await ctx.store.events(missionID: id, afterSeq: 0)
         let deliverables = await ctx.store.deliverables(missionID: id)
-        let running = await ctx.engine.isRunning(missionID: id) || ctx.conversationEngine.isTaskRunning(missionID: id)
+        let running = await ctx.conversationEngine.isTaskRunning(missionID: id)
         return try req.json(MissionDetail(mission: mission.publicRepresentation, events: events, deliverables: deliverables, running: running))
     }
 
@@ -484,7 +484,6 @@ func routes(_ app: Application, ctx: ServerContext) {
         guard let idString = req.parameters.get("id"), let id = UUID(uuidString: idString) else {
             throw Abort(.badRequest, reason: SrvL10n.t("srv.badMissionID", lang: lang))
         }
-        await ctx.engine.stop(missionID: id)
         await ctx.conversationEngine.stopTask(missionID: id, language: lang)
         return try req.json(AckResult(ok: true, detail: SrvL10n.t("srv.stopRequested", lang: lang)))
     }
@@ -494,7 +493,6 @@ func routes(_ app: Application, ctx: ServerContext) {
         guard let idString = req.parameters.get("id"), let id = UUID(uuidString: idString) else {
             throw Abort(.badRequest, reason: SrvL10n.t("srv.badMissionID", lang: lang))
         }
-        await ctx.engine.stop(missionID: id)
         await ctx.conversationEngine.stopTask(missionID: id, language: lang)
         try? await Task.sleep(nanoseconds: 500_000_000)
         await ctx.store.deleteMission(id: id)

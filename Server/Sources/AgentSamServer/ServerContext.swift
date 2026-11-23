@@ -29,7 +29,6 @@ enum ServerConfigurationError: LocalizedError {
 
 struct ServerContext: Sendable {
     let store: MissionStore
-    let engine: MissionEngine
     let conversations: ConversationStore
     let memory: WorkspaceMemoryStore
     let knowledge: WorkspaceKnowledgeStore
@@ -103,79 +102,6 @@ struct ServerContext: Sendable {
             builtins: PromptStore.builtins,
             fileURL: store.root.appendingPathComponent("prompts.json")
         )
-        let engine = MissionEngine(
-            store: store,
-            keyRing: keyRing,
-            connectors: connectors,
-            config: MissionEngine.Config(maxParallel: 4, maxSteps: 24, verifyWithAgent: true),
-            promptStore: prompts,
-            connectorWrite: { missionID, call, scope in
-                guard let owner = await access.actions.owner(missionID: missionID) else {
-                    return .failure("This mission is not linked to a user-owned conversation. No external write was performed.")
-                }
-                switch await access.permissions.decide(ownerID: owner, toolName: call.function.name, arguments: AgentTools.arguments(of: call)) {
-                case .deny(let reason):
-                    return .failure(reason)
-                case .allow:
-                    let outcome = await connectors.run(call: call, scope: scope, approved: true)
-                    let record = AgentActionRequest(
-                        ownerID: owner, conversationID: await access.actions.conversation(missionID: missionID) ?? UUID(), missionID: missionID, kind: .connectorWrite,
-                        title: "Ran \(call.function.name) automatically", detail: "A mission worker's write was allowed by your standing permission for this tool.",
-                        toolName: call.function.name, arguments: .object([("raw", .string(call.function.arguments))]), toolScope: scope
-                    )
-                    await access.actions.recordAutomatic(record, result: outcome.resultText, succeeded: outcome.succeeded)
-                    return outcome
-                case .ask:
-                    break
-                }
-                // The approve route runs the write; the worker waits for its result.
-                let lifetime = await access.permissions.approvalLifetime(ownerID: owner)
-                return await access.actions.awaitMissionAction(
-                    missionID: missionID, kind: .connectorWrite, call: call,
-                    title: "Approve \(call.function.name)", detail: "A mission worker requested an external connector write. Review its exact arguments before approving.",
-                    scope: scope, lifetime: lifetime
-                )
-            },
-            workstation: MissionWorkstation(
-                available: { missionID in
-                    guard let machine = access.workstation, await machine.enabled, let owner = await access.actions.owner(missionID: missionID) else { return false }
-                    return await access.workstationOwner(owner)
-                },
-                run: { missionID, call in
-                    guard let machine = access.workstation, await machine.enabled,
-                          let owner = await access.actions.owner(missionID: missionID), await access.workstationOwner(owner) else {
-                        return .failure("Workstation access is not available in this mission. Nothing ran.")
-                    }
-                    guard WorkstationTools.approvalNames.contains(call.function.name) else {
-                        return await WorkstationTools.run(call: call, workstation: machine)
-                    }
-                    let command = (AgentTools.arguments(of: call)["command"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !command.isEmpty else { return .failure("A command is required. Nothing ran.") }
-                    let shown = command.count > 80 ? String(command.prefix(77)) + "…" : command
-                    switch await access.permissions.decide(ownerID: owner, toolName: call.function.name, arguments: AgentTools.arguments(of: call)) {
-                    case .deny(let reason):
-                        return .failure(reason)
-                    case .allow:
-                        let outcome = await WorkstationTools.execute(toolName: call.function.name, rawArguments: call.function.arguments, workstation: machine)
-                        let record = AgentActionRequest(
-                            ownerID: owner, conversationID: await access.actions.conversation(missionID: missionID) ?? UUID(), missionID: missionID, kind: .workstation,
-                            title: "Ran on the workstation: \(shown)", detail: "A mission worker's command was allowed by your standing permission for this tool.",
-                            toolName: call.function.name, arguments: .object([("raw", .string(call.function.arguments))])
-                        )
-                        await access.actions.recordAutomatic(record, result: outcome.resultText, succeeded: outcome.succeeded)
-                        return outcome
-                    case .ask(let reason):
-                        let lifetime = await access.permissions.approvalLifetime(ownerID: owner)
-                        return await access.actions.awaitMissionAction(
-                            missionID: missionID, kind: .workstation, call: call,
-                            title: "Run on the workstation: \(shown)",
-                            detail: "A mission worker wants to run this on Ada's Linux workstation, outside the sandbox. Nothing has run yet." + (reason.map { " " + $0 } ?? ""),
-                            lifetime: lifetime
-                        )
-                    }
-                }
-            )
-        )
         let conversations = ConversationStore(root: store.root)
         let memory = WorkspaceMemoryStore(root: store.root)
         let skills = SkillStore(root: store.root)
@@ -190,7 +116,6 @@ struct ServerContext: Sendable {
             workspace: chatWorkspace,
             keyRing: keyRing,
             connectors: connectors,
-            missions: engine,
             promptStore: prompts,
             access: access,
             knowledge: knowledge,
@@ -226,7 +151,6 @@ struct ServerContext: Sendable {
         let knowledgeScheduler = WorkspaceKnowledgeScheduler(knowledge: knowledge)
         return ServerContext(
             store: store,
-            engine: engine,
             conversations: conversations,
             memory: memory,
             knowledge: knowledge,
@@ -313,9 +237,6 @@ struct ServerContext: Sendable {
         await provisioningRunner.shutdown()
         await scheduler.shutdown()
         await knowledgeScheduler.shutdown()
-        for missionID in await engine.activeMissionIDs {
-            await engine.stop(missionID: missionID)
-        }
     }
 
     func saveTeam(_ team: Team) async {

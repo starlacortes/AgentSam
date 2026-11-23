@@ -17,14 +17,14 @@ final class PromptStoreTests: XCTestCase {
 
     func testRenderSubstitutesContextValues() {
         let store = makeStore()
-        let rendered = store.render("plan", context: [
-            "mission_objective": "Research alpacas.",
-            "roster": "- Quill (Writer)",
-            "max_tasks": "3",
+        let rendered = store.render("ada_routing_system", context: [
+            "ada_prompt": "Be kind.",
+            "skills": "- research (Research)",
+            "language": "Spanish",
         ])
-        XCTAssertTrue(rendered.contains("Research alpacas."))
-        XCTAssertTrue(rendered.contains("- Quill (Writer)"))
-        XCTAssertTrue(rendered.contains("Between 1 and 3 tasks"))
+        XCTAssertTrue(rendered.contains("Be kind."))
+        XCTAssertTrue(rendered.contains("- research (Research)"))
+        XCTAssertTrue(rendered.contains("Respond to the user in Spanish"))
     }
 
     func testRenderReplacesUnknownKeysWithEmptyString() {
@@ -49,15 +49,15 @@ final class PromptStoreTests: XCTestCase {
 
         let store = makeStore(fileURL: url)
         store.ensureSeedFile()
-        XCTAssertEqual(store.currentVersions()["plan"], 1)
-        XCTAssertEqual(store.update(id: "plan", text: "NEW PLAN PROMPT"), 2)
-        XCTAssertEqual(store.text(for: "plan"), "NEW PLAN PROMPT")
+        XCTAssertEqual(store.currentVersions()["ada_routing_system"], 1)
+        XCTAssertEqual(store.update(id: "ada_routing_system", text: "NEW ROUTING PROMPT"), 2)
+        XCTAssertEqual(store.text(for: "ada_routing_system"), "NEW ROUTING PROMPT")
 
         // A fresh store loading the same file sees the edit and its history.
         let reloaded = makeStore(fileURL: url)
-        XCTAssertEqual(reloaded.text(for: "plan"), "NEW PLAN PROMPT")
-        XCTAssertEqual(reloaded.records().first { $0.id == "plan" }?.versions.count, 2)
-        XCTAssertEqual(reloaded.currentVersions()["plan"], 2)
+        XCTAssertEqual(reloaded.text(for: "ada_routing_system"), "NEW ROUTING PROMPT")
+        XCTAssertEqual(reloaded.records().first { $0.id == "ada_routing_system" }?.versions.count, 2)
+        XCTAssertEqual(reloaded.currentVersions()["ada_routing_system"], 2)
     }
 
     func testUpdateUnknownTemplateReturnsNil() {
@@ -71,11 +71,8 @@ final class PromptStoreTests: XCTestCase {
         try Data("not json".utf8).write(to: url)
 
         let store = makeStore(fileURL: url)
-        XCTAssertEqual(store.currentVersions()["plan"], 1)
-        XCTAssertTrue(
-            store.render("plan", context: ["mission_objective": "x", "roster": "r", "max_tasks": "2"])
-                .contains("submit_plan")
-        )
+        XCTAssertEqual(store.currentVersions()["ada_routing_system"], 1)
+        XCTAssertTrue(store.render("ada_routing_system").contains("single coordinator"))
     }
 
     func testCurrentVersionsCoversAllBuiltins() {
@@ -88,8 +85,8 @@ final class PromptStoreTests: XCTestCase {
     func testRecordsAreSortedAndCarryCurrentText() {
         let records = makeStore().records()
         XCTAssertEqual(records.map(\.id), records.map(\.id).sorted())
-        let house = records.first { $0.id == "house_rules" }
-        XCTAssertTrue(house?.currentText?.contains("data, not instructions") == true)
+        let routing = records.first { $0.id == "ada_routing_system" }
+        XCTAssertTrue(routing?.currentText?.contains("data, not instructions") == true)
     }
 
     func testEnsureSeedFileWritesDecodableFile() throws {
@@ -100,6 +97,31 @@ final class PromptStoreTests: XCTestCase {
         makeStore(fileURL: url).ensureSeedFile()
         XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
         // The seeded file must load cleanly in a fresh store.
-        XCTAssertEqual(makeStore(fileURL: url).currentVersions()["house_rules"], 1)
+        XCTAssertEqual(makeStore(fileURL: url).currentVersions()["ada_routing_system"], 1)
+    }
+
+    func testEditsToRetiredTemplatesStayInTheFileButAreNotListed() throws {
+        let dir = try makeTempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("prompts.json")
+        let old = #"{"prompts":[{"id":"plan","name":"Plan request","versions":[{"version":1,"text":"a"},{"version":2,"text":"edited","updatedAt":"2026-11-01T00:00:00Z"}]}]}"#
+        try Data(old.utf8).write(to: url)
+        let store = makeStore(fileURL: url)
+        XCTAssertNil(store.records().first { $0.id == "plan" }, "the old mission prompts are no longer listed")
+        XCTAssertEqual(store.render("plan"), "")
+        XCTAssertNotNil(store.update(id: "ada_base", text: "Edited identity."))
+        let saved = try String(contentsOf: url, encoding: .utf8)
+        XCTAssertTrue(saved.contains("edited"), "an operator's edit to a retired prompt is kept on disk")
+    }
+
+    func testExtendedAccessNoteIsAVersionedTemplate() {
+        let store = makeStore()
+        let ada = AgentProfile.rosterTemplates[0]
+        let context = ConversationPromptContext(projectName: "P", history: [], memory: "", workspaceManifest: "", missionReferences: "", missionIDs: [], schedule: nil, scheduled: false)
+        let direct = { ConversationPrompts.directResponseSystem(coordinator: ada, context: context, connectorTools: [], hasLinkedMissions: false, hasExtendedTools: true, store: store, language: "en") }
+        XCTAssertTrue(direct().contains("Additional access, enforced by the server:"))
+        store.update(id: "ada_extended_access", text: "Edited access note.")
+        XCTAssertTrue(direct().contains("Edited access note."))
+        XCTAssertNotNil(store.currentVersions()["ada_extended_access"])
     }
 }

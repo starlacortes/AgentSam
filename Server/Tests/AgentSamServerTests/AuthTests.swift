@@ -249,18 +249,10 @@ final class AuthTests: XCTestCase {
 }
 
 final class SkillCatalogTests: XCTestCase {
-    func testBuiltInSkillsResolveToRunnableTeams() {
-        let ada = AgentProfile.rosterTemplates[0]
+    func testBuiltInSkillsHaveStepsForHelpersToFollow() {
         for skill in Skill.builtIns {
-            let team = SkillTeams.team(for: skill, coordinator: ada, providers: ProviderConfig.builtin, hasKey: { _ in true }, saved: nil)
-            XCTAssertNotNil(team, skill.id)
-            XCTAssertEqual(team?.id, skill.teamID)
-            XCTAssertFalse(team?.workers.isEmpty ?? true, skill.id)
-            for agent in team?.agents ?? [] {
-                let provider = ProviderConfig.builtin.first { $0.id == agent.providerID }
-                XCTAssertNotNil(provider, "\(skill.id): \(agent.name)")
-                XCTAssertTrue(provider?.models.contains(agent.model) ?? false, "\(skill.id): \(agent.name)")
-            }
+            XCTAssertFalse(skill.procedure.isEmpty, skill.id)
+            XCTAssertTrue(SkillTeams.procedureBlock(skill).contains("SKILL: \(skill.name)"), skill.id)
         }
     }
 

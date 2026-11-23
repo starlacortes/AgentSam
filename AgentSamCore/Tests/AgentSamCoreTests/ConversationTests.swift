@@ -26,8 +26,7 @@ final class ConversationTests: XCTestCase {
     }
 
     private func engine(_ store: MissionStore, _ conversations: ConversationStore, _ memory: WorkspaceMemoryStore, keys: FileKeyRing, routing: Bool = true, completion: @escaping ConversationEngine.Completion) -> ConversationEngine {
-        let missions = MissionEngine(store: store, keyRing: keys)
-        return ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, missions: missions, routing: routing, completion: completion)
+        return ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, routing: routing, completion: completion)
     }
 
     private func finishedConversation(_ conversations: ConversationStore, id: UUID, owner: String = "owner") async throws -> Conversation {
@@ -57,8 +56,7 @@ final class ConversationTests: XCTestCase {
         let conversations = ConversationStore(root: directory)
         let memory = WorkspaceMemoryStore(root: directory)
         let access = ConversationAccess(root: directory)
-        let missions = MissionEngine(store: store, keyRing: keys)
-        let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, connectors: hub, missions: missions, access: access, completion: { _, _, _, system, messages, _ in
+        let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, connectors: hub, access: access, completion: { _, _, _, system, messages, _ in
             if system.contains("Decide how to handle") {
                 return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub")
             }
@@ -95,7 +93,7 @@ final class ConversationTests: XCTestCase {
         let access = ConversationAccess(root: directory)
         let toolResults = LockedStrings()
         let flagged = LockedStrings()
-        let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, connectors: hub, missions: MissionEngine(store: store, keyRing: keys), access: access, completion: { _, _, _, system, messages, _ in
+        let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, connectors: hub, access: access, completion: { _, _, _, system, messages, _ in
             if system.contains("Decide how to handle") { return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub") }
             if messages.allSatisfy({ $0.role != "tool" }) {
                 return LLMReply(message: APIMessage(role: "assistant", content: nil, tool_calls: [
@@ -129,7 +127,7 @@ final class ConversationTests: XCTestCase {
         let conversations = ConversationStore(root: directory)
         let memory = WorkspaceMemoryStore(root: directory)
         let toolTexts = LockedStrings()
-        let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, missions: MissionEngine(store: store, keyRing: keys), completion: { _, _, _, system, messages, tools in
+        let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, completion: { _, _, _, system, messages, tools in
             if system.contains("Decide how to handle") { return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub") }
             guard tools != nil else { return LLMReply(message: .assistant("Done."), inputTokens: 0, outputTokens: 0, model: "stub") }
             if let last = messages.last, last.role == "tool" { toolTexts.append(contentsOf: [last.content ?? ""]) }
@@ -205,7 +203,7 @@ final class ConversationTests: XCTestCase {
         let conversations = ConversationStore(root: directory)
         let memory = WorkspaceMemoryStore(root: directory)
         let histories = LockedStrings()
-        let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, missions: MissionEngine(store: store, keyRing: keys), completion: { _, _, _, system, messages, tools in
+        let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, completion: { _, _, _, system, messages, tools in
             if system.contains("Decide how to handle") { return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub") }
             guard tools != nil else { return LLMReply(message: .assistant("Done."), inputTokens: 0, outputTokens: 0, model: "stub") }
             histories.append(contentsOf: [messages.compactMap(\.content).joined(separator: "\n")])
@@ -277,7 +275,7 @@ final class ConversationTests: XCTestCase {
         let memory = WorkspaceMemoryStore(root: directory)
         let access = ConversationAccess(root: directory)
         let turns = LockedStrings()
-        let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, missions: MissionEngine(store: store, keyRing: keys), access: access, completion: { _, _, _, system, messages, _ in
+        let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, access: access, completion: { _, _, _, system, messages, _ in
             if system.contains("Decide how to handle") { return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub") }
             turns.append(contentsOf: [messages.last(where: { $0.role == "user" })?.content ?? ""])
             return LLMReply(message: .assistant("Noted."), inputTokens: 0, outputTokens: 0, model: "stub")
@@ -350,7 +348,7 @@ final class ConversationTests: XCTestCase {
         let workspace = ChatWorkspaceStore(root: directory)
         let conversation = try await conversations.create(ownerID: "owner")
         _ = await workspace.write(conversationID: conversation.id, name: "keep.txt", content: "not deleted")
-        let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, workspace: workspace, keyRing: keys, missions: MissionEngine(store: store, keyRing: keys), access: access, completion: { _, _, _, system, messages, _ in
+        let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, workspace: workspace, keyRing: keys, access: access, completion: { _, _, _, system, messages, _ in
             if system.contains("Decide how to handle") { return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub") }
             if messages.allSatisfy({ $0.role != "tool" }) {
                 return LLMReply(message: APIMessage(role: "assistant", content: nil, tool_calls: [APIToolCall(id: "delete", function: .init(name: "chat_delete_file", arguments: #"{"path":"keep.txt"}"#))]), inputTokens: 0, outputTokens: 0, model: "stub")
@@ -380,7 +378,7 @@ final class ConversationTests: XCTestCase {
         let conversation = try await conversations.create(ownerID: "owner")
         let probe = await access.terminal.run(command: "true", root: workspace.directory(conversation.id), key: "probe", requestedDirectory: nil)
         if probe.resultText.contains("terminal is unavailable") { throw XCTSkip(probe.resultText) }
-        let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, workspace: workspace, keyRing: keys, missions: MissionEngine(store: store, keyRing: keys), access: access, completion: { _, _, _, system, messages, _ in
+        let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, workspace: workspace, keyRing: keys, access: access, completion: { _, _, _, system, messages, _ in
             if system.contains("Decide how to handle") { return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub") }
             if messages.allSatisfy({ $0.role != "tool" }) {
                 let limit = ChatWorkspaceTools.maxRunsPerTurn
@@ -570,7 +568,7 @@ final class ConversationTests: XCTestCase {
             let conversations = ConversationStore(root: root)
             let memory = WorkspaceMemoryStore(root: root)
             let seen = Seen()
-            let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, connectors: hub, missions: MissionEngine(store: store, keyRing: keys), access: ConversationAccess(root: root)) { _, _, _, system, _, tools in
+            let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, connectors: hub, access: ConversationAccess(root: root)) { _, _, _, system, _, tools in
                 if system.contains("Summarize only durable") { return LLMReply(message: .assistant("## Notes"), inputTokens: 0, outputTokens: 0, model: "stub") }
                 if system.contains("Decide how to handle") { return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub") }
                 if let tools {
@@ -600,24 +598,6 @@ final class ConversationTests: XCTestCase {
         XCTAssertFalse(hub.visibleConnectorIDs.contains(.cloudflare))
         let names = await hub.toolDefs().map(\.function.name)
         XCTAssertFalse(names.contains { $0.hasPrefix("cloudflare_") })
-    }
-
-    func testSoloTeamWritesFollowConnectionsToggles() async throws {
-        let solo = ConversationEngine.soloTeam(coordinator: agent("Ada", role: .coordinator), language: "en")
-        let scope = try XCTUnwrap(solo.toolScope)
-        XCTAssertEqual(scope.permissions, .all)
-        let store = MissionStore(root: directory)
-        let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
-        try keys.set("token", for: CloudflareConnector.tokenAccount)
-        try keys.set("token", for: GitHubConnector.tokenAccount)
-        await store.saveConnectorConfigs([
-            ConnectorConfig(id: .cloudflare, enabled: true, permissions: ConnectorPermissions(dnsWrite: false)),
-            ConnectorConfig(id: .github, enabled: true, permissions: ConnectorPermissions(githubWrite: true)),
-        ])
-        let hub = ConnectorHub(store: store, keyRing: keys, google: GoogleOAuth(clientID: "", clientSecret: ""), hiddenConnectors: [])
-        let names = await hub.toolDefs(scope: scope).map(\.function.name)
-        XCTAssertFalse(names.contains("cloudflare_dns_create"), "a toggle left off in Connections stays off")
-        XCTAssertTrue(names.contains("github_write_file"))
     }
 
     func testOlderMessagesDecodeWithoutInteractiveFields() throws {
@@ -1028,7 +1008,7 @@ final class ConversationTests: XCTestCase {
         let memory = WorkspaceMemoryStore(root: directory)
         // Seed the solo team, as a previous SOLO run would have.
         let ada = AgentProfile.rosterTemplates[0]
-        await store.saveTeam(ConversationEngine.soloTeam(coordinator: ada, language: "en"))
+        await store.saveTeam(Team(id: ConversationEngine.soloTeamID, name: "Ada (solo)", agents: [ada, { var worker = ada; worker.id = UUID(); worker.role = .worker; return worker }()]))
         var seenRoster = false
         let engine = engine(store, conversations, memory, keys: keys, completion: { _, _, _, system, _, _ in
             if system.contains("Decide how to handle") {
@@ -1262,18 +1242,6 @@ final class ConversationTests: XCTestCase {
         XCTAssertEqual(ToolCatalog.spec("chat_delete_file")?.access, .approval)
         XCTAssertEqual(ConversationPrompts.toolStepLabel("gmail_send", language: "es"), "Preparando un correo")
         XCTAssertEqual(ConversationPrompts.toolStepLabel("unknown_tool", language: "en"), "Using unknown_tool")
-    }
-
-    func testMissionWorkersAreOfferedTheirToolsAndTheirTeamsConnectorsOnly() {
-        let gmail = APIToolDef(name: "gmail_search", description: "Search Gmail", parameters: .object(["type": .string("object")]))
-        let offered = OfferedTools.worker(connectorTools: [gmail])
-        XCTAssertEqual(offered.definitions.map(\.function.name), AgentTools.workerTools.map(\.function.name) + ["gmail_search"])
-        XCTAssertEqual(offered.family(of: "write_file"), .worker)
-        XCTAssertEqual(offered.family(of: "finish"), .worker)
-        XCTAssertEqual(offered.family(of: "gmail_search"), .connector)
-        XCTAssertNil(offered.family(of: "gmail_send"), "a connector outside the team's scope must not run")
-        XCTAssertNil(offered.family(of: "chat_write_file"), "Ada's own tools are not a worker's")
-        XCTAssertNil(OfferedTools.direct(connectorTools: [], hasLinkedMissions: true, hasExtendedAccess: true).family(of: "finish"))
     }
 
     func testDirectAnswerCompactsLargeExecutedToolPayloads() async throws {

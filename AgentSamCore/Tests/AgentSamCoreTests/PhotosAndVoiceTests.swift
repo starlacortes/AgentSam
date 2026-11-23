@@ -144,7 +144,7 @@ final class PhotosAndVoiceTests: XCTestCase {
         let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
         try keys.set("test-key", for: provider.keyAccount)
         let conversations = ConversationStore(root: directory)
-        let engine = ConversationEngine(store: store, conversations: conversations, memory: WorkspaceMemoryStore(root: directory), keyRing: keys, missions: MissionEngine(store: store, keyRing: keys), completion: completion)
+        let engine = ConversationEngine(store: store, conversations: conversations, memory: WorkspaceMemoryStore(root: directory), keyRing: keys, completion: completion)
         return (engine, conversations)
     }
 
