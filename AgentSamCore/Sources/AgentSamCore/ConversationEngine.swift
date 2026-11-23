@@ -646,15 +646,6 @@ public actor ConversationEngine {
             } else {
                 outcome = .failure("Helpers need a user-owned conversation.")
             }
-        case .delegate:
-            state.delegations += 1
-            if state.delegations > HelperTools.maxPerReply {
-                outcome = .failure("Helper limit reached for this reply (\(HelperTools.maxPerReply)). Finish with what you have.")
-            } else if let ref {
-                outcome = await runHelper(call: call, parent: offeredTools, state: state, context: context, language: language, ref: ref, conversationID: conversationID, coordinator: coordinator, workstation: workstation)
-            } else {
-                outcome = .failure("Helpers need a user-owned conversation.")
-            }
         case .trigger:
             let owner = ref?.ownerID
             let conversations = self.conversations

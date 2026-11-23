@@ -227,13 +227,14 @@ final class VoiceTests: XCTestCase {
         }
 
         var chatID = UUID()
-        try await app.test(.POST, "api/chats", beforeRequest: { req in
+        try await app.test(.POST, "api/conversations", beforeRequest: { req in
             req.headers.bearerAuthorization = BearerAuthorization(token: self.serverToken)
+            try req.content.encode(ConversationCreateBody(projectName: "Voice"), as: .json)
         }) { res async throws in
             chatID = try res.content.decode(Chat.self).id
         }
 
-        try await app.test(.POST, "api/chats/\(chatID)/transcribe", beforeRequest: { req in
+        try await app.test(.POST, "api/conversations/\(chatID)/transcribe", beforeRequest: { req in
             req.headers.bearerAuthorization = BearerAuthorization(token: self.serverToken)
             req.headers.contentType = HTTPMediaType(type: "audio", subType: "webm")
             req.body = ByteBuffer(bytes: [1, 2, 3])

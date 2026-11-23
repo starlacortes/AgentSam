@@ -81,9 +81,6 @@
 
 
 /* Coordinator chat */
-"srv.chatNotFound" = "Chat no encontrado";
-"srv.chatBusy" = "El coordinador todavía está respondiendo tu último mensaje.";
-"srv.chatMessageLength" = "Los mensajes deben tener entre 1 y 8.000 caracteres.";
 "srv.voiceNoKey" = "El proveedor de voz no tiene clave de API.";
 "srv.voiceUnknownProvider" = "Proveedor desconocido.";
 "srv.voiceNoSTT" = "La entrada de voz necesita una clave de API de OpenAI o Groq. Agrégala en Proveedores.";
