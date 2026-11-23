@@ -1,34 +1,55 @@
-import { useState } from 'react'
-import type { AgentActivity } from '../../api/types'
-import { useI18n } from '../../i18n'
-import { presentWork, type WorkPresentation } from '../../lib/coordinator'
+import { useEffect, useState } from 'react'
 import type { Conversation } from '../../api/types'
+import { useI18n } from '../../i18n'
+import { presentWork, type WorkHelper } from '../../lib/coordinator'
 import { Icon } from './Icon'
 
-const colors = ['emerald', 'teal', 'gold', 'sage']
-
-function ActivityNode({ activity, index, compact }: { activity: AgentActivity; index: number; compact: boolean }) {
-  const { t } = useI18n()
-  return <div className={`co-agent-node ${activity.state}`} style={{ ['--agent-index' as string]: index % colors.length }}>
-    <div className="co-agent-identity"><span className={`co-agent-avatar ${colors[index % colors.length]}`}>{activity.agentName.trim()[0]?.toUpperCase() ?? 'A'}<i /></span><div><b>{activity.agentName}</b><small>{activity.teamName ?? (activity.agentName === 'Ada' ? t('Coordinator') : t('Specialist'))}</small></div></div>
-    {!compact ? <p className="co-agent-thought">{activity.summary}</p> : null}
-  </div>
+const stateWords: Record<WorkHelper['state'], string> = {
+  working: 'Working',
+  done: 'Done',
+  failed: 'Had a problem',
+  waiting: 'Waiting',
 }
 
+/**
+ * A slim line above the chat that says, in plain words, who is working on the reply: Ada, and any
+ * helpers she brought in (researchAda, judgeAda). It is hidden when nothing is running and the
+ * last reply was Ada's alone, so an ordinary chat shows nothing extra.
+ */
 export function AgentWorkroom({ conversation }: { conversation: Conversation | null }) {
   const { t } = useI18n()
-  const presentation: WorkPresentation = presentWork(conversation)
-  // Stay folded while there is no work to show (the empty chat already introduces Ada);
-  // open on its own once work starts. A choice made with the toggle wins after that.
-  const [chosen, setChosen] = useState<boolean | null>(null)
-  const collapsed = chosen ?? presentation.activities.length === 0
-  const fallback: AgentActivity[] = [{ id: 'ada-ready', agentID: 'ada', agentName: 'Ada', summary: t('Ready to answer or bring in help'), state: 'idle', updatedAt: new Date().toISOString() }]
-  const activities = presentation.activities.length ? presentation.activities : fallback
-  const summary = presentation.running ? t('Work in progress') : presentation.helpNames.length ? t('Latest specialist activity') : t('Your workspace, one response')
+  const work = presentWork(conversation)
+  const [open, setOpen] = useState<boolean | null>(null)
+  // Each new piece of work starts with the default: details open while helpers work, folded after.
+  const latestID = [...(conversation?.messages ?? [])].reverse().find((message) => message.role === 'assistant')?.id
+  useEffect(() => setOpen(null), [latestID])
+  if (!work.running && work.helpers.length === 0) return null
 
-  return <section className={`co-workroom ${collapsed ? 'collapsed' : ''}`} aria-label={t('Agent work summaries')} aria-description={t('These are short work summaries, not private agent reasoning.')}>
-    <div className="co-workroom-head"><div className="co-workroom-title"><i className={presentation.running ? 'co-live-dot' : 'co-online-dot'} /><b>{t('Agent activity')}</b><span>{summary}</span></div><div className="co-workroom-meta"><span className="co-mini-chip">{t('Concise work summaries')}</span><button className="co-icon-button" aria-label={collapsed ? t('Expand agent activity') : t('Collapse agent activity')} aria-expanded={!collapsed} onClick={() => setChosen(!collapsed)}><Icon name="collapse" size={16} /></button></div></div>
-    <div className="co-agent-graph">{activities.map((activity, index) => <ActivityNode key={`${activity.teamID ?? 'ada'}-${activity.agentID}-${index}`} activity={activity} index={index} compact={false} />)}</div>
-    <div className="co-mobile-work">{activities.slice(0, 5).map((activity, index) => <ActivityNode key={`${activity.teamID ?? 'ada'}-${activity.agentID}-${index}`} activity={activity} index={index} compact />)}<p>{presentation.running ? activities.find((activity) => activity.state === 'working')?.summary : summary}</p></div>
+  const expanded = work.helpers.length > 0 && (open ?? work.running)
+  const names = work.helpers.map((helper) => helper.name)
+  const shown = names.length > 3 ? `${names.slice(0, 3).join(', ')} +${names.length - 3}` : names.join(', ')
+  const title = work.running ? t('Ada is working') : t('Last reply')
+  const detail = work.running
+    ? (work.now ?? t('Working on your message'))
+    : t('Ada had help from {names}', { names: shown })
+
+  return <section className={`co-workbar ${work.running ? 'running' : ''}`} aria-label={t('Who is working on this')} aria-live="polite">
+    <div className="co-workbar-line">
+      <i className={work.running ? 'co-live-dot' : 'co-online-dot'} aria-hidden="true" />
+      <b>{title}</b>
+      <span className="co-workbar-detail">{detail}</span>
+      {work.running && work.helpers.length ? <span className="co-workbar-count">{t('{count} helping', { count: work.helpers.filter((helper) => helper.state === 'working').length || work.helpers.length })}</span> : null}
+      {work.helpers.length ? <button type="button" className="co-workbar-toggle" aria-expanded={expanded} onClick={() => setOpen(!expanded)}>{expanded ? t('Hide') : t('Details')}<Icon name="collapse" size={13} /></button> : null}
+    </div>
+    {expanded ? <div className="co-workbar-details">
+      <ul>{work.helpers.map((helper) => <li key={helper.key} className={helper.state}>
+        <span className="co-workbar-avatar" aria-hidden="true">{helper.name.trim()[0]?.toUpperCase() ?? '?'}</span>
+        <div>
+          <p><b>{helper.name}</b><small>{helper.group ? t('Part of {group}', { group: helper.group }) : t('Helper')}</small><em>{t(stateWords[helper.state])}</em></p>
+          <span>{helper.summary}</span>
+        </div>
+      </li>)}</ul>
+      <p className="co-workbar-hint">{t('Helpers are short-lived assistants Ada brings in for one part of the job. They only use the tools she gives them, and anything that changes your accounts still asks you first.')}</p>
+    </div> : null}
   </section>
 }

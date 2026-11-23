@@ -322,7 +322,13 @@ public actor ConversationEngine {
                 message.text = trimmed
                 message.speech = speech
                 message.status = .complete
-                message.activity = activity
+                // Helpers Ada delegated to stay on the reply, so the app can show who worked on it.
+                let helpers = message.activity.filter { line in line.teamName == HelperTools.activityLabel && !activity.contains { $0.id == line.id } }.map { line -> AgentActivity in
+                    var line = line
+                    if line.state == "working" { line.state = "done" }
+                    return line
+                }
+                message.activity = activity + helpers
                 message.quickReplies = quickReplies
                 message.fileIDs = fileIDs
                 message.toolLog = toolLog
@@ -755,6 +761,8 @@ public actor ConversationEngine {
         let offeredTools = parent.restricted { name, family in HelperTools.allows(name: name, family: family, groups: request.groups) }
         let es = language == "es"
         await beginStep(es ? "\(request.name) está trabajando" : "\(request.name) is working", in: ref)
+        var line = AgentActivity(agentID: UUID(), agentName: request.name, summary: HelperTools.firstLine(request.task, limit: 160), state: "working", teamName: HelperTools.activityLabel)
+        await showHelper(line, in: ref)
         await access?.audit.record(ownerID: ref.ownerID, action: "delegate", detail: "\(request.name) [\(request.groups.map(\.rawValue).sorted().joined(separator: ","))]: \(request.task.prefix(200))")
         let system = HelperTools.systemPrompt(request: request, language: language, tools: offeredTools.definitions.map(\.function.name).sorted())
         var messages: [APIMessage] = [.user(request.task)]
@@ -790,13 +798,32 @@ public actor ConversationEngine {
                 report = try await complete(coordinator: coordinator, system: system, messages: messages, tools: nil).message.content ?? ""
                 rounds += 1
             }
+            line.state = report.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "failed" : "done"
+            line.summary = HelperTools.firstLine(report, limit: 160, fallback: line.summary)
+            line.updatedAt = Date()
+            await showHelper(line, in: ref)
             state.writtenFiles.append(contentsOf: helperState.writtenFiles)
             await beginStep(es ? "Revisando el informe de \(request.name)" : "Checking \(request.name)'s report", in: ref)
             return HelperTools.result(request: request, report: report, files: Array(NSOrderedSet(array: helperState.writtenFiles).array.compactMap { $0 as? String }), toolLog: toolLog, rounds: rounds, stoppedEarly: stopped)
         } catch is CancellationError {
             return .failure("\(request.name) was stopped.")
         } catch {
+            line.state = "failed"
+            line.updatedAt = Date()
+            await showHelper(line, in: ref)
             return .failure("\(request.name) could not finish: \(error.localizedDescription)")
+        }
+    }
+
+    /// Adds or updates a helper's line in the running reply's activity.
+    private func showHelper(_ line: AgentActivity, in ref: ResponseRef) async {
+        _ = try? await conversations.updateMessage(id: ref.conversationID, ownerID: ref.ownerID, messageID: ref.responseID) { message in
+            guard message.status == .running else { return }
+            if let index = message.activity.firstIndex(where: { $0.id == line.id }) {
+                message.activity[index] = line
+            } else {
+                message.activity.append(line)
+            }
         }
     }
 
