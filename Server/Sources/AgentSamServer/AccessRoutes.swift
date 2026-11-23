@@ -192,6 +192,10 @@ func accessRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
         if body.approve {
             switch action.kind {
             case .connectorWrite:
+                guard await ctx.access.sharedAccountsOwner(conversation.ownerID) else {
+                    await ctx.access.actions.finish(ownerID: conversation.ownerID, id: id, result: "You no longer have access to the shared accounts. Nothing ran.", succeeded: false)
+                    break
+                }
                 guard await ctx.access.actions.consumeApproved(ownerID: conversation.ownerID, id: id) != nil,
                       let raw = action.arguments.objectValue?["raw"]?.stringValue else {
                     throw Abort(.conflict, reason: "The connector action could not be started.")
@@ -231,6 +235,10 @@ func accessRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
                 await ctx.access.actions.finish(ownerID: conversation.ownerID, id: id, result: outcome.resultText, succeeded: outcome.succeeded)
                 await ctx.access.audit.record(ownerID: conversation.ownerID, action: "browser.approved-action", detail: "\(action.title.prefix(200)): \(outcome.succeeded ? "done" : "not done")")
             case .mcpCall:
+                guard await ctx.access.sharedAccountsOwner(conversation.ownerID) else {
+                    await ctx.access.actions.finish(ownerID: conversation.ownerID, id: id, result: "You no longer have access to the shared accounts. Nothing ran.", succeeded: false)
+                    break
+                }
                 guard let mcp = ctx.access.mcp,
                       await ctx.access.actions.consumeApproved(ownerID: conversation.ownerID, id: id) != nil,
                       let raw = action.arguments.objectValue?["raw"]?.stringValue else {

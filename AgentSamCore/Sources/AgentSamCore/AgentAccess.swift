@@ -331,16 +331,21 @@ public struct ConversationAccess: Sendable {
     public let workstation: Workstation?
     /// Whether this conversation owner may use the workstation (admins and the server token).
     public let workstationOwner: @Sendable (String) async -> Bool
-    /// MCP servers an admin connected; their tools are offered in every conversation with access.
+    /// Whether this conversation owner may use the server's shared accounts: Gmail, Google Ads, GitHub,
+    /// Cloudflare, Maloon and the MCP servers an admin connected. They hold one set of credentials, so
+    /// an admin grants each member that use. Without it those tools are not offered and do not run.
+    public let sharedAccountsOwner: @Sendable (String) async -> Bool
+    /// MCP servers an admin connected; their tools are offered to owners who may use shared accounts.
     public let mcp: MCPRegistry?
     /// Ada's browser on the workstation; the same owners as the workstation may use it.
     public let browser: BrowserLink?
 
-    public init(root: URL, workstation: Workstation? = nil, workstationOwner: @escaping @Sendable (String) async -> Bool = { _ in false }, mcp: MCPRegistry? = nil, browser: BrowserLink? = nil) {
+    public init(root: URL, workstation: Workstation? = nil, workstationOwner: @escaping @Sendable (String) async -> Bool = { _ in false }, sharedAccountsOwner: @escaping @Sendable (String) async -> Bool = { _ in true }, mcp: MCPRegistry? = nil, browser: BrowserLink? = nil) {
         self.mcp = mcp
         self.browser = browser
         self.workstation = workstation
         self.workstationOwner = workstationOwner
+        self.sharedAccountsOwner = sharedAccountsOwner
         spend = SpendLedger(root: root)
         let audit = AccessAuditLog(root: root)
         self.audit = audit

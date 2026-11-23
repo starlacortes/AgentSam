@@ -236,6 +236,11 @@ export const es: Record<string, string> = {
   'Who can use this server': 'Quién puede usar este servidor',
   'Everyone shares the same projects and missions. Admins also manage people and provider keys.':
     'Todos comparten los mismos proyectos y misiones. Los administradores también gestionan personas y claves de proveedor.',
+  'Shared accounts': 'Cuentas compartidas',
+  Always: 'Siempre',
+  'Lets Ada use the shared Gmail, Google Ads, GitHub, Cloudflare and connected tools for this person.':
+    'Permite que Ada use el Gmail, Google Ads, GitHub, Cloudflare y las herramientas conectadas compartidos para esta persona.',
+  'Shared accounts for {name}': 'Cuentas compartidas para {name}',
   'Invite someone': 'Invitar a alguien',
   'Email to invite': 'Correo a invitar',
   'Create invite link': 'Crear enlace de invitación',

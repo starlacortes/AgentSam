@@ -10,6 +10,8 @@ export interface PublicUser {
   disabled: boolean
   createdAt: string
   lastLoginAt?: string
+  /** May use the server's shared Gmail, Ads, GitHub, Cloudflare, Maloon and MCP accounts. Always true for admins. */
+  sharedAccounts?: boolean
 }
 
 export interface Me {

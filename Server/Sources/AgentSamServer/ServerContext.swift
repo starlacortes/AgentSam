@@ -89,6 +89,13 @@ struct ServerContext: Sendable {
                 guard let id = UUID(uuidString: owner), let user = await accounts.user(id: id) else { return false }
                 return user.role == .admin && !user.disabled
             },
+            sharedAccountsOwner: { owner in
+                // Gmail, Ads, GitHub, Cloudflare, Maloon and MCP use one set of server credentials: admins
+                // (and the shared server token) always may; a member only when an admin allowed it.
+                if owner == "shared-server-token" { return true }
+                guard let id = UUID(uuidString: owner), let user = await accounts.user(id: id), !user.disabled else { return false }
+                return user.mayUseSharedAccounts
+            },
             mcp: MCPRegistry(root: store.root, keyRing: keyRing),
             browser: browser
         )
@@ -148,7 +155,7 @@ struct ServerContext: Sendable {
             dailyLimit: Environment.get("AGENTSAM_PROVISIONING_DAILY_LIMIT").flatMap(Int.init) ?? 200
         )
         let provisioningRunner = ProvisioningRunner(store: provisioning, accounts: accounts)
-        let scheduler = ConversationScheduler(conversations: conversations, engine: conversationEngine) { [connectors] query, seen in
+        let scheduler = ConversationScheduler(conversations: conversations, engine: conversationEngine, mayUseGmail: access.sharedAccountsOwner) { [connectors] query, seen in
             guard connectors.isConfigured(.gmail) else { throw ConnectorError("Gmail is not connected.") }
             return try await GmailConnector().recentEmails(query: query, seen: seen, runtime: connectors.runtime)
         }
@@ -291,6 +298,9 @@ struct ServerContext: Sendable {
         let lang = (language ?? "en").trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("es") ? "es" : "en"
         let launcher = launchedBy ?? "Ada"
         do {
+            if workflowID != nil, !(await access.sharedAccountsOwner(ownerID)) {
+                throw Abort(.forbidden, reason: "Ask an admin to let you use the shared business accounts.")
+            }
             if let workflowID {
                 let workflow = try maloon.workflow(id: workflowID, lang: lang)
                 let notes = (rawObjective ?? "").trimmingCharacters(in: .whitespacesAndNewlines)

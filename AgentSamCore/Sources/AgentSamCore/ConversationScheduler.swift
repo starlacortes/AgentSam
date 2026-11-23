@@ -29,7 +29,11 @@ public actor ConversationScheduler {
     public static let archivePurgeSeconds: TimeInterval = 3_600
     private var lastArchivePurge: Date?
 
-    public init(conversations: ConversationStore, engine: ConversationEngine, gmail: GmailSearch? = nil) {
+    /// Whether an owner may use the server's shared Gmail; triggers of other owners are skipped.
+    private let mayUseGmail: (@Sendable (String) async -> Bool)?
+
+    public init(conversations: ConversationStore, engine: ConversationEngine, mayUseGmail: (@Sendable (String) async -> Bool)? = nil, gmail: GmailSearch? = nil) {
+        self.mayUseGmail = mayUseGmail
         self.conversations = conversations
         self.engine = engine
         self.gmail = gmail
@@ -150,6 +154,7 @@ public actor ConversationScheduler {
         guard let gmail, let triggers = try? await conversations.gmailTriggers() else { return }
         for item in triggers {
             let trigger = item.trigger
+            if let mayUseGmail, !(await mayUseGmail(item.ownerID)) { continue }
             if let last = trigger.lastCheckedAt, now.timeIntervalSince(last) < ConversationTrigger.gmailPollSeconds { continue }
             guard let query = trigger.query, let emails = try? await gmail(query, trigger.seenIDs.map(Set.init)) else { continue }
             guard let seen = trigger.seenIDs else {
