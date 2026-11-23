@@ -262,6 +262,32 @@ final class TriggerTests: XCTestCase {
         await scheduler.shutdown()
     }
 
+    func testGmailTriggerOfAnOwnerWithoutSharedAccountAccessIsNeverChecked() async throws {
+        let conversations = ConversationStore(root: directory)
+        let engine = try await makeEngine(conversations) { _, _, _ in LLMReply(message: .assistant("ok"), inputTokens: 0, outputTokens: 0, model: "stub") }
+        guard case .success(let trigger) = ConversationTrigger.validate(kind: .gmail, prompt: "File it", query: "from:boss@example.com") else { return XCTFail("invalid") }
+        let blocked = try await conversations.create(ownerID: "blocked")
+        _ = try await conversations.addTrigger(id: blocked.id, ownerID: "blocked", trigger: trigger)
+        let allowed = try await conversations.create(ownerID: "allowed")
+        _ = try await conversations.addTrigger(id: allowed.id, ownerID: "allowed", trigger: trigger)
+        actor Searches {
+            var count = 0
+            func note() { count += 1 }
+        }
+        let searches = Searches()
+        let scheduler = ConversationScheduler(conversations: conversations, engine: engine, mayUseGmail: { $0 == "allowed" }) { _, _ in
+            await searches.note()
+            return []
+        }
+        await scheduler.checkGmail(now: Date())
+        let count = await searches.count
+        XCTAssertEqual(count, 1, "only the owner who may use shared Gmail is searched")
+        let stored = try await conversations.get(id: blocked.id, ownerID: "blocked")
+        XCTAssertNil(stored?.triggers.first?.lastCheckedAt)
+        await engine.shutdown()
+        await scheduler.shutdown()
+    }
+
     private func finished(_ conversations: ConversationStore, _ id: UUID) async throws -> Conversation {
         for _ in 0..<150 {
             if let conversation = try await conversations.get(id: id, ownerID: "owner"), conversation.messages.last?.status != .running { return conversation }

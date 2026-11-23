@@ -120,6 +120,7 @@ export function PeoplePage() {
                   <th>{t('Name')}</th>
                   <th>{t('Email')}</th>
                   <th>{t('Role')}</th>
+                  <th>{t('Shared accounts')}</th>
                   <th>{t('Last sign-in')}</th>
                   <th />
                 </tr>
@@ -145,6 +146,19 @@ export function PeoplePage() {
                           <option value="member">{t('Member')}</option>
                           <option value="admin">{t('Admin')}</option>
                         </select>
+                      </td>
+                      <td>
+                        {user.role === 'admin' ? (
+                          <span className="dim">{t('Always')}</span>
+                        ) : (
+                          <input
+                            type="checkbox"
+                            checked={user.sharedAccounts === true}
+                            title={t('Lets Ada use the shared Gmail, Google Ads, GitHub, Cloudflare and connected tools for this person.')}
+                            aria-label={t('Shared accounts for {name}', { name: user.name })}
+                            onChange={(e) => void run(() => api(`users/${user.id}`, { method: 'PATCH', body: { sharedAccounts: e.target.checked } }))}
+                          />
+                        )}
                       </td>
                       <td className="dim">{formatDate(user.lastLoginAt)}</td>
                       <td>

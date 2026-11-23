@@ -532,10 +532,12 @@ public actor ConversationEngine {
 
     /// The tools offered to Ada's direct reply, and to the helpers and tasks that run inside it.
     private func directTools(ref: ResponseRef?, context: ConversationPromptContext) async -> (offered: OfferedTools, connectorTools: [APIToolDef], workstation: Workstation?) {
-        let connectorTools = await connectors?.toolDefs(readOnly: access == nil) ?? []
+        // The connectors and MCP servers hold the server's shared credentials: only owners an admin allowed get them.
+        let sharedAllowed = await mayUseSharedAccounts(ownerID: ref?.ownerID)
+        let connectorTools = sharedAllowed ? (await connectors?.toolDefs(readOnly: access == nil) ?? []) : []
         // Only tools offered in this request may run, and each runs by the family it was offered from.
         let workstation = await workstation(ownerID: ref?.ownerID)
-        let mcpTools = await access?.mcp?.toolDefs() ?? []
+        let mcpTools = sharedAllowed ? (await access?.mcp?.toolDefs() ?? []) : []
         // Handing work to a task needs a user-owned reply to show its progress in.
         let taskTools = ref == nil ? [] : TaskTools.definitions(catalog: SkillTeams.catalog(await skills.enabled()))
         // Helpers run inside this reply, so they need a user-owned reply to show their work in too.
@@ -767,7 +769,7 @@ public actor ConversationEngine {
                 outcome = ToolOutcome(resultText: "Approval requested (\(saved.id.uuidString)): this would \(risk.phrase), so the person approves it on a card; this is the routine flow. Do not retry it and do not ask whether to go ahead. Nothing has happened yet. Do other work that does not depend on it, or end your reply saying it is waiting for approval. Once approved it runs once, only on this same page, and the outcome appears under approval requests on a later turn; look at the page again then.")
             }
         case .mcp:
-            guard let mcp = access?.mcp else { outcome = .failure("MCP servers are not available here."); break }
+            guard let mcp = access?.mcp, await mayUseSharedAccounts(ownerID: ref?.ownerID) else { outcome = .failure("MCP servers are not available here."); break }
             if await mcp.isReadOnly(call.function.name) {
                 outcome = await mcp.call(call.function.name, rawArguments: call.function.arguments)
             } else if let access, let ref {
@@ -781,7 +783,7 @@ public actor ConversationEngine {
                 outcome = .failure("A user-owned conversation is required to approve MCP tool calls.")
             }
         case .connector:
-            guard let connectors else { outcome = .failure("No connector is available for this tool."); break }
+            guard let connectors, await mayUseSharedAccounts(ownerID: ref?.ownerID) else { outcome = .failure("No connector is available for this tool."); break }
             if ConnectorHub.readOnlyToolNames.contains(call.function.name) {
                 outcome = await connectors.run(call: call, readOnly: true)
             } else if let ref {
@@ -948,6 +950,12 @@ public actor ConversationEngine {
     private func browser(ownerID: String?) async -> BrowserLink? {
         guard let ownerID, let access, let browser = access.browser, browser.drivable, await access.workstationOwner(ownerID) else { return nil }
         return browser
+    }
+
+    /// True when there is no owner to check (nothing user-owned runs) or the owner may use shared accounts.
+    private func mayUseSharedAccounts(ownerID: String?) async -> Bool {
+        guard let ownerID, let access else { return true }
+        return await access.sharedAccountsOwner(ownerID)
     }
 
     private func workstation(ownerID: String?) async -> Workstation? {

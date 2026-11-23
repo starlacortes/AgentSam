@@ -19,6 +19,11 @@ struct UserRecord: Codable, Sendable, Identifiable {
     var disabled: Bool
     var createdAt: Date
     var lastLoginAt: Date?
+    /// A member may use the server's shared accounts (Gmail, Google Ads, GitHub, Cloudflare, Maloon, MCP)
+    /// only when an admin turned this on. Admins always may.
+    var sharedAccounts: Bool? = nil
+
+    var mayUseSharedAccounts: Bool { role == .admin || sharedAccounts == true }
 }
 
 /// What the API returns for a user. Never includes the password hash.
@@ -30,8 +35,10 @@ struct PublicUser: Codable, Sendable {
     var disabled: Bool
     var createdAt: Date
     var lastLoginAt: Date?
+    var sharedAccounts: Bool
 
     init(_ record: UserRecord) {
+        sharedAccounts = record.mayUseSharedAccounts
         id = record.id
         email = record.email
         name = record.name
@@ -244,7 +251,7 @@ actor AccountStore {
         return record
     }
 
-    func update(id: UUID, role: UserRole?, disabled: Bool?, name: String?) throws -> UserRecord {
+    func update(id: UUID, role: UserRole?, disabled: Bool?, name: String?, sharedAccounts: Bool? = nil) throws -> UserRecord {
         guard let index = file.users.firstIndex(where: { $0.id == id }) else { throw AccountError.notFound }
         var record = file.users[index]
         let losesAdmin = record.role == .admin && !record.disabled
@@ -252,6 +259,7 @@ actor AccountStore {
         if losesAdmin && activeAdminCount() <= 1 { throw AccountError.lastAdmin }
         if let role { record.role = role }
         if let disabled { record.disabled = disabled }
+        if let sharedAccounts { record.sharedAccounts = sharedAccounts }
         if let name, !name.trimmingCharacters(in: .whitespaces).isEmpty {
             record.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         }
