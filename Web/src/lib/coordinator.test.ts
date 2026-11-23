@@ -102,11 +102,18 @@ describe('voice transcript', () => {
     expect(voiceTranscript(markdown)).toBe('Saved to summary-final.md for follow-up, see the link on screen. Mission is done. The table is on screen. Back to talking.')
     expect(voiceTranscript('- first point\n- second point.')).toBe('first point. second point.')
   })
+  it('says what was skipped in Spanish for a Spanish reply', () => {
+    expect(voiceTranscript('Aquí está.\n```js\nx = 1\n```\n| A | B |\n| --- | --- |\n| 1 | 2 |\nMira [la guía](https://example.com/guia) o https://example.com.', 'es'))
+      .toBe('Aquí está. Hay un ejemplo de código en pantalla. La tabla está en pantalla. Mira la guía o el enlace en pantalla.')
+  })
   it('caps long speech at a sentence end', () => {
-    const long = 'This is a fairly ordinary sentence about nothing. '.repeat(20)
+    const long = 'This is a fairly ordinary sentence about nothing. '.repeat(80)
     const capped = cappedSpeech(long, 'The rest is on screen.')
     expect(capped.endsWith('nothing. The rest is on screen.')).toBe(true)
-    expect(capped.length).toBeLessThanOrEqual(630)
+    expect(capped.length).toBeLessThanOrEqual(3030)
+    // A whole normal reply is read, not just its opening.
+    const reply = 'This is a fairly ordinary sentence about nothing. '.repeat(12).trim()
+    expect(cappedSpeech(reply, 'The rest is on screen.')).toBe(reply)
     expect(cappedSpeech('Short.', 'x')).toBe('Short.')
   })
 })

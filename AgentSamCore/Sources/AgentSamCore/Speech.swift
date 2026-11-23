@@ -357,17 +357,18 @@ public struct SpeechClient: Sendable {
     /// that to the server, which is where the voice is made.
     public static func spokenText(_ markdown: String, language: String? = nil) -> String {
         var text = markdown
+        let spanish = language.map { SpokenNumbers.language(of: markdown, fallback: $0) == "es" } ?? false
         for fence in ["```suggestions", "```details"] {
             if let range = text.range(of: fence, options: .caseInsensitive) { text = String(text[..<range.lowerBound]) }
         }
         func replace(_ pattern: String, _ template: String) {
             text = text.replacingOccurrences(of: pattern, with: template, options: .regularExpression)
         }
-        replace("```[\\s\\S]*?```", " Code example omitted from speech. ")
+        replace("```[\\s\\S]*?```", spanish ? " Hay un ejemplo de código en pantalla. " : " Code example omitted from speech. ")
         replace("```[\\s\\S]*$", " ")
-        replace("(?m)(?:^[ \\t]*\\|.*(?:\\n|$))+", " The table is on screen.\n")
+        replace("(?m)(?:^[ \\t]*\\|.*(?:\\n|$))+", spanish ? " La tabla está en pantalla.\n" : " The table is on screen.\n")
         replace("\\[([^\\]]+)\\]\\([^)]*\\)", "$1")
-        replace("https?://[^\\s)]*[^\\s).,!?;:]", "the link on screen")
+        replace("https?://[^\\s)]*[^\\s).,!?;:]", spanish ? "el enlace en pantalla" : "the link on screen")
         replace("\\b[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\\b", "")
         replace("(?:[\\w.~-]+/)+([\\w-]+\\.[A-Za-z0-9]+)", "$1")
         replace("(?m)^[ \\t]*(?:#{1,6}|[-*+]|\\d+[.)])[ \\t]+(.*[^.!?:;,\\s])[ \\t]*$", "$1.")
@@ -381,9 +382,10 @@ public struct SpeechClient: Sendable {
         return SpokenNumbers.normalize(text, language: SpokenNumbers.language(of: text, fallback: language))
     }
 
-    /// Most characters Ada speaks in one reply. Longer replies stop at a sentence end with a short
-    /// pointer to the screen. The browser uses the same limit (`SPOKEN_LIMIT` in coordinator.ts).
-    public static let spokenLimit = 600
+    /// Most characters Ada speaks in one reply. Replies are read in full, so this is only a backstop
+    /// for a very long one, which stops at a sentence end with a short pointer to the screen. The
+    /// browser uses the same limit (`SPOKEN_LIMIT` in coordinator.ts).
+    public static let spokenLimit = 3_000
 
     /// Cuts spoken text at the last sentence end within `limit` and adds `tail`. Text within the limit is unchanged.
     public static func cappedSpeech(_ text: String, tail: String, limit: Int = spokenLimit) -> String {

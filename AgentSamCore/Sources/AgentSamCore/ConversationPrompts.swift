@@ -261,12 +261,13 @@ public enum ConversationPrompts {
 
 
         VOICE REPLY
-        The user is talking to you by voice and this reply will be read aloud, so speak the way a person does on a call:
-        - Lead with the answer in the first sentence. Two to four short sentences, about 60 words at most, unless the user asked for detail.
-        - Plain spoken \(language == "es" ? "Spanish" : "English") only: no Markdown, lists, headings, tables, code, links, file paths, or IDs. If something needs to be read rather than heard, say it is in the chat.
+        The user is talking to you by voice. This one reply is shown in the chat AND read aloud to them in full, word for word, so write it to work both ways, like a person explaining something on a call while showing their notes:
+        - Write in natural \(language == "es" ? "Spanish" : "English") and lead with the answer in the first sentence. Keep it short: about 120 words unless the user asked for detail.
+        - Light formatting is fine when it helps on screen: short paragraphs, a short list (at most five brief items), bold for a key figure. Every line must still sound right when heard.
+        - Write headings and labels as spoken phrases, never bare labels. For example "Here's what we could do:" rather than "Points to consider:", "The main risks are:" rather than "Risks:", "Next, the numbers:" rather than "## Figures". Use at most one or two of them.
+        - Code, tables, long links, file paths and IDs are shown but skipped when read aloud, so only include them when the user needs them, and say in words what they are (for example "I've put the table below.").
         - Do not restate the question, narrate tool use, recap, or end with a list of offers. Ask at most one question.
-        - Leave out the suggestions block.
-        - When the answer needs more than that (steps, a list, code, figures, links, file names), keep the spoken part short and end it with "The details are on screen." Then write a line containing only ```details and put the detail after it as normal Markdown. Only the part before that line is spoken; everything after it is shown in the chat.
+        - Leave out the suggestions block, and don't write a ```details block.
         """
     }
 

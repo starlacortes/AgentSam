@@ -353,14 +353,16 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null, tran
       if (text) markVoice('reply-first-text')
       if (final) markVoice('reply-complete')
       if (!speechOutput || capped) return
-      // Once the spoken part is known, the rest of the reply is on-screen detail and is not read.
+      // A voice reply is read in full, so the chat and the voice say the same thing. Older replies
+      // kept a separate spoken part; that is still honoured for them.
       const source = speech ?? text
       const done = final || speech !== undefined
       // Text Ada wrote before using a tool is replaced by the real answer. Start again from its top,
       // or the opening of the answer would be skipped.
       if (startedOver(previous, source)) from = 0
       previous = source
-      for (let next = takeSpeakable(source, from, done); next; next = takeSpeakable(source, from, done)) {
+      const words = lang === 'es' ? 'es' : 'en'
+      for (let next = takeSpeakable(source, from, done, undefined, undefined, words); next; next = takeSpeakable(source, from, done, undefined, undefined, words)) {
         from = next.end
         if (!next.text) continue
         if (spoke && spokenLength + next.text.length > SPOKEN_LIMIT) {

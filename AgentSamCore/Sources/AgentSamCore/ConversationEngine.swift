@@ -20,7 +20,7 @@ public actor ConversationEngine {
     /// answers in one loop and hands work on with `delegate` and `start_task` when it needs more.
     private let routing: Bool
     /// Output cap for spoken replies written without tools (team summaries, the last answer after the tool
-    /// budget). A backstop only: the voice style asks for about 60 spoken words plus optional on-screen detail.
+    /// budget). A backstop only: the voice style asks for about 120 words, shown and read in full.
     /// Turns that offer tools are not capped, because a capped tool call (a file write) would be cut off.
     static let voiceMaxTokens = 1_500
     private let completionOverride: Completion?
@@ -371,12 +371,9 @@ public actor ConversationEngine {
                     quickReplies = split.suggestions
                 }
             }
-            var speech: String?
-            if userMessage.spoken {
-                let split = ConversationPrompts.extractDetails(responseText)
-                responseText = split.screen
-                speech = split.speech
-            }
+            // A spoken reply is shown and read the same: what Ada says matches the chat word for word.
+            let speech: String? = nil
+            if userMessage.spoken { responseText = ConversationPrompts.extractDetails(responseText).screen }
 
             try Task.checkCancellation()
             let trimmed = responseText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -999,17 +996,13 @@ public actor ConversationEngine {
         guard let ref else { return }
         // The trailing suggestions block is metadata for quick replies, not part of what Ada says.
         var visible = text.range(of: "```suggestions", options: .caseInsensitive).map { String(text[..<$0.lowerBound]) } ?? text
-        // For a spoken message the spoken part is fixed once the details line appears; the rest is on-screen only.
-        var speech: String?
-        if ref.spoken {
-            let split = ConversationPrompts.extractDetails(visible)
-            visible = split.screen
-            speech = split.speech
-        }
+        // A spoken reply is read in full, so it has no separate spoken part. A stray ```details line
+        // from an older prompt is folded into the text, and read with the rest.
+        if ref.spoken { visible = ConversationPrompts.extractDetails(visible).screen }
         _ = try? await conversations.updateMessage(id: ref.conversationID, ownerID: ref.ownerID, messageID: ref.responseID) { message in
             guard message.status == .running else { return }
             message.text = visible
-            message.speech = speech
+            message.speech = nil
         }
     }
 

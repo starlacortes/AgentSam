@@ -124,7 +124,7 @@ function useReadAloud(conversationID: string, message: ConversationMessage, lang
     sharedSpeaker.onChange = (speaking) => { sharedOwner?.(speaking) }
     sharedSpeaker.unlock()
     const tail = language === 'es' ? 'El resto está en pantalla.' : 'The rest is on screen.'
-    sharedSpeaker.enqueue(cappedSpeech(voiceTranscript(message.speech ?? message.text), tail), `/api/conversations/${conversationID}/messages/${message.id}/speech?lang=${language}&chunk=0`)
+    sharedSpeaker.enqueue(cappedSpeech(voiceTranscript(message.speech ?? message.text, language === 'es' ? 'es' : 'en'), tail), `/api/conversations/${conversationID}/messages/${message.id}/speech?lang=${language}&chunk=0`)
   }]
 }
 
