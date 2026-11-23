@@ -56,6 +56,9 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
     /// For a reply to a spoken message: the part meant to be heard. The rest of `text` is detail shown
     /// on screen only. Nil when the whole reply may be spoken.
     public var speech: String?
+    /// For a reply to a spoken message: a few words Ada can say right away ("Let me check your
+    /// calendar.") while she works on the real answer. Written by a quick, small model call.
+    public var acknowledgement: String?
     public var completedAt: Date?
     /// For Ada's replies: one short line per tool call she made, so later turns know what she
     /// already looked at, changed or asked approval for. Not shown in the chat.
@@ -80,6 +83,7 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
         photos: [PhotoAttachment] = [],
         spoken: Bool = false,
         speech: String? = nil,
+        acknowledgement: String? = nil,
         completedAt: Date? = nil,
         toolLog: [String] = [],
         trigger: TriggerEvent? = nil
@@ -100,13 +104,14 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
         self.photos = photos
         self.spoken = spoken
         self.speech = speech
+        self.acknowledgement = acknowledgement
         self.completedAt = completedAt
         self.toolLog = toolLog
         self.trigger = trigger
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, role, text, createdAt, status, missionIDs, teamIDs, proposal, activity, steps, quickReplies, fileIDs, scheduled, photos, spoken, speech, completedAt, toolLog, trigger
+        case id, role, text, createdAt, status, missionIDs, teamIDs, proposal, activity, steps, quickReplies, fileIDs, scheduled, photos, spoken, speech, acknowledgement, completedAt, toolLog, trigger
     }
 
     /// Older conversations on disk predate `steps`, `quickReplies`, and `completedAt`.
@@ -128,6 +133,7 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
         photos = try c.decodeIfPresent([PhotoAttachment].self, forKey: .photos) ?? []
         spoken = try c.decodeIfPresent(Bool.self, forKey: .spoken) ?? false
         speech = try c.decodeIfPresent(String.self, forKey: .speech)
+        acknowledgement = try c.decodeIfPresent(String.self, forKey: .acknowledgement)
         completedAt = try c.decodeIfPresent(Date.self, forKey: .completedAt)
         toolLog = try c.decodeIfPresent([String].self, forKey: .toolLog) ?? []
         trigger = try c.decodeIfPresent(TriggerEvent.self, forKey: .trigger)

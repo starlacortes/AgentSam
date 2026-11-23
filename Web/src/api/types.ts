@@ -149,6 +149,8 @@ export interface ConversationMessage {
   spoken?: boolean
   /** For a reply to a spoken message: the part read aloud; the rest of `text` is on-screen detail. */
   speech?: string
+  /** For a reply to a spoken message: a few words to say right away while Ada works ("Let me check your calendar."). */
+  acknowledgement?: string
   completedAt?: string
   /** For a run a trigger started: what happened. */
   trigger?: TriggerEvent
