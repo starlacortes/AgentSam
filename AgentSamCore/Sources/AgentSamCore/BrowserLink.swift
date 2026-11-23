@@ -10,6 +10,8 @@ public struct BrowserConfig: Sendable, Equatable {
     public var enabled: Bool
     /// The VNC port on the workstation's loopback interface.
     public var vncPort: Int
+    /// The port of the agent that carries out Ada's browser actions, on the same loopback interface.
+    public var agentPort: Int
     /// The systemd unit that runs the browser on the workstation.
     public var service: String
     /// How long the browser keeps running with nobody watching.
@@ -18,12 +20,14 @@ public struct BrowserConfig: Sendable, Equatable {
     public var problem: String?
 
     public static let defaultPort = 5977
+    public static let defaultAgentPort = 5978
     public static let defaultService = "ada-browser.service"
     public static let defaultIdleSeconds: TimeInterval = 15 * 60
 
-    public init(enabled: Bool, vncPort: Int = BrowserConfig.defaultPort, service: String = BrowserConfig.defaultService, idleSeconds: TimeInterval = BrowserConfig.defaultIdleSeconds, problem: String? = nil) {
+    public init(enabled: Bool, vncPort: Int = BrowserConfig.defaultPort, agentPort: Int = BrowserConfig.defaultAgentPort, service: String = BrowserConfig.defaultService, idleSeconds: TimeInterval = BrowserConfig.defaultIdleSeconds, problem: String? = nil) {
         self.enabled = enabled
         self.vncPort = vncPort
+        self.agentPort = agentPort
         self.service = service
         self.idleSeconds = idleSeconds
         self.problem = problem
@@ -37,16 +41,50 @@ public struct BrowserConfig: Sendable, Equatable {
             return BrowserConfig(enabled: false, problem: "AGENTSAM_BROWSER needs a workstation over SSH (AGENTSAM_WORKSTATION_SSH); Ada's browser is off.")
         }
         let port = env["AGENTSAM_BROWSER_VNC_PORT"].flatMap(Int.init).flatMap { (1...65_535).contains($0) ? $0 : nil } ?? defaultPort
+        let agentPort = env["AGENTSAM_BROWSER_AGENT_PORT"].flatMap(Int.init).flatMap { (1...65_535).contains($0) ? $0 : nil } ?? defaultAgentPort
         let service = (env["AGENTSAM_BROWSER_SERVICE"] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard service.isEmpty || validService(service) else {
             return BrowserConfig(enabled: false, problem: "AGENTSAM_BROWSER_SERVICE must be a plain systemd unit name; Ada's browser is off.")
         }
-        return BrowserConfig(enabled: true, vncPort: port, service: service.isEmpty ? defaultService : service)
+        return BrowserConfig(enabled: true, vncPort: port, agentPort: agentPort, service: service.isEmpty ? defaultService : service)
     }
 
     /// Only plain unit names, so the name can never be read as a shell word or an option.
     static func validService(_ name: String) -> Bool {
         !name.hasPrefix("-") && name.count <= 100 && name.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || "._-@".contains($0)) }
+    }
+}
+
+/// The agent's answer to one request.
+public struct BrowserReply: Sendable {
+    public var ok: Bool
+    /// True when the agent refused because the person is in control or the browser is paused.
+    public var refused: Bool
+    public var message: String
+    /// Who is in control: "ada", "paused" or "person", when the agent said.
+    public var control: String?
+    public var body: [String: JSONValue]
+
+    public init(ok: Bool, refused: Bool = false, message: String = "", control: String? = nil, body: [String: JSONValue] = [:]) {
+        self.ok = ok
+        self.refused = refused
+        self.message = message
+        self.control = control
+        self.body = body
+    }
+
+    public static func failure(_ message: String) -> BrowserReply { BrowserReply(ok: false, message: message) }
+
+    static func decode(_ data: Data) -> BrowserReply? {
+        let line = data.split(separator: UInt8(ascii: "\n")).first.map { Data($0) } ?? data
+        guard let value = try? JSONDecoder().decode(JSONValue.self, from: line), let object = value.objectValue else { return nil }
+        return BrowserReply(
+            ok: object["ok"]?.boolValue ?? false,
+            refused: object["refused"]?.boolValue ?? false,
+            message: object["message"]?.stringValue ?? "",
+            control: object["control"]?.stringValue,
+            body: object
+        )
     }
 }
 
@@ -74,10 +112,17 @@ public struct BrowserRelayCommand: Sendable, Equatable {
 /// Starts, stops and watches the browser service on the workstation, and stops it when idle.
 public actor BrowserLink {
     public typealias Runner = @Sendable (_ script: String) async -> ToolOutcome
+    /// Sends one request line to the browser agent and returns its reply line, or nil when it did not answer.
+    public typealias AgentTransport = @Sendable (_ request: Data) async -> Data?
 
     public nonisolated let config: BrowserConfig
     private let run: Runner
     private let relay: @Sendable () async -> BrowserRelayCommand?
+    private let agent: AgentTransport
+    /// The secret every agent request carries: the VNC password, which already gives full control of the window.
+    private let token: String
+    /// How long to wait for the agent after starting the service.
+    private let startWait: TimeInterval
     private var viewers = 0
     private var idleTask: Task<Void, Never>?
 
@@ -85,20 +130,60 @@ public actor BrowserLink {
     static let offMarker = "__ADA_BROWSER_OFF"
 
     /// `run` executes a shell script on the workstation; `relay` gives the command that reaches the picture.
-    public init(config: BrowserConfig, run: @escaping Runner, relay: @escaping @Sendable () async -> BrowserRelayCommand? = { nil }) {
+    public init(config: BrowserConfig, run: @escaping Runner, relay: @escaping @Sendable () async -> BrowserRelayCommand? = { nil }, agent: @escaping AgentTransport = { _ in nil }, token: String = "", startWait: TimeInterval = 12) {
         self.config = config
         self.run = run
         self.relay = relay
+        self.agent = agent
+        self.token = token
+        self.startWait = startWait
     }
 
-    /// The browser on Ada's SSH workstation.
-    public init(config: BrowserConfig, workstation: Workstation) {
+    /// The browser on Ada's SSH workstation. `token` is the browser's VNC password.
+    public init(config: BrowserConfig, workstation: Workstation, token: String = "") {
         let port = config.vncPort
+        let agentPort = config.agentPort
         self.init(
             config: config,
             run: { script in await workstation.run(command: script, directory: nil, timeout: 45) },
-            relay: { await workstation.loopbackCommand(port: port) }
+            relay: { await workstation.loopbackCommand(port: port) },
+            agent: { request in
+                guard let command = await workstation.loopbackCommand(port: agentPort) else { return nil }
+                return await BrowserAgentExchange.send(request, command: command, timeout: 75)
+            },
+            token: token
         )
+    }
+
+    /// Whether Ada can drive the browser: it is on and the server knows the agent's secret.
+    public nonisolated var drivable: Bool { config.enabled && !token.isEmpty }
+
+    /// Asks the browser agent to do one thing. Starts the browser first when it is not running, and
+    /// keeps it from stopping for idleness while Ada is using it.
+    public func call(_ op: String, _ parameters: [String: JSONValue] = [:], startIfNeeded: Bool = true) async -> BrowserReply {
+        guard config.enabled else { return .failure("Ada's browser is off on this server.") }
+        guard !token.isEmpty else { return .failure("The server has no browser password (AGENTSAM_BROWSER_VNC_PASSWORD), so Ada cannot drive the browser.") }
+        var request = parameters
+        request["op"] = .string(op)
+        request["token"] = .string(token)
+        guard let data = try? JSONEncoder().encode(JSONValue.object(request)) else { return .failure("The browser request could not be encoded.") }
+        defer { touch() }
+        if let reply = await agent(data).flatMap(BrowserReply.decode) { return reply }
+        guard startIfNeeded else { return .failure("The browser is not running.") }
+        let started = await start()
+        guard started.succeeded else { return .failure(started.resultText) }
+        let deadline = Date().addingTimeInterval(startWait)
+        repeat {
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+            if let reply = await agent(data).flatMap(BrowserReply.decode) { return reply }
+        } while Date() < deadline
+        return .failure("The browser is running but its agent did not answer. If the browser was installed before Ada had browser tools, run deploy/browser-agent/install.sh on the workstation again, then restart the browser.")
+    }
+
+    /// Ada is using the browser: with nobody watching, the idle clock starts again from now.
+    public func touch() {
+        guard viewers == 0, config.enabled else { return }
+        scheduleIdleStop()
     }
 
     public var viewerCount: Int { viewers }
@@ -187,6 +272,81 @@ extension Workstation {
         let options = sshArguments(ssh, script: "").prefix { $0 != "--" }
         let arguments = Array(options) + ["-T", "-W", "127.0.0.1:\(port)", "--", ssh.destination]
         return BrowserRelayCommand(executable: ssh.binary, arguments: arguments, environment: environment())
+    }
+}
+
+/// One request to the browser agent over a child process (ssh -W to the agent's loopback port):
+/// writes the request line, reads one reply line, then ends the process.
+public enum BrowserAgentExchange {
+    public static func send(_ request: Data, command: BrowserRelayCommand, timeout: TimeInterval) async -> Data? {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Data?, Never>) in
+            let exchange = Exchange(continuation: continuation)
+            exchange.start(request: request, command: command, timeout: timeout)
+        }
+    }
+
+    private final class Exchange: @unchecked Sendable {
+        private let process = Process()
+        private let input = Pipe()
+        private let output = Pipe()
+        private let lock = NSLock()
+        private var buffer = Data()
+        private var continuation: CheckedContinuation<Data?, Never>?
+
+        init(continuation: CheckedContinuation<Data?, Never>) {
+            self.continuation = continuation
+        }
+
+        func start(request: Data, command: BrowserRelayCommand, timeout: TimeInterval) {
+            signal(SIGPIPE, SIG_IGN)
+            process.executableURL = URL(fileURLWithPath: command.executable)
+            process.arguments = command.arguments
+            process.environment = command.environment
+            process.standardInput = input
+            process.standardOutput = output
+            process.standardError = FileHandle.nullDevice
+            output.fileHandleForReading.readabilityHandler = { [self] handle in
+                let chunk = handle.availableData
+                if chunk.isEmpty {
+                    handle.readabilityHandler = nil
+                    finish(nil)
+                    return
+                }
+                lock.lock()
+                buffer.append(chunk)
+                let line = buffer.firstIndex(of: UInt8(ascii: "\n")).map { Data(buffer[buffer.startIndex..<$0]) }
+                lock.unlock()
+                if let line { finish(line) }
+            }
+            process.terminationHandler = { _ in }
+            do {
+                try process.run()
+            } catch {
+                output.fileHandleForReading.readabilityHandler = nil
+                finish(nil)
+                return
+            }
+            try? input.fileHandleForWriting.write(contentsOf: request + Data("\n".utf8))
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { [self] in finish(nil) }
+        }
+
+        private func finish(_ line: Data?) {
+            lock.lock()
+            let waiting = continuation
+            continuation = nil
+            lock.unlock()
+            guard let waiting else { return }
+            waiting.resume(returning: line)
+            output.fileHandleForReading.readabilityHandler = nil
+            try? input.fileHandleForWriting.close()
+            if process.isRunning {
+                let pid = process.processIdentifier
+                kill(pid, SIGTERM)
+                DispatchQueue.global().asyncAfter(deadline: .now() + 2) { [self] in
+                    if process.isRunning { kill(pid, SIGKILL) }
+                }
+            }
+        }
     }
 }
 
@@ -281,5 +441,9 @@ public final class BrowserRelay: @unchecked Sendable {
 #else
 extension Workstation {
     public func loopbackCommand(port: Int) -> BrowserRelayCommand? { nil }
+}
+
+public enum BrowserAgentExchange {
+    public static func send(_ request: Data, command: BrowserRelayCommand, timeout: TimeInterval) async -> Data? { nil }
 }
 #endif

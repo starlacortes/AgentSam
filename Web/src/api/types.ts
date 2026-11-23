@@ -260,7 +260,7 @@ export interface AgentActionRequest {
   ownerID: string
   conversationID: string
   missionID?: string
-  kind: 'connectorWrite' | 'fileDelete' | 'workstation' | 'mcpCall' | 'helperSave'
+  kind: 'connectorWrite' | 'fileDelete' | 'workstation' | 'mcpCall' | 'helperSave' | 'browser'
   title: string
   detail: string
   toolName: string
@@ -552,10 +552,17 @@ export interface BrowserView {
   available: boolean
   state?: 'running' | 'stopped' | 'unreachable' | null
   idleMinutes?: number | null
+  drivable?: boolean | null
 }
+
+/** Who is in control of Ada's browser. */
+export type BrowserControl = 'ada' | 'paused' | 'person'
 
 /** What POST /api/browser/start returns: the state and what the viewer needs to connect. */
 export interface BrowserSessionView {
   state: string
   password: string
+  /** True when Ada can drive the browser; the window then shows Take over and Hand back. */
+  drivable?: boolean | null
+  control?: BrowserControl | null
 }

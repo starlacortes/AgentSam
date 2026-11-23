@@ -33,6 +33,8 @@ public enum HelperTools {
         case run
         /// Use Ada's workstation (each command still needs an approval card or a standing permission).
         case workstation
+        /// Ada's browser: read pages, click and type (risky actions still create approval cards).
+        case browser
         /// Connector writes, host files and file deletes. These only ever create approval cards.
         case write
         /// Tools of connected MCP servers.
@@ -80,9 +82,14 @@ public enum HelperTools {
         return builtInRoles.first { $0.function == key }
     }
 
-    public static func definitions(hasWorkstation: Bool, hasMCP: Bool, saved: [SavedHelper] = [], canSave: Bool = false, skills: [String] = []) -> [APIToolDef] {
+    /// The groups that exist in this reply.
+    static func available(hasWorkstation: Bool, hasMCP: Bool, hasBrowser: Bool) -> [String] {
+        Group.allCases.filter { $0 != .workstation || hasWorkstation }.filter { $0 != .mcp || hasMCP }.filter { $0 != .browser || hasBrowser }.map(\.rawValue)
+    }
+
+    public static func definitions(hasWorkstation: Bool, hasMCP: Bool, hasBrowser: Bool = false, saved: [SavedHelper] = [], canSave: Bool = false, skills: [String] = []) -> [APIToolDef] {
         let functions = builtInRoles.map(\.function).joined(separator: ", ")
-        var groups = Group.allCases.filter { $0 != .workstation || hasWorkstation }.filter { $0 != .mcp || hasMCP }.map(\.rawValue)
+        var groups = available(hasWorkstation: hasWorkstation, hasMCP: hasMCP, hasBrowser: hasBrowser)
         if groups.isEmpty { groups = ["read"] }
         let savedLine = saved.isEmpty ? "" : " Saved roles (these replace a ready role of the same name): \(saved.prefix(HelperStore.maxHelpers).map { "\($0.function) (\($0.name), version \($0.version))" }.joined(separator: ", "))."
         let groupItems: JSONValue = .object([("type", .string("string")), ("enum", .array(groups.map { .string($0) }))])
@@ -106,7 +113,7 @@ public enum HelperTools {
                         ("tools", .object([
                             ("type", .string("array")),
                             ("items", groupItems),
-                            ("description", .string("Tool groups to hand over, beyond reading, which is always included. A helper's connector writes and workstation commands still create approval cards. Leave out for read-only work.")),
+                            ("description", .string("Tool groups to hand over, beyond reading, which is always included. A helper's connector writes, workstation commands and risky browser actions still create approval cards. There is one browser, so give browser to one helper at a time. Leave out for read-only work.")),
                         ])),
                     ])),
                     ("required", .array([.string("function"), .string("task")])),
@@ -271,6 +278,8 @@ public enum HelperTools {
             return groups.contains(.workstation)
         case .mcp:
             return groups.contains(.mcp)
+        case .browser:
+            return groups.contains(.browser)
         case .task, .trigger, .skill, .memory, .selfReview, .delegate, .worker:
             return false
         }

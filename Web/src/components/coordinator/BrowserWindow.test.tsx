@@ -77,4 +77,54 @@ describe('Ada’s browser window', () => {
     expect(api).toHaveBeenCalledWith('browser/stop', { method: 'POST' })
     expect(clients[0]!.disconnected).toBe(true)
   })
+
+  it('lets the person take over and hand back when Ada can drive, and only then accepts their input', async () => {
+    vi.mocked(api).mockImplementation(async (path: string, init?: { body?: unknown }) => {
+      if (path === 'browser/start') return { state: 'running', password: 'p', drivable: true, control: 'ada' }
+      if (path === 'browser/control') return { control: (init?.body as { control: string }).control }
+      return {}
+    })
+    open()
+    await waitFor(() => expect(clients).toHaveLength(1))
+    const client = clients[0]! as FakeClient & { viewOnly?: boolean }
+    client.dispatchEvent(new Event('connect'))
+    await screen.findByText('Ada is driving')
+    expect(client.viewOnly).toBe(true)
+    expect((screen.getByLabelText('Text to type in the browser') as HTMLInputElement).disabled).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Take over' }))
+    await screen.findByText('You’re in control')
+    expect(api).toHaveBeenCalledWith('browser/control', { method: 'POST', body: { control: 'person' } })
+    expect(client.viewOnly).toBe(false)
+    expect((screen.getByLabelText('Text to type in the browser') as HTMLInputElement).disabled).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Hand back' }))
+    await screen.findByText('Ada is driving')
+    expect(client.viewOnly).toBe(true)
+  })
+
+  it('hands the browser back when the window closes while the person is in control', async () => {
+    vi.mocked(api).mockImplementation(async (path: string, init?: { body?: unknown }) => {
+      if (path === 'browser/start') return { state: 'running', password: 'p', drivable: true, control: 'person' }
+      if (path === 'browser/control') return { control: (init?.body as { control: string }).control }
+      return {}
+    })
+    open()
+    await waitFor(() => expect(clients).toHaveLength(1))
+    clients[0]!.dispatchEvent(new Event('connect'))
+    await screen.findByText('You’re in control')
+    cleanup()
+    expect(api).toHaveBeenCalledWith('browser/control', { method: 'POST', body: { control: 'ada' } })
+  })
+
+  it('asks twice before erasing sign-ins', async () => {
+    vi.mocked(api).mockImplementation(async (path: string) => {
+      if (path === 'browser/start') return { state: 'running', password: 'p', drivable: true, control: 'ada' }
+      return { control: 'ada' }
+    })
+    open()
+    await waitFor(() => expect(clients).toHaveLength(1))
+    fireEvent.click(await screen.findByRole('button', { name: 'Erase sign-ins' }))
+    expect(api).not.toHaveBeenCalledWith('browser/erase', { method: 'POST' })
+    fireEvent.click(screen.getByRole('button', { name: 'Press again to sign out of every site' }))
+    await waitFor(() => expect(api).toHaveBeenCalledWith('browser/erase', { method: 'POST' }))
+  })
 })

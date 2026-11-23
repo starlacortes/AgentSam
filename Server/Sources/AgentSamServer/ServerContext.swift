@@ -75,21 +75,25 @@ struct ServerContext: Sendable {
         let connectors = ConnectorHub(store: store, keyRing: keyRing, google: google)
         let accounts = AccountStore(dataDir: store.root)
         let workstationConfig = WorkstationConfig.fromEnvironment()
+        let workstation = workstationConfig.enabled ? Workstation(config: workstationConfig, dataDir: store.root) : nil
+        let browserConfig = BrowserConfig.fromEnvironment(workstation: workstationConfig)
+        let browserPassword = (Environment.get("AGENTSAM_BROWSER_VNC_PASSWORD") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        // The agent that drives the browser accepts the same password as its display.
+        let browser = browserConfig.enabled ? workstation.map { BrowserLink(config: browserConfig, workstation: $0, token: browserPassword) } : nil
         let access = ConversationAccess(
             root: store.root,
-            workstation: workstationConfig.enabled ? Workstation(config: workstationConfig, dataDir: store.root) : nil,
+            workstation: workstation,
             workstationOwner: { owner in
                 // Ada's machine is the server itself, so only admins (and the shared server token) may use it.
                 if owner == "shared-server-token" { return true }
                 guard let id = UUID(uuidString: owner), let user = await accounts.user(id: id) else { return false }
                 return user.role == .admin && !user.disabled
             },
-            mcp: MCPRegistry(root: store.root, keyRing: keyRing)
+            mcp: MCPRegistry(root: store.root, keyRing: keyRing),
+            browser: browser
         )
         if let problem = workstationConfig.problem { print(problem) }
-        let browserConfig = BrowserConfig.fromEnvironment(workstation: workstationConfig)
         if let problem = browserConfig.problem { print(problem) }
-        let browser = browserConfig.enabled ? access.workstation.map { BrowserLink(config: browserConfig, workstation: $0) } : nil
         let googleAdsMCPConfig = GoogleAdsMCPConfig.fromEnvironment()
         let googleAdsMCP = googleAdsMCPConfig.enabled ? access.mcp.map { GoogleAdsMCPRunner(config: googleAdsMCPConfig, keyRing: keyRing, oauth: google, registry: $0) } : nil
         if browser != nil { print("Ada's browser is on: admins can open a live window on \(workstationConfig.ssh?.destination ?? "the workstation").") }
@@ -106,7 +110,7 @@ struct ServerContext: Sendable {
         let memory = WorkspaceMemoryStore(root: store.root)
         let skills = SkillStore(root: store.root)
         let knowledge = WorkspaceKnowledgeStore(store: store, conversations: conversations, connectors: connectors, keyRing: keyRing, includeExtendedTools: true, skills: skills,
-            machines: WorkspaceMachines(workstation: workstationConfig, browser: browserConfig, mayUse: access.workstationOwner, permissions: access.permissions)
+            machines: WorkspaceMachines(workstation: workstationConfig, browser: browserConfig, browserDrivable: browser?.drivable ?? false, mayUse: access.workstationOwner, permissions: access.permissions)
         )
         let chatWorkspace = ChatWorkspaceStore(root: store.root)
         let conversationEngine = ConversationEngine(
@@ -175,7 +179,7 @@ struct ServerContext: Sendable {
             dummyPasswordHash: (try? Bcrypt.hash(Secrets.randomToken())) ?? "",
             push: WebPushCenter(dataDir: store.root, contact: Self.pushContact()),
             browser: browser,
-            browserPassword: Environment.get("AGENTSAM_BROWSER_VNC_PASSWORD") ?? "",
+            browserPassword: browserPassword,
             googleAdsMCP: googleAdsMCP
         )
     }

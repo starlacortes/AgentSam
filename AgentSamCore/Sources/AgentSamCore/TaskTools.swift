@@ -79,8 +79,8 @@ public enum TaskTools {
         public var groups: Set<HelperTools.Group>
     }
 
-    static func planDefinition(hasWorkstation: Bool, hasMCP: Bool) -> APIToolDef {
-        var groups = HelperTools.Group.allCases.filter { $0 != .workstation || hasWorkstation }.filter { $0 != .mcp || hasMCP }.map(\.rawValue)
+    static func planDefinition(hasWorkstation: Bool, hasMCP: Bool, hasBrowser: Bool = false) -> APIToolDef {
+        var groups = HelperTools.available(hasWorkstation: hasWorkstation, hasMCP: hasMCP, hasBrowser: hasBrowser)
         if groups.isEmpty { groups = ["read"] }
         return APIToolDef(
             name: planToolName,
