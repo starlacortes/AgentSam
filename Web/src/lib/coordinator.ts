@@ -108,7 +108,6 @@ export function voiceTranscript(markdown: string): string {
     .replace(/ ([.,!?])/g, '$1')
     .replace(/(?<!\.)\.\.(?!\.)/g, '.')
     .trim()
-    .slice(0, 5000)
 }
 
 /** A Markdown table: consecutive lines that start with a pipe. */

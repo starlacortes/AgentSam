@@ -438,7 +438,8 @@ export class Speaker {
     if (!head) return true
     const pending = new Map<number, Promise<{ url: string; total: number } | null>>([[0, Promise.resolve(head)]])
     const ahead = (index: number) => {
-      if (head && index < head.total && !pending.has(index)) pending.set(index, fetchChunk(index).catch(() => null))
+      // A piece that fails is tried once more, so one hiccup at the voice server doesn't skip part of the reply.
+      if (head && index < head.total && !pending.has(index)) pending.set(index, fetchChunk(index).catch(() => fetchChunk(index)).catch(() => null))
     }
     const discard = () => {
       for (const rest of pending.values()) void rest.then((value) => value && URL.revokeObjectURL(value.url))
@@ -499,17 +500,48 @@ async function fetchSpeech(path: string, text: string, signal?: AbortSignal): Pr
   }
 }
 
+/**
+ * Splits text for the browser voice into pieces of at most `limit` characters, at sentence ends
+ * where possible (then at a space). Some browsers stop a long utterance part way, so a whole reply
+ * is spoken as several short ones. A period inside a number ("1.000") is not a sentence end.
+ */
+export function browserSpeechPieces(text: string, limit = 220): string[] {
+  const pieces: string[] = []
+  let current = ''
+  for (let sentence of text.trim().split(/(?<=[.!?])\s+/)) {
+    while (sentence.length > limit) {
+      const cut = sentence.lastIndexOf(' ', limit)
+      const at = cut > 0 ? cut : limit
+      if (current) pieces.push(current)
+      current = ''
+      pieces.push(sentence.slice(0, at).trim())
+      sentence = sentence.slice(at).trim()
+    }
+    if (current && current.length + 1 + sentence.length > limit) {
+      pieces.push(current)
+      current = ''
+    }
+    current = current ? `${current} ${sentence}` : sentence
+  }
+  if (current) pieces.push(current)
+  return pieces.filter(Boolean)
+}
+
 /** The browser's built-in voice, used when the server has no text-to-speech provider. */
-export function speakWithBrowser(text: string, lang = navigator.language): Promise<void> {
-  return new Promise((resolve) => {
-    if (!('speechSynthesis' in window)) return resolve()
-    const utterance = new SpeechSynthesisUtterance(text)
-    utterance.lang = lang
-    utterance.rate = 1.05
-    utterance.onend = () => resolve()
-    utterance.onerror = () => resolve()
-    window.speechSynthesis.speak(utterance)
-  })
+export async function speakWithBrowser(text: string, lang = navigator.language): Promise<void> {
+  if (!('speechSynthesis' in window)) return
+  for (const piece of browserSpeechPieces(text)) {
+    const finished = await new Promise<boolean>((resolve) => {
+      const utterance = new SpeechSynthesisUtterance(piece)
+      utterance.lang = lang
+      utterance.rate = 1.05
+      utterance.onend = () => resolve(true)
+      // "interrupted" and "canceled" mean the person stopped playback.
+      utterance.onerror = (event) => resolve(!['interrupted', 'canceled'].includes((event as SpeechSynthesisErrorEvent).error))
+      window.speechSynthesis.speak(utterance)
+    })
+    if (!finished) return
+  }
 }
 
 /** Sends a recording to the server and returns what was said. */

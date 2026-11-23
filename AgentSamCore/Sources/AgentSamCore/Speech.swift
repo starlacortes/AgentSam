@@ -395,6 +395,14 @@ public struct SpeechClient: Sendable {
         return cut.trimmingCharacters(in: .whitespaces) + " " + tail
     }
 
+    /// What to read aloud for a stored reply. Voice mode (`full` false) speaks the reply's spoken part,
+    /// cut at `spokenLimit` with `tail`. The Play button (`full` true) reads the whole reply, detail
+    /// included; only parts that can't be heard (code, tables, links, suggestions) are left out.
+    public static func replySpeech(text: String, speech: String?, language: String, tail: String, full: Bool) -> String {
+        if full { return spokenText(text, language: language) }
+        return cappedSpeech(spokenText(speech ?? text, language: language), tail: tail)
+    }
+
     /// Splits text into pieces to speak one after another. The first piece is short so audio starts
     /// quickly; later pieces are longer. Breaks fall on sentence ends where possible.
     public static func spokenChunks(_ text: String, firstLimit: Int = 90, limit: Int = 600) -> [String] {

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createSilenceDetector, pickRecordingType, Speaker } from './voice'
+import { browserSpeechPieces, createSilenceDetector, pickRecordingType, Speaker } from './voice'
 
 describe('pickRecordingType', () => {
   it('prefers WebM/Opus where the browser has it', () => {
@@ -113,5 +113,26 @@ describe('Speaker sentence by sentence', () => {
     requests[1]!.resolve()
     await settle()
     expect(started).toBe(1)
+  })
+})
+
+describe('browserSpeechPieces', () => {
+  it('keeps every word and splits at sentence ends', () => {
+    const text = Array.from({ length: 30 }, (_, i) => `Sentence ${i + 1} costs 1.000 euros.`).join(' ')
+    const pieces = browserSpeechPieces(text, 120)
+    expect(pieces.length).toBeGreaterThan(1)
+    expect(pieces.every((piece) => piece.length <= 120 && piece.endsWith('.'))).toBe(true)
+    expect(pieces.join(' ')).toBe(text)
+  })
+
+  it('splits one very long sentence at spaces', () => {
+    const text = 'word '.repeat(100).trim()
+    const pieces = browserSpeechPieces(text, 50)
+    expect(pieces.every((piece) => piece.length <= 50)).toBe(true)
+    expect(pieces.join(' ')).toBe(text)
+  })
+
+  it('leaves short text alone', () => {
+    expect(browserSpeechPieces('Hello there.')).toEqual(['Hello there.'])
   })
 })

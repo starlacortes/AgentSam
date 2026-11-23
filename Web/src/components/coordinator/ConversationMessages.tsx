@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom'
 import { api, errorMessage } from '../../api/client'
 import type { AgentActionRequest, Conversation, ConversationMessage, MissionDetail } from '../../api/types'
 import { dateLocale, useI18n } from '../../i18n'
-import { cappedSpeech, voiceTranscript } from '../../lib/coordinator'
+import { voiceTranscript } from '../../lib/coordinator'
 import { Speaker } from '../../lib/voice'
 import { isHTML, isPreviewableLanguage, pickEntry } from '../../lib/preview'
 import { Markdown, type CodeTools } from '../Markdown'
@@ -116,8 +116,8 @@ function useReadAloud(conversationID: string, message: ConversationMessage, lang
     sharedOwner = mine.current
     sharedSpeaker.onChange = (speaking) => { sharedOwner?.(speaking) }
     sharedSpeaker.unlock()
-    const tail = language === 'es' ? 'El resto está en pantalla.' : 'The rest is on screen.'
-    sharedSpeaker.enqueue(cappedSpeech(voiceTranscript(message.speech ?? message.text), tail), `/api/conversations/${conversationID}/messages/${message.id}/speech?lang=${language}&chunk=0`)
+    // The whole reply is read, not just the short spoken part voice mode uses (`full=1`).
+    sharedSpeaker.enqueue(voiceTranscript(message.text), `/api/conversations/${conversationID}/messages/${message.id}/speech?lang=${language}&full=1&chunk=0`)
   }]
 }
 

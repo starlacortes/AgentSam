@@ -170,6 +170,25 @@ final class VoiceTests: XCTestCase {
         XCTAssertEqual(SpeechClient.cappedSpeech("Short.", tail: "x"), "Short.")
     }
 
+    func testPlayButtonReadsTheWholeReplyWhileVoiceModeStaysShort() {
+        let points = (1...40).map { _ in "- This point is worth hearing in full." }.joined(separator: "\n")
+        let text = "Here is the plan.\n\n\(points)\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\nThat is everything."
+        let tail = "The rest is on screen."
+        let full = SpeechClient.replySpeech(text: text, speech: "Short spoken part.", language: "en", tail: tail, full: true)
+        XCTAssertEqual(full.components(separatedBy: "This point is worth hearing in full.").count - 1, 40)
+        XCTAssertTrue(full.hasSuffix("That is everything."))
+        XCTAssertTrue(full.contains("The table is on screen."))
+        XCTAssertFalse(full.contains(tail))
+        // Every word reaches the voice, piece by piece.
+        let pieces = SpeechClient.spokenChunks(full)
+        XCTAssertEqual(pieces.joined(separator: " "), full)
+
+        XCTAssertEqual(SpeechClient.replySpeech(text: text, speech: "Short spoken part.", language: "en", tail: tail, full: false), "Short spoken part.")
+        let voice = SpeechClient.replySpeech(text: text, speech: nil, language: "en", tail: tail, full: false)
+        XCTAssertTrue(voice.hasSuffix(tail))
+        XCTAssertLessThanOrEqual(voice.count, SpeechClient.spokenLimit + 30)
+    }
+
     func testSpeechCacheReturnsRepeatsAndWarmsOncePerInterval() async {
         let cache = SpeechCache()
         let audio = SpeechClient.SpokenAudio(data: Data([1, 2, 3]), mimeType: "audio/wav")

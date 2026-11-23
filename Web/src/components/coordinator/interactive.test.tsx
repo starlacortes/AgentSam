@@ -42,6 +42,27 @@ describe('interactive chat', () => {
     vi.unstubAllGlobals()
   })
 
+  it('reads the whole of a long reply, not just the first part', async () => {
+    const spoken: string[] = []
+    const synth = { speak: vi.fn((u: { text: string; onend?: () => void }) => { spoken.push(u.text); setTimeout(() => u.onend?.(), 0) }), cancel: vi.fn(), resume: vi.fn() }
+    Object.defineProperty(window, 'speechSynthesis', { value: synth, configurable: true })
+    vi.stubGlobal('SpeechSynthesisUtterance', class { text: string; lang = ''; rate = 1; onend?: () => void; onerror?: () => void; constructor(text: string) { this.text = text } })
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 409 })
+    vi.stubGlobal('fetch', fetchMock)
+    const sentences = Array.from({ length: 40 }, (_, i) => `Point number ${i + 1} is worth hearing in full.`)
+    const text = `Here is the plan.\n\n${sentences.map((line) => `- ${line}`).join('\n')}\n\nThat is everything.`
+    renderUI(<ConversationMessages conversation={chat([assistant({ text, speech: 'Short spoken part.' })])} handlers={handlers()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Play' }))
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: 'Play' })).toBeTruthy())
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain('full=1')
+    const heard = spoken.join(' ')
+    expect(spoken.length).toBeGreaterThan(1)
+    expect(heard).toContain('Point number 40 is worth hearing in full.')
+    expect(heard.endsWith('That is everything.')).toBe(true)
+    expect(heard).not.toContain('The rest is on screen')
+    vi.unstubAllGlobals()
+  })
+
   it('sends a quick reply with one click, only on the latest answer', () => {
     const h = handlers()
     const user: ConversationMessage = { ...assistant({ id: 'u1', role: 'user', text: 'Pitch?' }) }
