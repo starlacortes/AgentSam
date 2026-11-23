@@ -98,7 +98,7 @@ func routes(_ app: Application, ctx: ServerContext) {
     mcpRoutes(api, ctx: ctx)
     mcpCatalogRoutes(api, ctx: ctx)
     browserRoutes(api, ctx: ctx)
-    chatRoutes(api, admin: adminAPI, ctx: ctx)
+    voiceRoutes(api, admin: adminAPI, ctx: ctx)
 
     api.get("info") { req async throws -> Response in
         let teams = await ctx.store.loadTeams()

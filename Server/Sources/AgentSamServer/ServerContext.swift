@@ -280,12 +280,9 @@ struct ServerContext: Sendable {
         if !FileManager.default.fileExists(atPath: connectorsURL.path) {
             await store.saveConnectorConfigs(ConnectorConfig.defaults())
         }
-        // Teams are backend-only now. The starter team is still seeded because the legacy coordinator
-        // chat API (/api/chats) runs on a team; it is covered by the built-in Research skill, so the
-        // migration below skips it. Any other team saved before skills existed becomes a custom skill.
-        if await store.loadTeams().isEmpty {
-            await store.saveTeam(Team.starterTeam())
-        }
+        // Teams are backend-only records of who worked on a mission; nothing is seeded any more.
+        // A team saved before skills existed becomes a custom skill (the starter team is covered
+        // by the built-in Research skill, so the migration skips it).
         await skills.migrate(teams: await store.loadTeams(), skipping: [ConversationEngine.soloTeamID])
         prompts.ensureSeedFile()
     }

@@ -4,11 +4,11 @@ import AgentSamCore
 
 func conversationVoiceRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
     let speech = SpeechClient.shared
-    let chats = ChatStore(root: ctx.dataDir)
+    let voiceSettings = VoiceSettingsStore(root: ctx.dataDir)
 
     @Sendable func currentSetup() async -> (VoiceSetup, [ProviderConfig]) {
         let providers = await ctx.store.loadProviders()
-        let settings = await chats.loadSettings().voice ?? VoiceSettings()
+        let settings = await voiceSettings.load()
         let setup = SpeechDefaults.resolve(settings: settings, providers: providers) { provider in
             !(ctx.keyRing.get(provider.keyAccount) ?? "").isEmpty
         }

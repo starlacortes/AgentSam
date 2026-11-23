@@ -179,6 +179,7 @@ final class ConversationAPITests: XCTestCase {
         let conversation = try await createConversation()
         let memory = WorkspaceMemoryStore(root: directory)
         _ = try await memory.setEnabled(ownerID: "shared-server-token", true)
+        await MissionStore(root: directory).saveTeam(Team.starterTeam())
         try await app.test(.PATCH, "api/workspace/guide", beforeRequest: { req in
             self.authorize(&req)
             try req.content.encode(GuidePatchBody(completed: true), as: .json)
