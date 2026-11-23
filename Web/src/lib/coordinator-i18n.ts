@@ -1,4 +1,18 @@
 export const coordinatorSpanish: Record<string, string> = {
+  // The work bar above the chat: who is working on the reply.
+  'Last reply': 'Última respuesta',
+  'Working on your message': 'Trabajando en tu mensaje',
+  'Ada had help from {names}': 'Ada tuvo ayuda de {names}',
+  'Who is working on this': 'Quién está trabajando en esto',
+  '{count} helping': '{count} ayudando',
+  'Details': 'Detalles',
+  'Hide': 'Ocultar',
+  'Part of {group}': 'Parte de {group}',
+  'Helper': 'Asistente',
+  'Done': 'Hecho',
+  'Had a problem': 'Tuvo un problema',
+  'Waiting': 'Esperando',
+  'Helpers are short-lived assistants Ada brings in for one part of the job. They only use the tools she gives them, and anything that changes your accounts still asks you first.': 'Los asistentes son ayudantes temporales que Ada trae para una parte del trabajo. Solo usan las herramientas que ella les da, y todo lo que cambie tus cuentas te lo sigue preguntando primero.',
   // Simplified layout: one Settings place, quieter chat header
   Settings: 'Ajustes',
   'More chat options': 'Más opciones del chat',

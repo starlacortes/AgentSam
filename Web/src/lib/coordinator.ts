@@ -1,24 +1,66 @@
 import type { AgentActivity, Conversation, ConversationMessage, ConnectorStatus } from '../api/types'
 import { pickEntry, type PreviewSource } from './preview'
 
+/** Someone who worked on a reply besides Ada: a helper she delegated to, or a specialist from a skill run. */
+export interface WorkHelper {
+  key: string
+  name: string
+  /** A helper Ada spawned with `delegate` (researchAda), as opposed to a skill's specialist. */
+  helper: boolean
+  /** For a skill's specialist: the kind of work it was part of (the skill's name). */
+  group?: string
+  summary: string
+  state: 'working' | 'done' | 'failed' | 'waiting'
+}
+
 export interface WorkPresentation {
   activities: AgentActivity[]
   running: boolean
   direct: boolean
   /** Names of the kinds of help Ada brought in (the skills that ran), from the activity itself. */
   helpNames: string[]
+  /** What Ada is doing right now, in plain words, while a reply runs. */
+  now: string | null
+  /** Everyone besides Ada who worked on the latest reply. */
+  helpers: WorkHelper[]
+}
+
+/** `teamName` the server puts on a helper's activity line. */
+export const HELPER_ACTIVITY = 'Helper'
+
+function helperState(state: string): WorkHelper['state'] {
+  if (state === 'working' || state === 'done' || state === 'failed') return state
+  return 'waiting'
 }
 
 export function presentWork(conversation: Conversation | null): WorkPresentation {
   const messages = conversation?.messages ?? []
   const running = [...messages].reverse().find((message) => message.role === 'assistant' && message.status === 'running')
   const latest = running ?? [...messages].reverse().find((message) => message.role === 'assistant' && message.activity.length > 0)
-  const helpNames = [...new Set((latest?.activity ?? []).map((item) => item.teamName).filter((name): name is string => Boolean(name)))]
+  const activity = latest?.activity ?? []
+  const helpNames = [...new Set(activity.map((item) => item.teamName).filter((name): name is string => Boolean(name) && name !== HELPER_ACTIVITY))]
+  const now = running
+    ? [...(running.steps ?? [])].reverse().find((step) => step.state === 'working')?.label
+      ?? running.activity.find((item) => item.agentName === 'Ada' && item.state === 'working')?.summary
+      ?? null
+    : null
+  const helpers = activity
+    .filter((item) => item.agentName !== 'Ada')
+    .map((item, index): WorkHelper => ({
+      key: `${item.teamID ?? 'helper'}-${item.agentID}-${index}`,
+      name: item.agentName,
+      helper: item.teamName === HELPER_ACTIVITY,
+      group: item.teamName && item.teamName !== HELPER_ACTIVITY ? item.teamName : undefined,
+      summary: item.summary,
+      state: helperState(item.state),
+    }))
   return {
-    activities: latest?.activity ?? [],
+    activities: activity,
     running: Boolean(running),
     direct: !latest || latest.teamIDs.length === 0,
     helpNames,
+    now,
+    helpers,
   }
 }
 

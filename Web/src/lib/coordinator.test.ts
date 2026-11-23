@@ -34,6 +34,17 @@ describe('coordinator presentation', () => {
     expect(presentWork(earlier).helpNames).toEqual(['Research'])
   })
 
+  it('lists helpers and specialists, but not Ada, with plain states', () => {
+    const helper: AgentActivity = { id: 'h1', agentID: 'h1', agentName: 'researchAda', summary: 'Find sources', state: 'working', updatedAt: '2026-01-01T00:00:00Z', teamName: 'Helper' }
+    const ada: AgentActivity = { id: 'a1', agentID: 'ada', agentName: 'Ada', summary: 'Answering directly', state: 'working', updatedAt: '2026-01-01T00:00:00Z' }
+    const running = { ...message('running', [ada, helper, { ...activity, state: 'idle' }]), steps: [{ id: 's1', label: 'researchAda is working', state: 'working' as const, startedAt: '2026-01-01T00:00:00Z' }] }
+    const work = presentWork(conversation([running]))
+    expect(work.now).toBe('researchAda is working')
+    expect(work.helpers.map((item) => [item.name, item.helper, item.group, item.state])).toEqual([['researchAda', true, undefined, 'working'], ['Scout', false, 'Research', 'waiting']])
+    expect(work.helpNames).toEqual(['Research'])
+    expect(presentWork(conversation([message('complete')])).helpers).toEqual([])
+  })
+
   it('groups chats by project without mutating their order', () => {
     const chats = [{ id: 'a', projectName: 'Launch' }, { id: 'b', projectName: 'Personal' }, { id: 'c', projectName: 'Launch' }, { id: 'd', projectName: ' ' }]
     expect(groupedConversations(chats).map(([name, items]) => [name, items.map((item) => item.id)])).toEqual([['Launch', ['a', 'c']], ['Personal', ['b', 'd']]])

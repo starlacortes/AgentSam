@@ -855,6 +855,10 @@ final class ConversationTests: XCTestCase {
         XCTAssertEqual(answer.text, "Both helpers reported.")
         XCTAssertEqual(answer.fileIDs, ["prices.md"], "a file a helper wrote shows on the reply")
         XCTAssertTrue(answer.steps.contains { $0.label == "researchAda is working" })
+        let helpers = answer.activity.filter { $0.teamName == HelperTools.activityLabel }
+        XCTAssertEqual(helpers.map(\.agentName), ["researchAda", "priceCheckAda"], "helpers stay on the finished reply")
+        XCTAssertEqual(helpers.map(\.state), ["done", "done"])
+        XCTAssertEqual(helpers.first?.summary, "Found three sources.")
         await engine.shutdown()
     }
 

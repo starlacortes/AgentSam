@@ -12,6 +12,8 @@ public enum HelperTools {
     public static let maxPerReply = 4
     /// Model calls with tools in one helper run, before it must report.
     public static let maxRounds = 8
+    /// `teamName` on a helper's line in the reply's activity, so the app can show it as a helper.
+    public static let activityLabel = "Helper"
     /// How much of a helper's report Ada gets back.
     static let maxReportCharacters = 8_000
 
@@ -166,6 +168,14 @@ public enum HelperTools {
         Finish with a short report: what you found or made, the files you wrote, and what you are unsure about. Write it in \(language == "es" ? "Spanish" : "English").
         """
         return text
+    }
+
+    /// The first non-empty line of `text`, without Markdown heading or list marks, cut to `limit`.
+    static func firstLine(_ text: String, limit: Int, fallback: String = "") -> String {
+        let line = text.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty } ?? ""
+        let clean = line.trimmingCharacters(in: CharacterSet(charactersIn: "#*-> ")).trimmingCharacters(in: .whitespaces)
+        guard !clean.isEmpty else { return fallback }
+        return clean.count > limit ? String(clean.prefix(limit - 1)) + "…" : clean
     }
 
     /// What Ada gets back once the helper is done.
