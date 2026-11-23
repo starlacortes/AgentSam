@@ -743,6 +743,7 @@ public actor ConversationEngine {
             }
         case .browser:
             guard let access, let ref, let link = await browser(ownerID: ref.ownerID) else { outcome = .failure("Ada's browser is not available here."); break }
+            await markUsedBrowser(in: ref)
             let workspace = self.workspace
             let step = await BrowserTools.run(call: call, link: link) { name, data in
                 await workspace.writeData(conversationID: conversationID, name: name, data: data)
@@ -1024,6 +1025,14 @@ public actor ConversationEngine {
     }
 
     /// Shows in-progress text on the running response. Never touches a response that has finished.
+    /// Flags the reply as using the browser, so the web app opens the live window beside the chat.
+    private func markUsedBrowser(in ref: ResponseRef) async {
+        _ = try? await conversations.updateMessage(id: ref.conversationID, ownerID: ref.ownerID, messageID: ref.responseID) { message in
+            guard message.status == .running, !message.usedBrowser else { return }
+            message.usedBrowser = true
+        }
+    }
+
     private func publishPartial(_ text: String, in ref: ResponseRef?) async {
         guard let ref else { return }
         // The trailing suggestions block is metadata for quick replies, not part of what Ada says.

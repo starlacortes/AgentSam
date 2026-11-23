@@ -65,6 +65,9 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
     public var toolLog: [String]
     /// For a run a trigger started: what happened (an email, a webhook call). Nil otherwise.
     public var trigger: TriggerEvent?
+    /// True once Ada (or one of her helpers) used her live browser during this reply, so the web app
+    /// can open the browser window beside the chat while she works.
+    public var usedBrowser: Bool
 
     public init(
         id: UUID = UUID(),
@@ -86,7 +89,8 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
         acknowledgement: String? = nil,
         completedAt: Date? = nil,
         toolLog: [String] = [],
-        trigger: TriggerEvent? = nil
+        trigger: TriggerEvent? = nil,
+        usedBrowser: Bool = false
     ) {
         self.id = id
         self.role = role
@@ -108,10 +112,11 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
         self.completedAt = completedAt
         self.toolLog = toolLog
         self.trigger = trigger
+        self.usedBrowser = usedBrowser
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, role, text, createdAt, status, missionIDs, teamIDs, proposal, activity, steps, quickReplies, fileIDs, scheduled, photos, spoken, speech, acknowledgement, completedAt, toolLog, trigger
+        case id, role, text, createdAt, status, missionIDs, teamIDs, proposal, activity, steps, quickReplies, fileIDs, scheduled, photos, spoken, speech, acknowledgement, completedAt, toolLog, trigger, usedBrowser
     }
 
     /// Older conversations on disk predate `steps`, `quickReplies`, and `completedAt`.
@@ -137,6 +142,7 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
         completedAt = try c.decodeIfPresent(Date.self, forKey: .completedAt)
         toolLog = try c.decodeIfPresent([String].self, forKey: .toolLog) ?? []
         trigger = try c.decodeIfPresent(TriggerEvent.self, forKey: .trigger)
+        usedBrowser = try c.decodeIfPresent(Bool.self, forKey: .usedBrowser) ?? false
     }
 
     /// Trims, de-duplicates, and caps quick replies so model output can't flood the UI.

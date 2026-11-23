@@ -772,29 +772,109 @@
 .co-trigger-address code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10.5px; color: var(--dim); }
 .co-trigger-actions { display: flex; align-items: center; gap: 6px; flex: none; }
 
-/* Ada's browser: the live window onto the Chromium window on her workstation. */
-.co-browser-overlay { padding: 14px; }
-.co-browser-window { display: flex; flex-direction: column; width: min(1320px, 100%); height: min(900px, 100%); border: 1px solid var(--line2); border-radius: 12px; background: var(--panel); overflow: hidden; }
-.co-browser-head { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--line); color: var(--ink); }
+/* Ada's browser: the live window onto the Chromium window on her workstation. While open it is the
+   main area of the page, with the chat (and voice mode) in a column beside it; the chat list slides in. */
+.co-app.with-browser { --co-chat-width: 420px; grid-template-columns: minmax(0,1fr) var(--co-chat-width); }
+.co-app.with-browser .co-sidebar { position: fixed; inset: 0 auto 0 0; width: min(290px,88vw); transform: translateX(-102%); transition: transform .2s ease-out; box-shadow: var(--shadow-pop); z-index: 120; }
+.co-app.with-browser .co-sidebar.open { transform: translateX(0); }
+.co-app.with-browser .co-nav-scrim { display: block; position: fixed; inset: 0; z-index: 119; background: rgba(0,0,0,.58); backdrop-filter: blur(3px); }
+.co-app.with-browser .co-menu-button { display: inline-grid !important; }
+.co-app.with-browser .co-browser-dock { grid-column: 1; grid-row: 1; }
+.co-app.with-browser .co-main { grid-column: 2; grid-row: 1; border-left: 1px solid var(--line); }
+.co-app.with-browser .co-chat-header { gap: 8px; padding: 0 12px; }
+.co-app.with-browser .co-chat-heading > span { display: none; }
+.co-app.with-browser .co-chat-heading h1 { font-size: 12.5px; }
+.co-app.with-browser .co-message-inner { padding-left: 16px; padding-right: 16px; }
+.co-browser-toggle { position: relative; }
+.co-browser-toggle.active { color: var(--em2); background: rgba(74,217,158,.1); }
+.co-browser-live-dot { position: absolute; top: 5px; right: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--em2); box-shadow: 0 0 6px rgba(74,217,158,.8); animation: co-pulse 1.2s ease-in-out infinite; }
+
+.co-browser-dock { min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--co-sidebar); animation: co-fade-in .2s ease-out; }
+.co-browser-head { min-height: 65px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 12px 0 16px; border-bottom: 1px solid var(--line); color: var(--ink); }
+.co-browser-head > svg { flex: none; color: var(--em2); }
 .co-browser-title { display: flex; flex: 1; min-width: 0; align-items: baseline; gap: 10px; }
-.co-browser-title strong { font-size: 14px; font-weight: 630; }
-.co-browser-status { color: var(--mut); font-size: 11.5px; }
+.co-browser-title strong { font-size: 14px; font-weight: 630; white-space: nowrap; }
+.co-browser-status { color: var(--mut); font-size: 11.5px; white-space: nowrap; }
 .co-browser-status.live { color: var(--em); }
 .co-browser-driver { padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line2); color: var(--mut); font-size: 11px; white-space: nowrap; }
 .co-browser-driver.ada { color: var(--em); border-color: color-mix(in srgb, var(--em) 45%, transparent); }
 .co-browser-driver.person { color: var(--ink); border-color: var(--ink); }
-.co-browser-note .co-text-button { font-size: 11px; padding: 0; text-decoration: underline; }
-.co-browser-window .error { margin: 10px 12px 0; }
-.co-browser-screen { position: relative; flex: 1; min-height: 0; background: var(--deep); }
+.co-browser-controls { display: flex; align-items: center; gap: 8px; flex: none; }
+.co-browser-full { display: none !important; }
+.co-browser-done { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; padding: 8px 16px; border-bottom: 1px solid var(--line); background: rgba(74,217,158,.08); color: var(--em2); font-size: 12px; animation: co-fade-in .25s ease-out; }
+.co-browser-done > span { flex: 1; min-width: 180px; color: var(--ink2); }
+.co-browser-done .co-text-button { padding: 0; color: var(--em2); font-size: 12px; font-weight: 600; }
+.co-browser-dock .error { margin: 10px 12px 0; }
+.co-browser-screen { position: relative; flex: 1; min-height: 0; margin: 10px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--deep); }
 .co-browser-screen canvas { outline: none; }
 .co-browser-wait { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--mut); font-size: 12.5px; }
-.co-browser-type { display: flex; gap: 8px; padding: 9px 12px 0; }
+.co-browser-type { flex: none; display: flex; gap: 8px; padding: 0 10px 8px; }
 .co-browser-type input { flex: 1; min-width: 0; min-height: 33px; padding: 6px 10px; border: 1px solid var(--line2); border-radius: 8px; background: var(--deep); color: var(--ink); font-size: 16px; }
-.co-browser-note { padding: 8px 12px 11px; color: var(--dim); font-size: 11px; line-height: 1.5; }
+.co-browser-note { flex: none; display: flex; align-items: center; gap: 16px; padding: 0 16px 11px; color: var(--dim); font-size: 11px; line-height: 1.5; }
+.co-browser-note > p { flex: 1; min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.co-browser-links { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 6px 14px; flex: none; }
+.co-browser-links .co-text-button { padding: 0; font-size: 11px; text-decoration: underline; color: var(--mut); }
+.co-browser-auto { display: inline-flex; align-items: center; gap: 6px; color: var(--mut); cursor: pointer; white-space: nowrap; }
+.co-browser-auto input { accent-color: var(--em); }
+
+/* Voice mode beside the browser: the same orb and chat, stacked in the chat column. */
+.co-voice.docked { left: auto; width: var(--co-chat-width, 420px); border-left: 1px solid var(--line); }
+.co-voice.docked .co-voice-head { min-height: 65px; padding: 0 14px; }
+.co-voice.docked .co-voice-body { flex-direction: column; }
+.co-voice.docked .co-voice-stage { padding: 16px; }
+.co-voice.docked .co-voice-stage h1 { font-size: 19px; }
+.co-voice.docked.with-chat .co-voice-stage { flex: 0 1 auto; min-height: 0; max-height: 58%; padding: 12px 15px 10px; justify-content: flex-start; }
+.co-voice.docked.with-chat .co-voice-stage h1 { font-size: 16px; }
+.co-voice.docked.with-chat .co-voice-status { min-height: 0; margin: 4px 0; }
+.co-voice.docked.with-chat .co-voice-status:not(.on) { display: none; }
+.co-voice.docked.with-chat .co-voice-transcript { margin-top: 4px; font-size: 11px; }
+.co-voice.docked.with-chat .co-voice-replay { min-height: 40px; margin-top: 10px; }
+.co-voice.docked .co-voice-hint { display: none; }
+.co-voice.docked .co-voice-chat { flex: 1; min-height: 140px; width: auto; border-left: 0; border-top: 1px solid var(--line); }
+.co-voice.docked .co-voice-chat .co-message-inner { padding: 14px 15px 20px; }
+.co-voice.docked .co-voice-controls { padding: 10px 14px 14px; }
+.co-voice.docked .co-voice-buttons { margin-top: 9px; }
+.co-voice.docked .co-voice-orb { --size: 150px; margin: 18px 0; }
+.co-voice.docked.with-chat .co-voice-orb { --size: 104px; margin: 14px 0 12px; }
+
+@media (min-width: 1500px) {
+  .co-app.with-browser { --co-chat-width: 460px; }
+}
+@media (max-width: 1050px) {
+  .co-app.with-browser { --co-chat-width: 360px; }
+  .co-browser-note > p { display: none; }
+  .co-browser-pause { display: none; }
+}
 @media (max-width: 760px) {
-  .co-browser-overlay { padding: 0; }
-  .co-browser-window { width: 100%; height: 100%; border: 0; border-radius: 0; }
-  .co-browser-head .co-secondary-button { padding: 6px 8px; font-size: 11.5px; }
+  /* Phones: the browser on top, the chat (or voice) under it; one button lets the browser fill the screen. */
+  .co-app.with-browser { --co-browser-height: min(54dvh, calc(100vw * .625 + 68px)); flex-direction: column; }
+  .co-app.with-browser .co-browser-dock { order: -1; flex: none; height: var(--co-browser-height); border-bottom: 1px solid var(--line); }
+  .co-app.with-browser .co-main { flex: 1; min-height: 0; border-left: 0; }
+  .co-app.with-browser .co-chat-header { height: 50px; }
+  .co-app.browser-full .co-browser-dock { flex: 1; height: auto; border-bottom: 0; }
+  .co-app.browser-full .co-main, .co-app.browser-full .co-voice.docked { display: none; }
+  .co-browser-full { display: inline-grid !important; }
+  .co-browser-head { min-height: 50px; gap: 6px; padding: 0 6px 0 12px; }
+  .co-browser-title { flex-direction: column; gap: 1px; }
+  .co-browser-title strong { font-size: 12.5px; }
+  .co-browser-title .co-browser-status { font-size: 10px; }
+  .co-browser-title .co-browser-driver { display: none; }
+  .co-browser-controls .co-primary-button, .co-browser-controls .co-secondary-button { padding: 6px 9px; font-size: 11.5px; }
+  .co-browser-screen { margin: 6px 6px 4px; border-radius: 8px; }
+  .co-browser-type { padding: 0 6px 6px; }
+  .co-browser-note { padding: 0 12px 8px; }
+  .co-browser-links { justify-content: flex-start; }
+  .co-app.with-browser:not(.browser-full) .co-browser-note { display: none; }
+  .co-browser-done { padding: 6px 12px; font-size: 11.5px; }
+  .co-voice.docked { inset: var(--co-browser-height, 54dvh) 0 0 0; width: auto; border-left: 0; border-top: 1px solid var(--line); }
+  .co-voice.docked .co-voice-head { min-height: 46px; }
+  .co-voice.docked .co-voice-head small { display: none; }
+  /* Under the browser there is room for the orb and its controls; the chat is a tap away. */
+  .co-voice.docked .co-voice-chat { display: none; }
+  .co-voice.docked .co-voice-stage, .co-voice.docked.with-chat .co-voice-stage { flex: 1; max-height: none; padding: 8px 15px; justify-content: center; }
+  .co-voice.docked .co-voice-orb, .co-voice.docked.with-chat .co-voice-orb { --size: 92px; margin: 10px 0 8px; }
+  .co-voice.docked .co-voice-stage h1 { font-size: 15px; }
+  .co-voice.docked .co-voice-transcript { margin-top: 4px; font-size: 11px; }
 }
 
 /* Finished action cards fold to one line once newer conversation arrives. */

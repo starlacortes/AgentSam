@@ -1,9 +1,11 @@
 import { useEffect, useRef, type RefObject } from 'react'
 
-export function useDialogA11y(ref: RefObject<HTMLElement | null>, onClose: () => void) {
+/** Focus trap, Escape to close and a locked page for a modal. With `modal` false (a panel beside other work) it does nothing. */
+export function useDialogA11y(ref: RefObject<HTMLElement | null>, onClose: () => void, modal = true) {
   const close = useRef(onClose)
   close.current = onClose
   useEffect(() => {
+    if (!modal) return
     const previous = document.activeElement as HTMLElement | null
     const oldOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
@@ -33,5 +35,5 @@ export function useDialogA11y(ref: RefObject<HTMLElement | null>, onClose: () =>
       document.removeEventListener('keydown', keydown)
       previous?.focus()
     }
-  }, [ref])
+  }, [ref, modal])
 }
