@@ -348,4 +348,24 @@ final class WorkstationTests: XCTestCase {
         XCTAssertFalse(outcome.succeeded)
         XCTAssertTrue(outcome.resultText.contains("denied"))
     }
+
+    // MARK: Mission review
+
+    func testTeamsWithoutAVerifierAreReviewedByTheirCoordinator() {
+        let ada = AgentProfile.rosterTemplates[0]
+        let solo = ConversationEngine.soloTeam(coordinator: { var a = ada; a.role = .coordinator; return a }(), language: "en")
+        XCTAssertNil(solo.verifier)
+        let reviewer = MissionEngine.reviewer(for: solo)
+        XCTAssertEqual(reviewer?.role, .verifier)
+        let starter = Team.starterTeam()
+        XCTAssertEqual(MissionEngine.reviewer(for: starter)?.id, starter.verifier?.id)
+    }
+
+    func testVerifyPromptCarriesHandoffsAndJudgesOutsideGoalsFromEvidence() {
+        let builder = PromptBuilder(store: PromptStore(builtins: PromptStore.builtins))
+        let text = builder.verifyPrompt(deliverables: ["report.md"], handoffs: ["Ada — report.md: opened https://github.com/o/r/pull/7"])
+        XCTAssertTrue(text.contains("pull/7"))
+        XCTAssertTrue(text.contains("clean verdict"))
+        XCTAssertFalse(text.contains("{{"))
+    }
 }

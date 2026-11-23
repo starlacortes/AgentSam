@@ -478,6 +478,18 @@ public actor MissionEngine {
         }
     }
 
+    /// Who reviews a mission: the team's verifier, or else its coordinator in a read-only reviewer
+    /// role. Without this, teams with no verifier (Ada's solo team, skills without a Judge) ended
+    /// every mission UNVERIFIED, even when the work was done.
+    static func reviewer(for team: Team) -> AgentProfile? {
+        if let verifier = team.verifier { return verifier }
+        guard var reviewer = team.coordinator ?? team.agents.first else { return nil }
+        reviewer.role = .verifier
+        reviewer.title = "reviewer"
+        reviewer.systemPrompt = "Check the work strictly and fairly. Do not redo it."
+        return reviewer
+    }
+
     /// A worker's `run_program` fails where the server has no OS sandbox (Railway). When the
     /// workstation is offered, the failure points the worker there instead of ending the task.
     static func workerWorkstationFallback(toolName: String, outcome: ToolOutcome, hasWorkstation: Bool) -> ToolOutcome {
@@ -514,8 +526,9 @@ public actor MissionEngine {
         }
 
         var verdict: VerificationReport.Verdict = .unverified
-        if let verifier = team.verifier, config.verifyWithAgent, !deliverableNames.isEmpty {
-            var messages: [APIMessage] = [.user(promptBuilder.verifyPrompt(deliverables: deliverableNames, mission: mission))]
+        if let verifier = Self.reviewer(for: team), config.verifyWithAgent, !deliverableNames.isEmpty {
+            let handoffs = results.map { "\($0.agent.name) — \($0.task.deliverable): \($0.handoff.prefix(1_500))" }
+            var messages: [APIMessage] = [.user(promptBuilder.verifyPrompt(deliverables: deliverableNames, mission: mission, handoffs: handoffs))]
             var verifierFindings: [VerificationReport.Finding] = []
             do {
                 // The verifier reads the workspace, then submits its review
@@ -588,8 +601,9 @@ public actor MissionEngine {
             verdict = .unverified
         }
 
+        let mechanicalCheck = l10n("engine.checkMechanical", mission: mission)
         let mechanicalWorst = findings
-            .filter { $0.check == "mechanical" }
+            .filter { $0.check == mechanicalCheck }
             .map(\.level)
             .max()
 
