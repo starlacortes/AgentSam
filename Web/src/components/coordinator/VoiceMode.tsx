@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useI18n } from '../../i18n'
 import { api } from '../../api/client'
 import type { VoiceInfo } from '../../api/chatTypes'
@@ -57,6 +57,12 @@ export interface VoicePartial {
   speechPath: string
 }
 
+/** A short pause between Ada going quiet and the microphone opening, so the tail of her voice isn't recorded. */
+export const MIC_AFTER_SPEECH_MS = 200
+
+/** Why the orb is idle, which decides the hint under it. */
+type Rest = 'start' | 'replied' | 'no-speech'
+
 function prefersReducedMotion(): boolean {
   return typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 }
@@ -77,7 +83,9 @@ function useOrbLevel(orb: { current: HTMLElement | null }, read: (() => number) 
       // Rise quickly with a syllable, settle slowly after it.
       smoothed += (level - smoothed) * (level > smoothed ? 0.45 : 0.12)
       element.style.setProperty('--level', smoothed.toFixed(3))
-      element.toggleAttribute('data-metered', level > 0 || smoothed > 0.01)
+      // Once there is a real level to follow, keep following it through quiet moments, rather than
+      // flicking back to the stand-in sway between words.
+      if (level > 0) element.setAttribute('data-metered', '')
       frame = window.requestAnimationFrame(tick)
     }
     frame = window.requestAnimationFrame(tick)
@@ -89,20 +97,34 @@ function useOrbLevel(orb: { current: HTMLElement | null }, read: (() => number) 
   }, [orb, read])
 }
 
-export function VoiceMode({ onSend, onTranscribe, onClose, activity = null }: { onSend: (text: string, waitForCompletion: boolean, onPartial?: (update: VoicePartial) => void) => Promise<VoiceReply | null>; onTranscribe: (audio: Blob) => Promise<string>; onClose: () => void; /** What Ada is doing right now, such as "Searching Gmail"; null while she isn't working. */ activity?: string | null }) {
+/** What the conversation beside the orb can do through voice mode. */
+export interface VoiceChatHandlers {
+  /** Sends a message as if it were spoken, so Ada answers out loud. */
+  send: (text: string) => void
+  /** Puts text in the keyboard box to edit before sending. */
+  edit: (text: string) => void
+}
+
+export function VoiceMode({ onSend, onTranscribe, onClose, activity = null, transcript: conversation = null }: { onSend: (text: string, waitForCompletion: boolean, onPartial?: (update: VoicePartial) => void, includePhotos?: boolean) => Promise<VoiceReply | null>; onTranscribe: (audio: Blob) => Promise<string>; onClose: () => void; /** What Ada is doing right now, such as "Searching Gmail"; null while she isn't working. */ activity?: string | null; /** The chat itself (messages, copy, approval cards), shown beside the orb once there is one. */ transcript?: ((handlers: VoiceChatHandlers) => ReactNode) | null }) {
   const { t, lang } = useI18n()
   const [phase, setPhase] = useState<'idle' | 'listening' | 'thinking' | 'speaking'>('idle')
+  const [rest, setRest] = useState<Rest>('start')
   const [transcript, setTranscript] = useState('')
+  /** What the user last said or typed, shown while Ada answers so they can check she heard them right. */
+  const [said, setSaid] = useState('')
   const [response, setResponse] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [muted, setMuted] = useState(false)
   const [voiceInfo, setVoiceInfo] = useState<VoiceInfo | null>(null)
+  /** True once the server has said which voice services it has (or couldn't be asked), so listening can start. */
+  const [voiceReady, setVoiceReady] = useState(false)
   const [browserRecognition] = useState(() => speechRecognition() !== null)
   const serverListening = Boolean(voiceInfo?.setup.stt && canRecord())
   const supported = serverListening || browserRecognition
   const speechOutput = Boolean(voiceInfo?.setup.tts) || 'speechSynthesis' in window
   const root = useRef<HTMLDivElement>(null)
   const orb = useRef<HTMLButtonElement>(null)
+  const keyboard = useRef<HTMLInputElement>(null)
   const recognition = useRef<Recognition | null>(null)
   const speaker = useRef<Speaker | null>(null)
   const heard = useRef('')
@@ -111,18 +133,33 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null }: { 
   const mute = useRef(false)
   const active = useRef(true)
   const submission = useRef<(text: string) => Promise<void>>(async () => {})
+  /** Closes the microphone. Called whenever Ada starts speaking, so she never hears herself. */
+  const closeMic = useRef<() => void>(() => undefined)
+  const startListening = useRef<() => void>(() => undefined)
+  const autoListened = useRef(false)
+  const micTimer = useRef<number | null>(null)
+  /** Set when they stop Ada mid-reply, so the rest of that reply isn't read out as it arrives. */
+  const hushed = useRef(false)
   /** What Ada said for the last reply, piece by piece, so Replay can read it again the same way. */
   const spoken = useRef<SpokenPiece[]>([])
   const [canReplay, setCanReplay] = useState(false)
   if (!speaker.current) {
     speaker.current = new Speaker(lang === 'es' ? 'es-ES' : 'en-US')
     speaker.current.onChange = (speaking) => {
-      if (active.current) setPhase(speaking ? 'speaking' : sending.current ? 'thinking' : 'idle')
+      if (!active.current) return
+      if (speaking) closeMic.current()
+      setPhase(speaking ? 'speaking' : sending.current ? 'thinking' : 'idle')
     }
   }
-  const recorder = useRecorder((audio, duration) => {
+  const recorder = useRecorder((audio, duration, ended) => {
     if (!active.current || !submitOnEnd.current) return
     submitOnEnd.current = false
+    if (ended === 'no-speech') {
+      // Nothing was said: close the microphone quietly instead of sending silence to be transcribed.
+      setPhase('idle')
+      setRest('no-speech')
+      return
+    }
     if (duration < MIN_RECORDING_MS || audio.size === 0) {
       setPhase('idle')
       return
@@ -150,6 +187,8 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null }: { 
   })
 
   const stopListening = (discard: boolean) => {
+    if (micTimer.current !== null) window.clearTimeout(micTimer.current)
+    micTimer.current = null
     submitOnEnd.current = !discard
     recorder.stop()
     const current = recognition.current
@@ -181,14 +220,23 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null }: { 
   }
   useDialogA11y(root, close)
 
+  // Voice mode opens from a tap, and this runs inside it, so iOS will let Ada's first reply play.
+  useLayoutEffect(() => {
+    speaker.current?.unlock()
+  }, [])
+
   useEffect(() => {
     active.current = true
     void api<VoiceInfo>('voice').then((info) => {
       if (active.current) setVoiceInfo(info)
-    }).catch(() => undefined)
+    }).catch(() => undefined).finally(() => {
+      if (active.current) setVoiceReady(true)
+    })
     return () => {
       active.current = false
       submitOnEnd.current = false
+      if (micTimer.current !== null) window.clearTimeout(micTimer.current)
+      micTimer.current = null
       const current = recognition.current
       recognition.current = null
       if (current) {
@@ -201,11 +249,26 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null }: { 
     }
   }, [])
 
+  // Voice mode is for talking, so it opens listening. This happens once; after that the orb starts it.
+  useEffect(() => {
+    if (!voiceReady || autoListened.current) return
+    autoListened.current = true
+    // Skip it if they already started: tapped the orb, typed, or sent something while it loaded.
+    if (supported && phase === 'idle' && !transcript) startListening.current()
+    // Only voiceReady should trigger this; phase and transcript are read as they are at that moment.
+  }, [voiceReady, supported])
+
   /** Remembers a piece of the reply for Replay, and speaks it unless Ada is muted. */
   const say = (text: string, url?: string) => {
     spoken.current.push({ text, url })
     setCanReplay(true)
-    if (!mute.current) speaker.current?.enqueueText(text, url)
+    if (!mute.current && !hushed.current) speaker.current?.enqueueText(text, url)
+  }
+
+  /** Stops Ada talking. Mid-reply, the rest of that reply stays quiet too (it is still on screen). */
+  const hush = () => {
+    if (sending.current) hushed.current = true
+    stopSpeaking()
   }
 
   /** Reads Ada's last reply again, through the same voice path (server speech fixes numbers and money). */
@@ -256,20 +319,24 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null }: { 
     }
   }
 
-  const submit = async (raw: string) => {
+  /** Sends a message and speaks the answer. Photos waiting in the chat composer go with what they say or type, not with picks from the chat. */
+  const submit = async (raw: string, includePhotos = true) => {
     const text = raw.trim()
     if (!text || sending.current) return
+    autoListened.current = true
     stopListening(true)
     stopSpeaking()
     sending.current = true
+    hushed.current = false
     spoken.current = []
     setCanReplay(false)
+    setSaid(text)
     setTranscript('')
     setResponse('')
     setError(null)
     setPhase('thinking')
     try {
-      const answer = await onSend(text, true, streamSpeech())
+      const answer = await onSend(text, true, streamSpeech(), includePhotos)
       if (!active.current) return
       if (!answer?.text.trim()) {
         setPhase('idle')
@@ -277,6 +344,7 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null }: { 
         return
       }
       setResponse(answer.text)
+      setRest('replied')
       if (!speaker.current?.speaking) setPhase('idle')
     } catch {
       if (active.current) {
@@ -289,15 +357,37 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null }: { 
   }
   submission.current = submit
 
+  /**
+   * The orb: tap to talk, tap again to finish. Tapping while Ada speaks cuts her off and listens;
+   * while she is still writing the reply, it only stops her talking, since a new message can't be
+   * sent until she finishes.
+   */
   const listen = () => {
+    autoListened.current = true
     if (phase === 'listening') {
+      // Still waiting on the microphone (or the pause after Ada): just stand down.
+      if (micTimer.current !== null || recorder.state === 'starting') return stopListening(true)
       if (serverListening) recorder.stop()
       else recognition.current?.stop()
       return
     }
-    if (sending.current) return
+    if (sending.current) return hush()
+    if (micTimer.current !== null) return
+    const wasSpeaking = speaker.current?.speaking ?? false
     stopSpeaking()
     speaker.current?.unlock()
+    if (!wasSpeaking) return openMic()
+    // Give the speakers a moment to go quiet, so the end of Ada's sentence isn't recorded.
+    setPhase('listening')
+    micTimer.current = window.setTimeout(() => {
+      micTimer.current = null
+      if (active.current && !sending.current) openMic()
+    }, MIC_AFTER_SPEECH_MS)
+  }
+
+  const openMic = () => {
+    // Never record over Ada (a reply or a Replay), over a message on its way, or twice at once.
+    if (speaker.current?.speaking || sending.current || recognition.current || recorder.state !== 'idle') return
     setError(null)
     setResponse('')
     setTranscript('')
@@ -323,18 +413,20 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null }: { 
       heard.current = text
       setTranscript(text)
     }
-    next.onerror = () => {
+    next.onerror = (event) => {
       submitOnEnd.current = false
-      if (active.current) {
-        setPhase('idle')
-        setError(t('I couldn’t hear that. Check microphone access, or type your message instead.'))
-      }
+      if (!active.current) return
+      setPhase('idle')
+      // Nobody spoke, or listening was cut off on purpose: just close the microphone.
+      if (event.error === 'no-speech' || event.error === 'aborted') setRest('no-speech')
+      else setError(t('I couldn’t hear that. Check microphone access, or type your message instead.'))
     }
     next.onend = () => {
       recognition.current = null
       if (!active.current) return
       setPhase('idle')
       if (submitOnEnd.current && heard.current.trim()) void submission.current(heard.current)
+      else if (submitOnEnd.current) setRest('no-speech')
       submitOnEnd.current = false
     }
     recognition.current = next
@@ -345,6 +437,30 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null }: { 
       recognition.current = null
       setError(t('Microphone access isn’t available. You can type your message instead.'))
     }
+  }
+
+  startListening.current = openMic
+  closeMic.current = () => {
+    if (recognition.current || recorder.state !== 'idle' || micTimer.current !== null) stopListening(true)
+  }
+
+  /** Typing means they'd rather not talk: close the microphone, keeping what is in the box. */
+  const typing = () => {
+    autoListened.current = true
+    if (phase !== 'listening') return
+    const draft = transcript
+    stopListening(true)
+    setTranscript(draft)
+  }
+
+  const chatHandlers: VoiceChatHandlers = {
+    send: (text) => void submit(text, false),
+    edit: (text) => {
+      autoListened.current = true
+      stopListening(true)
+      setTranscript(text)
+      keyboard.current?.focus()
+    },
   }
 
   const sendForm = (event: FormEvent) => {
@@ -365,23 +481,37 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null }: { 
   const orbState = error && phase === 'idle' ? 'error' : phase
   // The status box shows only while Ada is working: the server's current step, or a plain fallback.
   const working = activity?.trim() || (phase === 'thinking' ? t('Thinking') : '')
-  const label = phase === 'listening' ? t('Listening…') : phase === 'thinking' ? t('Ada is working…') : phase === 'speaking' ? t('Ada is speaking') : t('Talk with Ada')
-  return <div className="co-voice" ref={root} role="dialog" aria-modal="true" aria-labelledby="co-voice-title">
+  const label = phase === 'listening' ? t('Listening…') : phase === 'thinking' ? t('Thinking…') : phase === 'speaking' ? t('Speaking') : orbState === 'error' ? t('Something went wrong') : t('Ready')
+  const heading = phase === 'listening' ? t('I’m listening') : phase === 'thinking' ? t('Finding your answer') : phase === 'speaking' ? t('Here’s what I found') : rest === 'replied' ? t('Anything else?') : t('What can I help with?')
+  const hint = phase === 'listening'
+    ? t('Speak naturally. I’ll send your message when you finish.')
+    : phase === 'idle'
+      ? !supported ? t('Use the keyboard below.') : rest === 'replied' ? t('Tap the orb to reply.') : rest === 'no-speech' ? t('I stopped listening. Tap the orb when you’re ready.') : t('Tap the orb to talk, or use the keyboard below.')
+      : ''
+  const orbLabel = phase === 'listening' ? t('Finish speaking') : phase === 'speaking' ? sending.current ? t('Stop speaking') : t('Stop Ada and talk') : t('Start listening')
+  const showReplay = canReplay && speechOutput && phase !== 'thinking'
+  const chat = conversation?.(chatHandlers) ?? null
+  return <div className={`co-voice ${chat ? 'with-chat' : ''}`} ref={root} role="dialog" aria-modal="true" aria-labelledby="co-voice-title">
     <header className="co-voice-head"><span className="co-brand-mark">A</span><div><b id="co-voice-title">{t('Voice with Ada')}</b><small>{t('One conversation, brought to life')}</small></div><button className="co-icon-button" aria-label={t('Return to chat')} onClick={close}><Icon name="close" /></button></header>
+    <div className="co-voice-body">
     <main className="co-voice-stage">
-      <span className="co-kicker">{label}</span>
-      <button ref={orb} className={`co-voice-orb ${orbState}`} onClick={listen} disabled={phase === 'thinking' || phase === 'speaking' || recorder.state === 'starting'} aria-label={phase === 'listening' ? t('Finish speaking') : t('Start listening')}><b className="co-orb-glow" aria-hidden="true" /><b className="co-orb-core" aria-hidden="true" /><span>A</span><i /><i /><i /><b className="co-orb-arc" aria-hidden="true" /><b className="co-orb-ripple" aria-hidden="true" /><b className="co-orb-ripple late" aria-hidden="true" /></button>
+      <span className={`co-voice-state ${orbState}`} aria-live="polite"><i aria-hidden="true" />{label}</span>
+      <button ref={orb} className={`co-voice-orb ${orbState}`} onClick={listen} disabled={phase === 'thinking' || recorder.state === 'starting'} aria-label={orbLabel}><b className="co-orb-glow" aria-hidden="true" /><b className="co-orb-core" aria-hidden="true" /><span>A</span><i /><i /><i /><b className="co-orb-bars" aria-hidden="true"><i /><i /><i /><i /><i /></b><b className="co-orb-arc" aria-hidden="true" /><b className="co-orb-ripple" aria-hidden="true" /><b className="co-orb-ripple late" aria-hidden="true" /></button>
       <div className={`co-voice-status ${working ? 'on' : ''}`} role="status" aria-live="polite">{working ? <><i aria-hidden="true" /><span key={working}>{working}</span></> : null}</div>
-      <h1>{phase === 'listening' ? t('I’m listening') : phase === 'thinking' ? t('Finding your answer') : phase === 'speaking' ? t('Here’s what I found') : t('What can I help with?')}</h1>
-      <p className="co-voice-transcript">{transcript || (phase === 'listening' ? t('Speak naturally. I’ll send your message when you finish.') : t('Start listening, or use the keyboard below.'))}</p>
-      {response ? <div className="co-voice-response"><b>Ada</b><p>{response}</p></div> : null}
+      <h1>{heading}</h1>
+      {said && !chat && phase !== 'listening' ? <p className="co-voice-said"><b>{t('You')}</b>{said}</p> : null}
+      {(phase === 'listening' && transcript) || hint ? <p className="co-voice-transcript">{phase === 'listening' && transcript ? transcript : hint}</p> : null}
+      {showReplay ? <button className={`co-voice-replay ${phase === 'speaking' ? 'playing' : ''}`} onClick={phase === 'speaking' ? hush : replay} aria-label={phase === 'speaking' ? t('Stop speaking') : undefined}><Icon name={phase === 'speaking' ? 'stop' : 'play'} size={phase === 'speaking' ? 13 : 15} />{phase === 'speaking' ? t('Stop') : t('Replay answer')}</button> : null}
+      {response && !chat ? <div className="co-voice-response"><b>Ada</b><p>{response}</p></div> : null}
       {error ? <p className="co-voice-error" role="alert">{error}</p> : null}
       {!supported ? <p className="co-voice-hint"><Icon name="keyboard" size={15} />{t('Voice recognition isn’t supported here. Type below for the same full-screen conversation.')}</p> : null}
       {!speechOutput ? <p className="co-voice-hint">{t('Spoken replies aren’t supported here. Ada’s responses will appear as text.')}</p> : null}
     </main>
+    {chat ? <aside className="co-voice-chat" aria-label={t('Conversation')}>{chat}</aside> : null}
+    </div>
     <footer className="co-voice-controls">
-      <form onSubmit={sendForm}><Icon name="keyboard" size={17} /><input autoComplete="off" value={transcript} onChange={(event) => setTranscript(event.target.value)} aria-label={t('Message Ada with your keyboard')} placeholder={t('Type a message to Ada…')} maxLength={20000} disabled={phase === 'thinking'} /><button className="co-icon-button" type="submit" aria-label={t('Send message')} disabled={phase === 'thinking' || !transcript.trim()}><Icon name="arrow" size={17} /></button></form>
-      <div className="co-voice-buttons"><button className="co-secondary-button" disabled={!speechOutput} aria-pressed={muted} onClick={toggleMute}><Icon name="mic" size={15} />{muted ? t('Unmute Ada') : t('Mute Ada')}</button>{canReplay && phase === 'idle' && speechOutput ? <button className="co-secondary-button" onClick={replay} aria-label={t('Replay Ada’s answer')}><Icon name="retry" size={14} />{t('Replay')}</button> : null}{phase === 'listening' || phase === 'speaking' ? <button className="co-secondary-button" onClick={phase === 'listening' ? listen : stopSpeaking}><Icon name="stop" size={13} />{phase === 'listening' ? t('Finish speaking') : t('Stop speaking')}</button> : null}<button className="co-secondary-button" onClick={close}>{t('Return to chat')}</button></div>
+      <form onSubmit={sendForm}><Icon name="keyboard" size={17} /><input ref={keyboard} autoComplete="off" value={transcript} onFocus={typing} onChange={(event) => { typing(); setTranscript(event.target.value) }} aria-label={t('Message Ada with your keyboard')} placeholder={t('Type a message to Ada…')} maxLength={20000} /><button className="co-icon-button" type="submit" aria-label={t('Send message')} disabled={phase === 'thinking' || !transcript.trim()}><Icon name="arrow" size={17} /></button></form>
+      <div className="co-voice-buttons"><button className="co-secondary-button" disabled={!speechOutput} aria-pressed={muted} onClick={toggleMute}><Icon name="mic" size={15} />{muted ? t('Unmute Ada') : t('Mute Ada')}</button>{phase === 'listening' ? <button className="co-secondary-button" onClick={listen}><Icon name="stop" size={13} />{t('Finish speaking')}</button> : null}<button className="co-secondary-button" onClick={close}>{t('Return to chat')}</button></div>
     </footer>
   </div>
 }

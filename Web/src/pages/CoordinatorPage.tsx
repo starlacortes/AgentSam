@@ -5,7 +5,7 @@ import type { AgentActionRequest, ArchiveSettings, ConnectorStatus, Conversation
 import { useAuth } from '../auth/AuthContext'
 import { AgentWorkroom } from '../components/coordinator/AgentWorkroom'
 import { CoordinatorSidebar } from '../components/coordinator/CoordinatorSidebar'
-import { ConversationMessages, type MessageHandlers } from '../components/coordinator/ConversationMessages'
+import { ConversationMessages, stopReadAloud, type MessageHandlers } from '../components/coordinator/ConversationMessages'
 import { SidePanel, type CanvasState } from '../components/coordinator/SidePanel'
 import { ScheduleModal } from '../components/coordinator/ScheduleModal'
 import { PromptCardsModal } from '../components/coordinator/PromptCardsModal'
@@ -331,7 +331,7 @@ export function CoordinatorPage() {
   const sendMessage = async (raw: string, waitForCompletion = false, onPartial?: (update: VoicePartial) => void, includePhotos = false): Promise<VoiceReply | null> => {
     const text = raw.trim()
     // The composer and voice mode send the photos waiting in the composer; quick replies and retries don't.
-    const attached = includePhotos || waitForCompletion ? photosRef.current : []
+    const attached = includePhotos ? photosRef.current : []
     if ((!text && !attached.length) || sendLock.current || (conversation && shouldPoll(conversation))) return null
     sendLock.current = true
     setSending(true)
@@ -623,7 +623,7 @@ export function CoordinatorPage() {
           {conversation?.archivedAt ? <button className="co-archived-pill" title={t('Restore this chat to the sidebar')} onClick={() => void api<Conversation>(`conversations/${conversation.id}/archive`, { method: 'DELETE' }).then(restored).catch((err) => setError(errorMessage(err)))}><Icon name="archive" size={13} /><span>{t('Archived')}</span><b>{t('Restore')}</b></button> : null}
           {conversation?.schedule || conversation?.triggers?.length ? <button className="co-icon-button co-schedule-toggle active" aria-label={t('Automation on — open settings')} aria-pressed title={t('Automation')} onClick={() => setScheduleOpen(true)}><Icon name="refresh" size={16} /></button> : null}
           <button className={`co-icon-button co-canvas-toggle ${canvas ? 'active' : ''}`} aria-label={canvas ? t('Hide preview and console') : t('Show preview and console')} aria-pressed={Boolean(canvas)} title={t('Preview & console')} onClick={() => canvas ? setCanvas(null) : openCanvas({ tab: missionIDs.length ? 'console' : 'preview' })}><Icon name="panel" size={16} /></button>
-          <button className="co-voice-button" onClick={() => setVoiceOpen(true)} disabled={sending}><Icon name="mic" size={15} /><span>{t('Voice')}</span></button>
+          <button className="co-voice-button" onClick={() => { stopReadAloud(); setVoiceOpen(true) }} disabled={sending}><Icon name="mic" size={15} /><span>{t('Voice')}</span></button>
           <PopMenu label={t('More chat options')} icon="more" className="co-chat-menu" items={chatMenu} />
         </div>
       </header>
@@ -660,6 +660,15 @@ export function CoordinatorPage() {
     {promptCardsOpen ? <PromptCardsModal cards={promptCards} draft={promptCardsOpen.draft} onChange={setPromptCards} onUse={(text) => { setPromptCardsOpen(null); prompt(text) }} onClose={() => setPromptCardsOpen(null)} /> : null}
     {scheduleOpen && conversation ? <ScheduleModal conversation={conversation} gmailConnected={Boolean(gmail?.configured)} onUpdated={updateProposal} onClose={() => setScheduleOpen(false)} /> : null}
     {guide && (!guide.completed || searchParams.get('guide') === '1') ? <Guide onFinish={finishGuide} /> : null}
-    {voiceOpen ? <VoiceMode onSend={sendMessage} onTranscribe={transcribeVoice} onClose={() => setVoiceOpen(false)} activity={liveActivity} /> : null}
+    {voiceOpen ? <VoiceMode onSend={sendMessage} onTranscribe={transcribeVoice} onClose={() => setVoiceOpen(false)} activity={liveActivity} transcript={conversation && (conversation.messages.length || actions.length) ? (voice) => <ConversationMessages conversation={conversation} busy={sending || running} actions={actions} onActions={setActions} readAloud={false} handlers={{
+      ...handlers,
+      // In voice mode, replies picked from the chat are sent through voice so Ada answers out loud.
+      onRetry: voice.send,
+      onQuickReply: voice.send,
+      onStarter: voice.send,
+      onEdit: voice.edit,
+      onOpenCanvas: (state) => { setVoiceOpen(false); openCanvas(state) },
+      onPromptCards: undefined,
+    }} /> : null} /> : null}
   </div>
 }
