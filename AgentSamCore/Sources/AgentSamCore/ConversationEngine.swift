@@ -17,6 +17,9 @@ public actor ConversationEngine {
     private let promptStore: PromptStore
     private let access: ConversationAccess?
     private let skills: SkillStore
+    /// Whether a routing call decides DIRECT, SOLO, USE_SKILL or CLARIFY before Ada answers. Off: Ada
+    /// answers in one loop and hands work on with `delegate` and `start_task` when it needs more.
+    private let routing: Bool
     /// Output cap for spoken replies written without tools (team summaries, the last answer after the tool
     /// budget). A backstop only: the voice style asks for about 60 spoken words plus optional on-screen detail.
     /// Turns that offer tools are not capped, because a capped tool call (a file write) would be cut off.
@@ -26,7 +29,7 @@ public actor ConversationEngine {
     private var running: [UUID: Task<Void, Never>] = [:]
     private var memoryJobs: [UUID: Task<Void, Never>] = [:]
 
-    public init(store: MissionStore, conversations: ConversationStore, memory: WorkspaceMemoryStore, workspace: ChatWorkspaceStore? = nil, keyRing: KeyRing, client: LLMClient = LLMClient(), connectors: ConnectorHub? = nil, missions: MissionEngine, promptStore: PromptStore? = nil, access: ConversationAccess? = nil, knowledge: WorkspaceKnowledgeStore? = nil, photos: ConversationPhotoStore? = nil, skills: SkillStore? = nil) {
+    public init(store: MissionStore, conversations: ConversationStore, memory: WorkspaceMemoryStore, workspace: ChatWorkspaceStore? = nil, keyRing: KeyRing, client: LLMClient = LLMClient(), connectors: ConnectorHub? = nil, missions: MissionEngine, promptStore: PromptStore? = nil, access: ConversationAccess? = nil, knowledge: WorkspaceKnowledgeStore? = nil, photos: ConversationPhotoStore? = nil, skills: SkillStore? = nil, routing: Bool = true) {
         self.store = store
         self.conversations = conversations
         self.memory = memory
@@ -40,11 +43,12 @@ public actor ConversationEngine {
         self.promptStore = promptStore ?? PromptStore(builtins: PromptStore.builtins)
         self.access = access
         self.skills = skills ?? SkillStore(root: store.root)
+        self.routing = routing
         self.completionOverride = nil
         self.missionOverride = nil
     }
 
-    init(store: MissionStore, conversations: ConversationStore, memory: WorkspaceMemoryStore, workspace: ChatWorkspaceStore? = nil, keyRing: KeyRing, connectors: ConnectorHub? = nil, missions: MissionEngine, promptStore: PromptStore? = nil, access: ConversationAccess? = nil, knowledge: WorkspaceKnowledgeStore? = nil, photos: ConversationPhotoStore? = nil, skills: SkillStore? = nil, completion: @escaping Completion, missionRunner: MissionRunner? = nil) {
+    init(store: MissionStore, conversations: ConversationStore, memory: WorkspaceMemoryStore, workspace: ChatWorkspaceStore? = nil, keyRing: KeyRing, connectors: ConnectorHub? = nil, missions: MissionEngine, promptStore: PromptStore? = nil, access: ConversationAccess? = nil, knowledge: WorkspaceKnowledgeStore? = nil, photos: ConversationPhotoStore? = nil, skills: SkillStore? = nil, routing: Bool = true, completion: @escaping Completion, missionRunner: MissionRunner? = nil) {
         self.store = store
         self.conversations = conversations
         self.memory = memory
@@ -58,6 +62,7 @@ public actor ConversationEngine {
         self.promptStore = promptStore ?? PromptStore(builtins: PromptStore.builtins)
         self.access = access
         self.skills = skills ?? SkillStore(root: store.root)
+        self.routing = routing
         self.completionOverride = completion
         self.missionOverride = missionRunner
     }
@@ -74,7 +79,9 @@ public actor ConversationEngine {
         if let timeZone { _ = try? await conversations.setTimeZone(id: conversationID, ownerID: ownerID, timeZone: timeZone) }
         let lang = language.lowercased().hasPrefix("es") ? "es" : "en"
         let userMessage = ConversationMessage(role: .user, text: text, scheduled: scheduled || trigger != nil, photos: photos, spoken: spoken, trigger: trigger)
-        let choosing = lang == "es" ? "Eligiendo la mejor forma de ayudar" : "Choosing how to help"
+        let choosing = routing
+            ? (lang == "es" ? "Eligiendo la mejor forma de ayudar" : "Choosing how to help")
+            : (lang == "es" ? "Pensándolo" : "Thinking it through")
         let pending = ConversationMessage(role: .assistant, text: "", status: .running, activity: [AgentActivity(agentID: UUID(), agentName: "Ada", summary: choosing, state: "working")], steps: [MessageStep(label: choosing)])
         _ = try await conversations.append(id: conversationID, ownerID: ownerID, message: userMessage)
         let result = try await conversations.append(id: conversationID, ownerID: ownerID, message: pending)
@@ -191,10 +198,10 @@ public actor ConversationEngine {
             let userText = Self.textWithPhotoNote(userMessage)
             let photoInput = canSee ? photoInputs(conversationID: conversationID, current: userMessage, history: history) : PhotoInputs()
             let directText = Self.directText(for: userMessage, canSee: canSee, model: replyCoordinator.model, language: language)
-            // Voice fast path: a quick spoken question goes straight to Ada's direct reply, skipping the
-            // routing call that otherwise runs before she writes a word.
+            // Without routing, and on the voice fast path (a quick spoken question), Ada answers directly:
+            // one loop, where she can still delegate to helpers or start a task.
             var decision: ConversationDecision?
-            if Self.isQuickSpokenQuestion(userMessage, history: history) {
+            if !routing || Self.isQuickSpokenQuestion(userMessage, history: history) {
                 decision = ConversationDecision(action: .direct)
             } else {
                 decision = try await route(userText: userText, coordinator: coordinator, skills: catalog, context: context, history: history, language: language)

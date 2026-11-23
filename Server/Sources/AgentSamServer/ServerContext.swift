@@ -194,7 +194,10 @@ struct ServerContext: Sendable {
             promptStore: prompts,
             access: access,
             knowledge: knowledge,
-            skills: skills
+            skills: skills,
+            // The routing call is off by default: Ada answers in one loop and delegates when she needs to.
+            // AGENTSAM_ROUTING=1 brings it back for one release, in case a model under-delegates.
+            routing: ["1", "true", "on", "yes"].contains((Environment.get("AGENTSAM_ROUTING") ?? "").lowercased())
         )
 
         var token = (Environment.get("AGENTSAM_TOKEN") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
