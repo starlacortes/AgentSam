@@ -130,7 +130,7 @@ final class SkillsTests: XCTestCase {
         XCTAssertFalse(enabledIDs.contains("weekly-ads-report"))
     }
 
-    func testUseSkillRunsTheSkillAsAMissionWithoutAnyTeamSetup() async throws {
+    func testUseSkillRunsTheSkillAsAHelperTaskWithoutAnyTeam() async throws {
         let store = MissionStore(root: directory)
         await store.saveProviders([provider])
         let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
@@ -140,28 +140,19 @@ final class SkillsTests: XCTestCase {
         let research = try XCTUnwrap(Skill.builtIns.first { $0.id == "research" })
         actor Seen {
             var routing = ""
-            var team: Team?
+            var plan = ""
             func set(routing: String) { self.routing = routing }
-            func set(team: Team) { self.team = team }
+            func set(plan: String) { self.plan = plan }
         }
         let seen = Seen()
-        let root = directory!
         let missions = MissionEngine(store: store, keyRing: keys)
         let engine = ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, missions: missions, completion: { _, _, _, system, _, _ in
             if system.contains("Decide how to handle") {
                 await seen.set(routing: system)
                 return LLMReply(message: .assistant(#"{"action":"USE_SKILL","skillIDs":["research"],"rationale":"Looking into it"}"#), inputTokens: 0, outputTokens: 0, model: "stub")
             }
+            if system.contains("planning a task that your helpers") { await seen.set(plan: system) }
             return LLMReply(message: .assistant("Here is what I found."), inputTokens: 0, outputTokens: 0, model: "stub")
-        }, missionRunner: { team, objective, _, _, _ in
-            await seen.set(team: team)
-            let store = MissionStore(root: root)
-            var mission = await store.createMission(team: team, objective: objective)
-            mission.status = .completed
-            mission.phase = .done
-            mission.finalReport = "Findings"
-            await store.saveMission(mission)
-            return mission
         })
         let conversation = try await conversations.create(ownerID: "owner")
         _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "What's new in solid-state batteries?", launchedBy: "Owner", language: "en")
@@ -172,19 +163,23 @@ final class SkillsTests: XCTestCase {
         }
         let last = try XCTUnwrap(result?.messages.last)
         XCTAssertEqual(last.text, "Here is what I found.")
-        XCTAssertEqual(last.teamIDs, [research.teamID])
         XCTAssertEqual(last.missionIDs.count, 1)
+        XCTAssertTrue(last.teamIDs.isEmpty)
         let routing = await seen.routing
         XCTAssertTrue(routing.contains("- research (Research): use when the user wants facts found"))
         XCTAssertFalse(routing.contains("SKILL: Research"))
         XCTAssertTrue(routing.contains("USE_SKILL"))
         XCTAssertFalse(routing.contains("PROPOSE_TEAM"))
-        let team = await seen.team
-        XCTAssertEqual(team?.id, research.teamID)
-        XCTAssertTrue(team?.coordinator?.systemPrompt.contains("SKILL: Research") == true)
-        // The skill's team is kept on disk so mission history can show who worked on it.
+        // The skill's steps guide the plan, and the run is a helper task, not a team mission.
+        let plan = await seen.plan
+        XCTAssertTrue(plan.contains(research.name))
+        let loaded = await store.mission(id: last.missionIDs[0])
+        let mission = try XCTUnwrap(loaded)
+        XCTAssertEqual(mission.teamID, TaskTools.teamID)
+        XCTAssertEqual(mission.teamName, research.name)
+        XCTAssertEqual(mission.status, .completed)
         let stored = await store.team(id: research.teamID)
-        XCTAssertNotNil(stored)
+        XCTAssertNil(stored)
         await engine.shutdown()
     }
 }
