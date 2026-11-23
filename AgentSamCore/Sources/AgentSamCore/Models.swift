@@ -324,6 +324,9 @@ public struct Mission: Codable, Identifiable, Hashable, Sendable {
     public var totalOutputTokens: Int
     /// Who started the mission (a user's name on the web app, or "Server token"). Nil for older missions.
     public var launchedBy: String?
+    /// The account that owns the mission (the conversation owner's id). Nil for missions from before
+    /// owners were recorded; those are matched to a chat that links them, or kept for admins.
+    public var ownerID: String?
     /// Prompt template versions in use when the mission launched, keyed by
     /// template id. Nil for missions that predate the prompt store.
     public var promptVersions: [String: Int]?
@@ -356,6 +359,7 @@ public struct Mission: Codable, Identifiable, Hashable, Sendable {
         self.totalInputTokens = 0
         self.totalOutputTokens = 0
         self.launchedBy = nil
+        self.ownerID = nil
         self.promptVersions = nil
     }
 }

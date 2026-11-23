@@ -1100,6 +1100,7 @@ public actor ConversationEngine {
         let es = language == "es"
         var mission = Mission(teamID: TaskTools.teamID, teamName: skill?.name ?? (es ? "Tarea de Ada" : "Ada's task"), objective: objective, sourceName: sourceName, workflowID: workflowID, inputContext: inputContext ?? context.missionHandoff, status: .running, phase: .planning, outputLanguage: language)
         mission.launchedBy = ref.launchedBy
+        mission.ownerID = ref.ownerID
         mission.skillID = skill?.id
         mission.startedAt = Date()
         await store.saveMission(mission)

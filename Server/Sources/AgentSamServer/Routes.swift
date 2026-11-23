@@ -101,9 +101,11 @@ func routes(_ app: Application, ctx: ServerContext) {
     voiceRoutes(api, admin: adminAPI, ctx: ctx)
 
     api.get("info") { req async throws -> Response in
+        let principal = try req.requirePrincipal()
         let teams = await ctx.store.loadTeams()
-        let missions = await ctx.store.listMissions(limit: 500)
-        let running = await ctx.conversationEngine.runningTaskIDs
+        let missions = await ctx.visibleMissions(to: principal, limit: 500)
+        let visible = Set(missions.map(\.id))
+        let running = await ctx.conversationEngine.runningTaskIDs.filter { visible.contains($0) }
         let info = ServerInfo(
             name: "AgentSam Server",
             teams: teams.count,
@@ -433,7 +435,7 @@ func routes(_ app: Application, ctx: ServerContext) {
     api.get("missions") { req async throws -> Response in
         let requested = req.query[Int.self, at: "limit"] ?? 100
         let limit = min(500, max(1, requested))
-        let missions = await ctx.store.listMissions(limit: limit)
+        let missions = await ctx.visibleMissions(to: try req.requirePrincipal(), limit: limit)
         return try req.json(missions.map(\.publicRepresentation))
     }
 
@@ -442,7 +444,7 @@ func routes(_ app: Application, ctx: ServerContext) {
         guard let idString = req.parameters.get("id"), let id = UUID(uuidString: idString) else {
             throw Abort(.badRequest, reason: SrvL10n.t("srv.badMissionID", lang: lang))
         }
-        guard let mission = await ctx.store.mission(id: id) else {
+        guard let mission = await ctx.mission(id: id, for: try req.requirePrincipal()) else {
             throw Abort(.notFound, reason: SrvL10n.t("srv.missionNotFound", lang: lang))
         }
         let events = await ctx.store.events(missionID: id, afterSeq: 0)
@@ -456,6 +458,9 @@ func routes(_ app: Application, ctx: ServerContext) {
         guard let idString = req.parameters.get("id"), let id = UUID(uuidString: idString) else {
             throw Abort(.badRequest, reason: SrvL10n.t("srv.badMissionID", lang: lang))
         }
+        guard await ctx.mission(id: id, for: try req.requirePrincipal()) != nil else {
+            throw Abort(.notFound, reason: SrvL10n.t("srv.missionNotFound", lang: lang))
+        }
         let afterSeq = req.query[Int.self, at: "afterSeq"] ?? 0
         let events = await ctx.store.events(missionID: id, afterSeq: afterSeq)
         return try req.json(events)
@@ -468,6 +473,9 @@ func routes(_ app: Application, ctx: ServerContext) {
         }
         guard let name = req.parameters.get("name") else {
             throw Abort(.badRequest, reason: SrvL10n.t("srv.missingDeliverable", lang: lang))
+        }
+        guard await ctx.mission(id: id, for: try req.requirePrincipal()) != nil else {
+            throw Abort(.notFound, reason: SrvL10n.t("srv.deliverableNotFound", lang: lang))
         }
         guard let content = await ctx.store.deliverable(missionID: id, name: name) else {
             throw Abort(.notFound, reason: SrvL10n.t("srv.deliverableNotFound", lang: lang))
@@ -484,6 +492,9 @@ func routes(_ app: Application, ctx: ServerContext) {
         guard let idString = req.parameters.get("id"), let id = UUID(uuidString: idString) else {
             throw Abort(.badRequest, reason: SrvL10n.t("srv.badMissionID", lang: lang))
         }
+        guard await ctx.mission(id: id, for: try req.requirePrincipal()) != nil else {
+            throw Abort(.notFound, reason: SrvL10n.t("srv.missionNotFound", lang: lang))
+        }
         await ctx.conversationEngine.stopTask(missionID: id, language: lang)
         return try req.json(AckResult(ok: true, detail: SrvL10n.t("srv.stopRequested", lang: lang)))
     }
@@ -492,6 +503,9 @@ func routes(_ app: Application, ctx: ServerContext) {
         let lang = SrvL10n.lang(for: req)
         guard let idString = req.parameters.get("id"), let id = UUID(uuidString: idString) else {
             throw Abort(.badRequest, reason: SrvL10n.t("srv.badMissionID", lang: lang))
+        }
+        guard await ctx.mission(id: id, for: try req.requirePrincipal()) != nil else {
+            throw Abort(.notFound, reason: SrvL10n.t("srv.missionNotFound", lang: lang))
         }
         await ctx.conversationEngine.stopTask(missionID: id, language: lang)
         try? await Task.sleep(nanoseconds: 500_000_000)
@@ -523,14 +537,18 @@ func routes(_ app: Application, ctx: ServerContext) {
 
     api.webSocket("missions", ":id", "live") { req, ws in
         let missionID: UUID
-        if let idString = req.parameters.get("id"), let id = UUID(uuidString: idString) {
-            missionID = id
-        } else {
+        guard let idString = req.parameters.get("id"), let id = UUID(uuidString: idString), let principal = req.principal else {
             Task { try? await ws.close(code: .goingAway) }
             return
         }
+        missionID = id
         var liveTask: Task<Void, Never>!
         liveTask = Task {
+            // Only the account that owns the mission may watch it; anyone else is closed out unheard.
+            guard await ctx.mission(id: missionID, for: principal) != nil else {
+                try? await ws.close(code: .policyViolation)
+                return
+            }
             let stream = await ctx.store.subscribe(missionID: missionID)
             for await event in stream {
                 if let data = try? Request.jsonEncoder.encode(event),

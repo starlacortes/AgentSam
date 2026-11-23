@@ -243,6 +243,32 @@ struct ServerContext: Sendable {
         await knowledgeScheduler.shutdown()
     }
 
+    /// Whether this caller owns the mission. A mission records its owner when it starts. One saved
+    /// before that is matched to the chat that links it; one no chat links belongs to admins only.
+    func owns(_ mission: Mission, _ principal: Principal) async -> Bool {
+        let owner = principal.conversationOwnerID
+        if let recorded = mission.ownerID { return recorded == owner }
+        if let linked = await conversations.ownerOfMission(mission.id) { return linked == owner }
+        return principal.isAdmin
+    }
+
+    /// A mission, only for the account that owns it. Anyone else gets nil, as if it did not exist.
+    func mission(id: UUID, for principal: Principal) async -> Mission? {
+        guard let mission = await store.mission(id: id), await owns(mission, principal) else { return nil }
+        return mission
+    }
+
+    /// The caller's own missions, newest first.
+    func visibleMissions(to principal: Principal, limit: Int) async -> [Mission] {
+        var visible: [Mission] = []
+        for mission in await store.listMissions(limit: 100_000) {
+            guard await owns(mission, principal) else { continue }
+            visible.append(mission)
+            if visible.count >= limit { break }
+        }
+        return visible
+    }
+
     func saveTeam(_ team: Team) async {
         var team = team
         team.updatedAt = Date()

@@ -57,6 +57,13 @@ public actor ConversationStore {
         }
     }
 
+    /// The owner of the chat that holds this mission, for missions saved before they recorded an owner.
+    public func ownerOfMission(_ missionID: UUID) -> String? {
+        ((try? all()) ?? []).first { conversation in
+            conversation.messages.contains { $0.missionIDs.contains(missionID) }
+        }?.ownerID
+    }
+
     /// The owner's chats, newest first. Archived chats are listed only when `archived` is true,
     /// and then sorted by when they were archived.
     public func list(ownerID: String, archived: Bool = false) throws -> [ConversationSummary] {
