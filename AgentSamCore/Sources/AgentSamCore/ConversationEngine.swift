@@ -495,7 +495,9 @@ public actor ConversationEngine {
         let mcpTools = await access?.mcp?.toolDefs() ?? []
         // Handing work to a task needs a user-owned reply to show its progress in.
         let taskTools = ref == nil ? [] : TaskTools.definitions(catalog: SkillTeams.catalog(await skills.enabled()))
-        let offeredTools = OfferedTools.direct(connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedAccess: access != nil, hasWorkstation: workstation != nil, mcpTools: mcpTools, taskTools: taskTools)
+        // Helpers run inside this reply, so they need a user-owned reply to show their work in too.
+        let delegateTools = ref == nil ? [] : HelperTools.definitions(hasWorkstation: workstation != nil, hasMCP: !mcpTools.isEmpty)
+        let offeredTools = OfferedTools.direct(connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedAccess: access != nil, hasWorkstation: workstation != nil, mcpTools: mcpTools, taskTools: taskTools, delegateTools: delegateTools)
         let tools = offeredTools.definitions
         let offered = offeredTools.names
         let system = ConversationPrompts.directResponseSystem(coordinator: coordinator, context: context, connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedTools: access != nil, store: promptStore, language: language)
@@ -505,10 +507,7 @@ public actor ConversationEngine {
         let allowance = ConversationCompactor.estimateTokens(context.turnPreamble)
         var messages = Self.chatTurns(from: history.dropLast(), images: photoInput.history)
         messages.append(.user(text, images: photoInput.current))
-        var runs = 0
-        var tasks = 0
-        /// Set once this reply runs a self-review: it may then only suggest lessons and skills, not save them.
-        var reviewed = false
+        let state = ToolRunState()
         let summaries = ConversationCompactor.SummaryState()
         let replyCap = await replySpendCap(ownerID: ref?.ownerID)
         var overCap = false
@@ -523,152 +522,9 @@ public actor ConversationEngine {
             if stream != nil { await publishPartial("", in: ref) }
             for call in calls {
                 await beginStep(ConversationPrompts.toolStepLabel(call.function.name, language: language), in: ref)
-                let outcome: ToolOutcome
-                switch offeredTools.family(of: call.function.name) {
-                case nil, .worker:
-                    outcome = .failure(Self.unknownToolMessage(call.function.name, offered: offered))
-                case .chat:
-                    if call.function.name == "run_program" {
-                        runs += 1
-                        if runs > ChatWorkspaceTools.maxRunsPerTurn {
-                            outcome = .failure("Program and terminal run limit reached for this reply (\(ChatWorkspaceTools.maxRunsPerTurn)).")
-                        } else {
-                            outcome = await ChatWorkspaceTools.run(call: call, workspace: workspace, conversationID: conversationID)
-                        }
-                    } else if call.function.name == "chat_schedule_run" || call.function.name == "chat_schedule_cancel" {
-                        let owner = ref?.ownerID
-                        outcome = await ChatWorkspaceTools.run(call: call, workspace: workspace, conversationID: conversationID, timeZone: context.timeZone) { next in
-                            guard let owner else { return nil }
-                            let saved = try? await self.conversations.setSchedule(id: conversationID, ownerID: owner, schedule: next)
-                            return saved?.schedule
-                        }
-                    } else {
-                        outcome = await ChatWorkspaceTools.run(call: call, workspace: workspace, conversationID: conversationID)
-                    }
-                    if !outcome.wroteFiles.isEmpty {
-                        writtenFiles.append(contentsOf: outcome.wroteFiles)
-                        if let ref { await access?.audit.record(ownerID: ref.ownerID, action: "conversation.write", detail: outcome.wroteFiles.joined(separator: ", ")) }
-                    }
-                case .extended:
-                    guard let access else { outcome = .failure("Workspace access is not available here."); break }
-                    let isTerminal = call.function.name == "run_terminal" || call.function.name == "project_terminal"
-                    if isTerminal { runs += 1 }
-                    if isTerminal && runs > ChatWorkspaceTools.maxRunsPerTurn {
-                        outcome = .failure("Program and terminal run limit reached for this reply (\(ChatWorkspaceTools.maxRunsPerTurn)).")
-                    } else {
-                        let project = ProjectScope(ownerID: ref?.ownerID ?? "", projectName: context.projectName)
-                        outcome = await ExtendedWorkspaceTools.run(call: call, workspace: workspace, conversationID: conversationID, project: project, terminal: access.terminal, hosts: access.hosts, actions: access.actions, audit: access.audit)
-                    }
-                    if !outcome.wroteFiles.isEmpty { writtenFiles.append(contentsOf: outcome.wroteFiles) }
-                case .skill:
-                    if reviewed { outcome = .failure(SelfReviewTools.applyLaterMessage) } else { outcome = await SkillTools.run(call: call, skills: skills) }
-                case .task:
-                    tasks += 1
-                    if tasks > TaskTools.maxPerReply {
-                        outcome = .failure("Task limit reached for this reply (\(TaskTools.maxPerReply)). Finish with what you have.")
-                    } else if let ref {
-                        outcome = await startTask(call: call, coordinator: coordinator, context: context, language: language, ref: ref)
-                    } else {
-                        outcome = .failure("Tasks need a user-owned conversation.")
-                    }
-                case .trigger:
-                    let owner = ref?.ownerID
-                    let conversations = self.conversations
-                    let sink = owner.map { owner in
-                        TriggerTools.Sink(
-                            add: { trigger in
-                                (try? await conversations.addTrigger(id: conversationID, ownerID: owner, trigger: trigger)) ?? .failure(.invalid("The trigger could not be saved."))
-                            },
-                            remove: { id in
-                                (try? await conversations.removeTrigger(id: conversationID, ownerID: owner, triggerID: id)) ?? .failure(.notFound)
-                            },
-                            gmailConnected: offered.contains("gmail_search")
-                        )
-                    }
-                    outcome = await TriggerTools.run(call: call, sink: sink, language: language)
-                case .memory:
-                    if reviewed { outcome = .failure(SelfReviewTools.applyLaterMessage) } else { outcome = await MemoryTools.run(call: call, memory: memory, ownerID: ref?.ownerID) }
-                case .selfReview:
-                    // From here on this reply only suggests; memory and skill tools refuse until the user picks.
-                    reviewed = true
-                    outcome = await SelfReviewTools.run(call: call, ownerID: ref?.ownerID, conversations: conversations, missions: store, actions: access?.actions, spend: access?.spend)
-                case .mission:
-                    outcome = await ConversationMissionTools.run(call: call, store: store, allowedMissionIDs: Set(context.missionIDs))
-                case .workstation:
-                    guard let workstation, let access, let ref else { outcome = .failure("Workstation access is not available here."); break }
-                    guard WorkstationTools.approvalNames.contains(call.function.name) else {
-                        outcome = await WorkstationTools.run(call: call, workstation: workstation)
-                        break
-                    }
-                    runs += 1
-                    if runs > ChatWorkspaceTools.maxRunsPerTurn {
-                        outcome = .failure("Program and terminal run limit reached for this reply (\(ChatWorkspaceTools.maxRunsPerTurn)).")
-                        break
-                    }
-                    let command = (AgentTools.arguments(of: call)["command"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                    guard !command.isEmpty else { outcome = .failure("A command is required. Nothing ran."); break }
-                    let shown = command.count > 80 ? String(command.prefix(77)) + "…" : command
-                    outcome = await gatedWrite(
-                        call: call, kind: .workstation, access: access, ownerID: ref.ownerID, conversationID: conversationID,
-                        title: "Run on the workstation: \(shown)", ranTitle: "Ran on the workstation: \(shown)", detail: "Ada wants to run this on her Linux workstation, outside the sandbox. Nothing has run yet."
-                    ) {
-                        await WorkstationTools.execute(toolName: call.function.name, rawArguments: call.function.arguments, workstation: workstation)
-                    }
-                case .mcp:
-                    guard let mcp = access?.mcp else { outcome = .failure("MCP servers are not available here."); break }
-                    if await mcp.isReadOnly(call.function.name) {
-                        outcome = await mcp.call(call.function.name, rawArguments: call.function.arguments)
-                    } else if let access, let ref {
-                        outcome = await gatedWrite(
-                            call: call, kind: .mcpCall, access: access, ownerID: ref.ownerID, conversationID: conversationID,
-                            title: "Approve \(call.function.name)", ranTitle: "Ran \(call.function.name) automatically", detail: "Ada wants to call a tool on a connected MCP server. Review the exact arguments. Nothing has been sent yet."
-                        ) {
-                            await mcp.call(call.function.name, rawArguments: call.function.arguments)
-                        }
-                    } else {
-                        outcome = .failure("A user-owned conversation is required to approve MCP tool calls.")
-                    }
-                case .connector:
-                    guard let connectors else { outcome = .failure("No connector is available for this tool."); break }
-                    if ConnectorHub.readOnlyToolNames.contains(call.function.name) {
-                        outcome = await connectors.run(call: call, readOnly: true)
-                    } else if let ref {
-                        let decision = await access?.permissions.decide(ownerID: ref.ownerID, toolName: call.function.name, arguments: AgentTools.arguments(of: call)) ?? .ask(nil)
-                        if case .deny(let reason) = decision {
-                            outcome = .failure(reason)
-                            break
-                        }
-                        if case .allow = decision {
-                            let result = await connectors.run(call: call, approved: true)
-                            let record = AgentActionRequest(
-                                ownerID: ref.ownerID, conversationID: conversationID, kind: .connectorWrite,
-                                title: "Ran \(call.function.name) automatically", detail: "Your standing permission for this tool allowed it without an approval card.",
-                                toolName: call.function.name, arguments: .object([("raw", .string(call.function.arguments))])
-                            )
-                            await access?.actions.recordAutomatic(record, result: result.resultText, succeeded: result.succeeded)
-                            outcome = result.succeeded
-                                ? ToolOutcome(resultText: "Ran without an approval card because the user's standing permission allows it.\n\n" + result.resultText)
-                                : result
-                            break
-                        }
-                        var reason: String?
-                        if case .ask(let why) = decision { reason = why }
-                        let lifetime = await access?.permissions.approvalLifetime(ownerID: ref.ownerID) ?? 15 * 60
-                        let action = AgentActionRequest(
-                            ownerID: ref.ownerID, conversationID: conversationID, kind: .connectorWrite,
-                            title: "Approve \(call.function.name)", detail: "Ada requested an external connector write. Review the exact arguments. Nothing has been sent or changed yet." + (reason.map { " " + $0 } ?? ""),
-                            toolName: call.function.name, arguments: .object([("raw", .string(call.function.arguments))]), lifetime: lifetime
-                        )
-                        if let saved = await access?.actions.request(action) {
-                            let why = reason.map { " \($0)" } ?? ""
-                            outcome = ToolOutcome(resultText: "Approval requested (\(saved.id.uuidString)).\(why) The user sees the approval card with the exact action and approves or denies it there; this is the routine flow. Do not retry this write, do not explain approvals or point the user to the card, and do not ask whether to go ahead. Nothing has run yet; the outcome will appear under approval requests in your context on a later turn.")
-                        } else {
-                            outcome = .failure("Connector approvals are not available. No external write was performed.")
-                        }
-                    } else {
-                        outcome = .failure("A user-owned conversation is required to approve connector writes.")
-                    }
-                }
+                let outcome = await executeTool(call: call, offeredTools: offeredTools, state: state, context: context, language: language, ref: ref, conversationID: conversationID, coordinator: coordinator, workstation: workstation)
+                writtenFiles.append(contentsOf: state.writtenFiles)
+                state.writtenFiles = []
                 let shown = Self.workstationFallback(toolName: call.function.name, outcome: outcome, hasWorkstation: workstation != nil)
                 messages.append(.tool(id: call.id, content: String(shown.resultText.prefix(32_000)), isError: !shown.succeeded))
                 if toolLog.count < Self.maxToolLogEntries { toolLog.append(Self.toolLogLine(call: call, outcome: shown)) }
@@ -703,6 +559,245 @@ public actor ConversationEngine {
                 : "I used all the tool steps for this reply before finishing. Ask me to continue and I will pick up from here."
         }
         return answer
+    }
+
+    /// Mutable counters for one tool loop: the run budget, how many tasks started, whether a
+    /// self-review ran, and the files written so far. One per reply, or one per helper.
+    final class ToolRunState {
+        var runs = 0
+        var tasks = 0
+        var delegations = 0
+        /// Set once a self-review runs: memory and skill tools then only suggest.
+        var reviewed = false
+        var writtenFiles: [String] = []
+    }
+
+    /// Runs one tool call. The call must have been offered in this request: the family it was
+    /// offered from decides how it runs, which is the same for Ada and for the helpers she delegates to.
+    private func executeTool(call: APIToolCall, offeredTools: OfferedTools, state: ToolRunState, context: ConversationPromptContext, language: String, ref: ResponseRef?, conversationID: UUID, coordinator: AgentProfile, workstation: Workstation?) async -> ToolOutcome {
+        let offered = offeredTools.names
+        let outcome: ToolOutcome
+        switch offeredTools.family(of: call.function.name) {
+        case nil, .worker:
+            outcome = .failure(Self.unknownToolMessage(call.function.name, offered: offered))
+        case .chat:
+            if call.function.name == "run_program" {
+                state.runs += 1
+                if state.runs > ChatWorkspaceTools.maxRunsPerTurn {
+                    outcome = .failure("Program and terminal run limit reached for this reply (\(ChatWorkspaceTools.maxRunsPerTurn)).")
+                } else {
+                    outcome = await ChatWorkspaceTools.run(call: call, workspace: workspace, conversationID: conversationID)
+                }
+            } else if call.function.name == "chat_schedule_run" || call.function.name == "chat_schedule_cancel" {
+                let owner = ref?.ownerID
+                outcome = await ChatWorkspaceTools.run(call: call, workspace: workspace, conversationID: conversationID, timeZone: context.timeZone) { next in
+                    guard let owner else { return nil }
+                    let saved = try? await self.conversations.setSchedule(id: conversationID, ownerID: owner, schedule: next)
+                    return saved?.schedule
+                }
+            } else {
+                outcome = await ChatWorkspaceTools.run(call: call, workspace: workspace, conversationID: conversationID)
+            }
+            if !outcome.wroteFiles.isEmpty {
+                state.writtenFiles.append(contentsOf: outcome.wroteFiles)
+                if let ref { await access?.audit.record(ownerID: ref.ownerID, action: "conversation.write", detail: outcome.wroteFiles.joined(separator: ", ")) }
+            }
+        case .extended:
+            guard let access else { outcome = .failure("Workspace access is not available here."); break }
+            let isTerminal = call.function.name == "run_terminal" || call.function.name == "project_terminal"
+            if isTerminal { state.runs += 1 }
+            if isTerminal && state.runs > ChatWorkspaceTools.maxRunsPerTurn {
+                outcome = .failure("Program and terminal run limit reached for this reply (\(ChatWorkspaceTools.maxRunsPerTurn)).")
+            } else {
+                let project = ProjectScope(ownerID: ref?.ownerID ?? "", projectName: context.projectName)
+                outcome = await ExtendedWorkspaceTools.run(call: call, workspace: workspace, conversationID: conversationID, project: project, terminal: access.terminal, hosts: access.hosts, actions: access.actions, audit: access.audit)
+            }
+            if !outcome.wroteFiles.isEmpty { state.writtenFiles.append(contentsOf: outcome.wroteFiles) }
+        case .skill:
+            if state.reviewed { outcome = .failure(SelfReviewTools.applyLaterMessage) } else { outcome = await SkillTools.run(call: call, skills: skills) }
+        case .task:
+            state.tasks += 1
+            if state.tasks > TaskTools.maxPerReply {
+                outcome = .failure("Task limit reached for this reply (\(TaskTools.maxPerReply)). Finish with what you have.")
+            } else if let ref {
+                outcome = await startTask(call: call, coordinator: coordinator, context: context, language: language, ref: ref)
+            } else {
+                outcome = .failure("Tasks need a user-owned conversation.")
+            }
+        case .delegate:
+            state.delegations += 1
+            if state.delegations > HelperTools.maxPerReply {
+                outcome = .failure("Helper limit reached for this reply (\(HelperTools.maxPerReply)). Finish with what you have.")
+            } else if let ref {
+                outcome = await runHelper(call: call, parent: offeredTools, state: state, context: context, language: language, ref: ref, conversationID: conversationID, coordinator: coordinator, workstation: workstation)
+            } else {
+                outcome = .failure("Helpers need a user-owned conversation.")
+            }
+        case .delegate:
+            state.delegations += 1
+            if state.delegations > HelperTools.maxPerReply {
+                outcome = .failure("Helper limit reached for this reply (\(HelperTools.maxPerReply)). Finish with what you have.")
+            } else if let ref {
+                outcome = await runHelper(call: call, parent: offeredTools, state: state, context: context, language: language, ref: ref, conversationID: conversationID, coordinator: coordinator, workstation: workstation)
+            } else {
+                outcome = .failure("Helpers need a user-owned conversation.")
+            }
+        case .trigger:
+            let owner = ref?.ownerID
+            let conversations = self.conversations
+            let sink = owner.map { owner in
+                TriggerTools.Sink(
+                    add: { trigger in
+                        (try? await conversations.addTrigger(id: conversationID, ownerID: owner, trigger: trigger)) ?? .failure(.invalid("The trigger could not be saved."))
+                    },
+                    remove: { id in
+                        (try? await conversations.removeTrigger(id: conversationID, ownerID: owner, triggerID: id)) ?? .failure(.notFound)
+                    },
+                    gmailConnected: offered.contains("gmail_search")
+                )
+            }
+            outcome = await TriggerTools.run(call: call, sink: sink, language: language)
+        case .memory:
+            if state.reviewed { outcome = .failure(SelfReviewTools.applyLaterMessage) } else { outcome = await MemoryTools.run(call: call, memory: memory, ownerID: ref?.ownerID) }
+        case .selfReview:
+            // From here on this reply only suggests; memory and skill tools refuse until the user picks.
+            state.reviewed = true
+            outcome = await SelfReviewTools.run(call: call, ownerID: ref?.ownerID, conversations: conversations, missions: store, actions: access?.actions, spend: access?.spend)
+        case .mission:
+            outcome = await ConversationMissionTools.run(call: call, store: store, allowedMissionIDs: Set(context.missionIDs))
+        case .workstation:
+            guard let workstation, let access, let ref else { outcome = .failure("Workstation access is not available here."); break }
+            guard WorkstationTools.approvalNames.contains(call.function.name) else {
+                outcome = await WorkstationTools.run(call: call, workstation: workstation)
+                break
+            }
+            state.runs += 1
+            if state.runs > ChatWorkspaceTools.maxRunsPerTurn {
+                outcome = .failure("Program and terminal run limit reached for this reply (\(ChatWorkspaceTools.maxRunsPerTurn)).")
+                break
+            }
+            let command = (AgentTools.arguments(of: call)["command"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !command.isEmpty else { outcome = .failure("A command is required. Nothing ran."); break }
+            let shown = command.count > 80 ? String(command.prefix(77)) + "…" : command
+            outcome = await gatedWrite(
+                call: call, kind: .workstation, access: access, ownerID: ref.ownerID, conversationID: conversationID,
+                title: "Run on the workstation: \(shown)", ranTitle: "Ran on the workstation: \(shown)", detail: "Ada wants to run this on her Linux workstation, outside the sandbox. Nothing has run yet."
+            ) {
+                await WorkstationTools.execute(toolName: call.function.name, rawArguments: call.function.arguments, workstation: workstation)
+            }
+        case .mcp:
+            guard let mcp = access?.mcp else { outcome = .failure("MCP servers are not available here."); break }
+            if await mcp.isReadOnly(call.function.name) {
+                outcome = await mcp.call(call.function.name, rawArguments: call.function.arguments)
+            } else if let access, let ref {
+                outcome = await gatedWrite(
+                    call: call, kind: .mcpCall, access: access, ownerID: ref.ownerID, conversationID: conversationID,
+                    title: "Approve \(call.function.name)", ranTitle: "Ran \(call.function.name) automatically", detail: "Ada wants to call a tool on a connected MCP server. Review the exact arguments. Nothing has been sent yet."
+                ) {
+                    await mcp.call(call.function.name, rawArguments: call.function.arguments)
+                }
+            } else {
+                outcome = .failure("A user-owned conversation is required to approve MCP tool calls.")
+            }
+        case .connector:
+            guard let connectors else { outcome = .failure("No connector is available for this tool."); break }
+            if ConnectorHub.readOnlyToolNames.contains(call.function.name) {
+                outcome = await connectors.run(call: call, readOnly: true)
+            } else if let ref {
+                let decision = await access?.permissions.decide(ownerID: ref.ownerID, toolName: call.function.name, arguments: AgentTools.arguments(of: call)) ?? .ask(nil)
+                if case .deny(let reason) = decision {
+                    outcome = .failure(reason)
+                    break
+                }
+                if case .allow = decision {
+                    let result = await connectors.run(call: call, approved: true)
+                    let record = AgentActionRequest(
+                        ownerID: ref.ownerID, conversationID: conversationID, kind: .connectorWrite,
+                        title: "Ran \(call.function.name) automatically", detail: "Your standing permission for this tool allowed it without an approval card.",
+                        toolName: call.function.name, arguments: .object([("raw", .string(call.function.arguments))])
+                    )
+                    await access?.actions.recordAutomatic(record, result: result.resultText, succeeded: result.succeeded)
+                    outcome = result.succeeded
+                        ? ToolOutcome(resultText: "Ran without an approval card because the user's standing permission allows it.\n\n" + result.resultText)
+                        : result
+                    break
+                }
+                var reason: String?
+                if case .ask(let why) = decision { reason = why }
+                let lifetime = await access?.permissions.approvalLifetime(ownerID: ref.ownerID) ?? 15 * 60
+                let action = AgentActionRequest(
+                    ownerID: ref.ownerID, conversationID: conversationID, kind: .connectorWrite,
+                    title: "Approve \(call.function.name)", detail: "Ada requested an external connector write. Review the exact arguments. Nothing has been sent or changed yet." + (reason.map { " " + $0 } ?? ""),
+                    toolName: call.function.name, arguments: .object([("raw", .string(call.function.arguments))]), lifetime: lifetime
+                )
+                if let saved = await access?.actions.request(action) {
+                    let why = reason.map { " \($0)" } ?? ""
+                    outcome = ToolOutcome(resultText: "Approval requested (\(saved.id.uuidString)).\(why) The user sees the approval card with the exact action and approves or denies it there; this is the routine flow. Do not retry this write, do not explain approvals or point the user to the card, and do not ask whether to go ahead. Nothing has run yet; the outcome will appear under approval requests in your context on a later turn.")
+                } else {
+                    outcome = .failure("Connector approvals are not available. No external write was performed.")
+                }
+            } else {
+                outcome = .failure("A user-owned conversation is required to approve connector writes.")
+            }
+        }
+        return outcome
+    }
+
+    /// Runs one `delegate` call to the end: the helper gets the tools Ada handed it (a subset of her
+    /// own, dispatched exactly as hers are), works for a few rounds, and reports back. Approval cards,
+    /// standing permissions, the run budget and the spending limit apply as they do for Ada.
+    private func runHelper(call: APIToolCall, parent: OfferedTools, state: ToolRunState, context: ConversationPromptContext, language: String, ref: ResponseRef, conversationID: UUID, coordinator: AgentProfile, workstation: Workstation?) async -> ToolOutcome {
+        let request: HelperTools.Request
+        switch HelperTools.request(from: call) {
+        case .failure(let error): return .failure(error.message)
+        case .success(let valid): request = valid
+        }
+        let offeredTools = parent.restricted { name, family in HelperTools.allows(name: name, family: family, groups: request.groups) }
+        let es = language == "es"
+        await beginStep(es ? "\(request.name) está trabajando" : "\(request.name) is working", in: ref)
+        await access?.audit.record(ownerID: ref.ownerID, action: "delegate", detail: "\(request.name) [\(request.groups.map(\.rawValue).sorted().joined(separator: ","))]: \(request.task.prefix(200))")
+        let system = HelperTools.systemPrompt(request: request, language: language, tools: offeredTools.definitions.map(\.function.name).sorted())
+        var messages: [APIMessage] = [.user(request.task)]
+        let helperState = ToolRunState()
+        var toolLog: [String] = []
+        var rounds = 0
+        var stopped = false
+        let replyCap = await replySpendCap(ownerID: ref.ownerID)
+        do {
+            var report = ""
+            var finished = false
+            for _ in 0..<HelperTools.maxRounds {
+                try Task.checkCancellation()
+                let reply = try await complete(coordinator: coordinator, system: system, messages: messages, tools: offeredTools.definitions.isEmpty ? nil : offeredTools.definitions)
+                rounds += 1
+                messages.append(reply.message)
+                let calls = reply.message.tool_calls ?? []
+                if calls.isEmpty {
+                    report = reply.message.content ?? ""
+                    finished = true
+                    break
+                }
+                for inner in calls {
+                    let outcome = await executeTool(call: inner, offeredTools: offeredTools, state: helperState, context: context, language: language, ref: ref, conversationID: conversationID, coordinator: coordinator, workstation: workstation)
+                    messages.append(.tool(id: inner.id, content: String(outcome.resultText.prefix(32_000)), isError: !outcome.succeeded))
+                    if toolLog.count < Self.maxToolLogEntries { toolLog.append(Self.toolLogLine(call: inner, outcome: outcome)) }
+                }
+                if let replyCap, (CostMeter.current?.total ?? 0) >= replyCap { break }
+            }
+            if !finished {
+                stopped = true
+                messages.append(.user("No tool steps are left. Report now with what you have, without calling tools, and say what is missing."))
+                report = try await complete(coordinator: coordinator, system: system, messages: messages, tools: nil).message.content ?? ""
+                rounds += 1
+            }
+            state.writtenFiles.append(contentsOf: helperState.writtenFiles)
+            await beginStep(es ? "Revisando el informe de \(request.name)" : "Checking \(request.name)'s report", in: ref)
+            return HelperTools.result(request: request, report: report, files: Array(NSOrderedSet(array: helperState.writtenFiles).array.compactMap { $0 as? String }), toolLog: toolLog, rounds: rounds, stoppedEarly: stopped)
+        } catch is CancellationError {
+            return .failure("\(request.name) was stopped.")
+        } catch {
+            return .failure("\(request.name) could not finish: \(error.localizedDescription)")
+        }
     }
 
     /// Where the OS sandbox is missing (Railway cannot start bubblewrap), `run_program` and the terminals

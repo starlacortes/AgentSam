@@ -10,6 +10,8 @@ public enum ToolFamily: Sendable, Equatable {
     case mission
     /// Handing a larger job to a background mission mid-reply (`TaskTools`).
     case task
+    /// Handing one piece of work to a helper subagent mid-reply (`HelperTools`).
+    case delegate
     /// Events that wake the conversation: new email, webhook calls (`TriggerTools`).
     case trigger
     /// Saving procedures as skills (`SkillTools`).
@@ -56,12 +58,13 @@ public struct OfferedTools: Sendable {
     public func family(of name: String) -> ToolFamily? { families[name] }
 
     /// Ada's direct-reply tools. Extended tools need workspace access; mission tools need a linked mission.
-    public static func direct(connectorTools: [APIToolDef], hasLinkedMissions: Bool, hasExtendedAccess: Bool, hasWorkstation: Bool = false, mcpTools: [APIToolDef] = [], taskTools: [APIToolDef] = []) -> OfferedTools {
+    public static func direct(connectorTools: [APIToolDef], hasLinkedMissions: Bool, hasExtendedAccess: Bool, hasWorkstation: Bool = false, mcpTools: [APIToolDef] = [], taskTools: [APIToolDef] = [], delegateTools: [APIToolDef] = []) -> OfferedTools {
         OfferedTools([
             (.connector, connectorTools),
             (.chat, ChatWorkspaceTools.definitions),
             (.trigger, TriggerTools.definitions),
             (.task, taskTools),
+            (.delegate, delegateTools),
             (.extended, hasExtendedAccess ? ExtendedWorkspaceTools.definitions : []),
             (.mission, hasLinkedMissions ? ConversationMissionTools.definitions : []),
             (.skill, SkillTools.definitions),
@@ -70,6 +73,18 @@ public struct OfferedTools: Sendable {
             (.workstation, hasWorkstation ? WorkstationTools.definitions : []),
             (.mcp, mcpTools),
         ])
+    }
+
+    /// The offered tools that `allow` accepts, each still dispatched by the family it was offered from.
+    public func restricted(_ allow: (String, ToolFamily) -> Bool) -> OfferedTools {
+        var groups: [ToolFamily: [APIToolDef]] = [:]
+        var order: [ToolFamily] = []
+        for def in definitions {
+            guard let family = families[def.function.name], allow(def.function.name, family) else { continue }
+            if groups[family] == nil { order.append(family) }
+            groups[family, default: []].append(def)
+        }
+        return OfferedTools(order.map { ($0, groups[$0] ?? []) })
     }
 
     /// A mission worker's tools: its workspace tools, the connectors its team's scope allows, and the
@@ -134,6 +149,7 @@ public enum ToolCatalog {
         ToolSpec("run_program", .write, en: "Running the program", es: "Ejecutando el programa"),
         ToolSpec("chat_schedule_run", .write, en: "Scheduling recurring work", es: "Programando el trabajo recurrente"),
         ToolSpec("chat_schedule_cancel", .write, en: "Cancelling the schedule", es: "Cancelando la programación"),
+        ToolSpec("delegate", .write, en: "Asking a helper", es: "Pidiendo ayuda a un asistente"),
         ToolSpec("start_task", .write, en: "Handing this to a task", es: "Pasando esto a una tarea"),
         ToolSpec("chat_trigger_add", .write, en: "Setting up a trigger", es: "Configurando un disparador"),
         ToolSpec("chat_trigger_remove", .write, en: "Removing a trigger", es: "Quitando un disparador"),

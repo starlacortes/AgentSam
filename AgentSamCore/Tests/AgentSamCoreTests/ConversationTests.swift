@@ -793,6 +793,94 @@ final class ConversationTests: XCTestCase {
         await engine.shutdown()
     }
 
+    func testAdaDelegatesToHelpersWithScopedToolsAndGetsTheirReports() async throws {
+        let store = MissionStore(root: directory)
+        await store.saveProviders([provider])
+        let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
+        try keys.set("test-key", for: provider.keyAccount)
+        let conversations = ConversationStore(root: directory)
+        let memory = WorkspaceMemoryStore(root: directory)
+        let engine = engine(store, conversations, memory, keys: keys, completion: { _, _, _, system, messages, tools in
+            if system.contains("Summarize only durable") { return LLMReply(message: .assistant("## Notes"), inputTokens: 0, outputTokens: 0, model: "stub") }
+            if system.contains("Decide how to handle") { return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub") }
+            let names = Set((tools ?? []).map(\.function.name))
+            if system.contains("You are researchAda") {
+                // Read-only: it can look at files, but not write them, delegate, or schedule.
+                XCTAssertTrue(names.contains("chat_read_file"))
+                XCTAssertFalse(names.contains("chat_write_file"))
+                XCTAssertFalse(names.contains("delegate"))
+                XCTAssertFalse(names.contains("start_task"))
+                XCTAssertFalse(names.contains("memory_remember"))
+                if messages.contains(where: { $0.role == "tool" }) {
+                    return LLMReply(message: .assistant("Found three sources."), inputTokens: 0, outputTokens: 0, model: "stub")
+                }
+                return LLMReply(message: APIMessage(role: "assistant", content: nil, tool_calls: [
+                    APIToolCall(id: "h1", function: .init(name: "chat_list_files", arguments: "{}")),
+                    // A tool the helper was not given must not run.
+                    APIToolCall(id: "h2", function: .init(name: "chat_write_file", arguments: #"{"path":"x.md","content":"x"}"#)),
+                ]), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
+            if system.contains("You are priceCheckAda") {
+                XCTAssertTrue(system.contains("Compare vendor prices"), "the brief reaches the helper")
+                XCTAssertTrue(names.contains("chat_write_file"))
+                if messages.contains(where: { $0.role == "tool" }) {
+                    return LLMReply(message: .assistant("Wrote prices.md."), inputTokens: 0, outputTokens: 0, model: "stub")
+                }
+                return LLMReply(message: APIMessage(role: "assistant", content: nil, tool_calls: [
+                    APIToolCall(id: "p1", function: .init(name: "chat_write_file", arguments: ##"{"path":"prices.md","content":"# Prices"}"##)),
+                ]), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
+            let results = messages.filter { $0.role == "tool" }.compactMap(\.content)
+            if results.isEmpty {
+                XCTAssertTrue(names.contains("delegate"))
+                return LLMReply(message: APIMessage(role: "assistant", content: nil, tool_calls: [
+                    APIToolCall(id: "d1", function: .init(name: "delegate", arguments: #"{"function":"research","task":"Find sources on battery recycling"}"#)),
+                    APIToolCall(id: "d2", function: .init(name: "delegate", arguments: #"{"function":"price check","brief":"Compare vendor prices","task":"Write prices.md","tools":["files"]}"#)),
+                    APIToolCall(id: "d3", function: .init(name: "delegate", arguments: #"{"function":"research","task":"x","tools":["teleport"]}"#)),
+                ]), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
+            XCTAssertTrue(results[0].contains("researchAda finished"), results[0])
+            XCTAssertTrue(results[0].contains("Found three sources."), results[0])
+            XCTAssertTrue(results[0].contains("chat_write_file"), "the refused write is in the helper's log: \(results[0])")
+            XCTAssertTrue(results[1].contains("priceCheckAda finished"), results[1])
+            XCTAssertTrue(results[1].contains("prices.md"), results[1])
+            XCTAssertTrue(results[2].contains("Unknown tool group"), results[2])
+            return LLMReply(message: .assistant("Both helpers reported."), inputTokens: 0, outputTokens: 0, model: "stub")
+        })
+        let conversation = try await conversations.create(ownerID: "owner")
+        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Look into battery recycling and prices", launchedBy: "Owner", language: "en")
+        let result = try await finishedConversation(conversations, id: conversation.id)
+        let answer = try XCTUnwrap(result.messages.last)
+        XCTAssertEqual(answer.status, .complete)
+        XCTAssertEqual(answer.text, "Both helpers reported.")
+        XCTAssertEqual(answer.fileIDs, ["prices.md"], "a file a helper wrote shows on the reply")
+        XCTAssertTrue(answer.steps.contains { $0.label == "researchAda is working" })
+        await engine.shutdown()
+    }
+
+    func testHelperNamesAndToolGroups() {
+        XCTAssertEqual(HelperTools.name(for: "research"), "researchAda")
+        XCTAssertEqual(HelperTools.name(for: "Price check"), "priceCheckAda")
+        XCTAssertEqual(HelperTools.name(for: "judgeAda"), "judgeAda")
+        XCTAssertNil(HelperTools.name(for: "   "))
+        XCTAssertNil(HelperTools.name(for: String(repeating: "a", count: 40)))
+        let read: Set<HelperTools.Group> = [.read]
+        XCTAssertTrue(HelperTools.allows(name: "chat_read_file", family: .chat, groups: read))
+        XCTAssertTrue(HelperTools.allows(name: "gmail_search", family: .connector, groups: read))
+        XCTAssertFalse(HelperTools.allows(name: "gmail_send", family: .connector, groups: read))
+        XCTAssertTrue(HelperTools.allows(name: "gmail_send", family: .connector, groups: [.read, .write]))
+        XCTAssertFalse(HelperTools.allows(name: "chat_write_file", family: .chat, groups: read))
+        XCTAssertTrue(HelperTools.allows(name: "chat_write_file", family: .chat, groups: [.files]))
+        XCTAssertFalse(HelperTools.allows(name: "run_program", family: .chat, groups: [.files]))
+        XCTAssertTrue(HelperTools.allows(name: "run_program", family: .chat, groups: [.run]))
+        XCTAssertFalse(HelperTools.allows(name: "chat_schedule_run", family: .chat, groups: Set(HelperTools.Group.allCases)))
+        XCTAssertFalse(HelperTools.allows(name: "workstation_run", family: .workstation, groups: [.files, .run, .write]))
+        XCTAssertTrue(HelperTools.allows(name: "workstation_run", family: .workstation, groups: [.workstation]))
+        for family in [ToolFamily.task, .trigger, .skill, .memory, .selfReview, .delegate] {
+            XCTAssertFalse(HelperTools.allows(name: "anything", family: family, groups: Set(HelperTools.Group.allCases)), "\(family)")
+        }
+    }
+
     func testSoloRunsAsAMissionWithAdaAsWorkerAndProducesFiles() async throws {
         let store = MissionStore(root: directory)
         await store.saveProviders([provider])
@@ -1070,7 +1158,7 @@ final class ConversationTests: XCTestCase {
     func testEveryToolHasOneCatalogEntryWithTheRightAccess() {
         let everything = ConnectorPermissions(sendEmail: true, createDraft: true, dnsWrite: true, githubWrite: true, adsWrite: true)
         let connectorNames = Set(ConnectorHub.providers.flatMap { $0.toolDefs(permissions: everything) }.map(\.function.name))
-        let workspaceNames = Set((ChatWorkspaceTools.definitions + TriggerTools.definitions + TaskTools.definitions(catalog: "") + ExtendedWorkspaceTools.definitions + ConversationMissionTools.definitions + SkillTools.definitions + MemoryTools.definitions + SelfReviewTools.definitions + WorkstationTools.definitions + AgentTools.workerTools).map(\.function.name))
+        let workspaceNames = Set((ChatWorkspaceTools.definitions + TriggerTools.definitions + TaskTools.definitions(catalog: "") + HelperTools.definitions(hasWorkstation: true, hasMCP: true) + ExtendedWorkspaceTools.definitions + ConversationMissionTools.definitions + SkillTools.definitions + MemoryTools.definitions + SelfReviewTools.definitions + WorkstationTools.definitions + AgentTools.workerTools).map(\.function.name))
         let catalogNames = ToolCatalog.specs.map(\.name)
         XCTAssertEqual(catalogNames.count, Set(catalogNames).count, "a tool is listed twice in the catalog")
         XCTAssertEqual(Set(catalogNames), connectorNames.union(workspaceNames), "the catalog and the tool definitions disagree")
