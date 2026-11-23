@@ -1,5 +1,8 @@
+# Base images come from Docker's official-image mirror on Amazon ECR Public (same images as
+# Docker Hub), which has no anonymous pull rate limit.
+
 # Web app: Vite build of Web/ into static files.
-FROM node:22-bookworm-slim AS web
+FROM public.ecr.aws/docker/library/node:22-bookworm-slim AS web
 WORKDIR /web
 COPY Web/package.json Web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
@@ -7,7 +10,7 @@ COPY Web/ ./
 RUN npm run build
 
 # Server: Swift release build.
-FROM swift:6.4-noble AS build
+FROM public.ecr.aws/docker/library/swift:6.4-noble AS build
 WORKDIR /build
 # Compile third-party dependencies (Vapor, NIO, swift-crypto...) in their own layer. Only the
 # manifests and empty stub sources are copied first, so this layer stays cached until Package.swift
@@ -29,7 +32,7 @@ COPY Server/ Server/
 WORKDIR /build/Server
 RUN swift build -c release --static-swift-stdlib --product AgentSamServer
 
-FROM ubuntu:noble
+FROM public.ecr.aws/docker/library/ubuntu:noble
 # nodejs/python3/gcc run the programs Ada writes with the run_program chat tool. bubblewrap
 # sandboxes persistent terminal sessions. Each language is a separate layer so a registry that
 # already cached the base still only pulls what changed.

@@ -8,8 +8,52 @@ on:
 permissions:
   contents: read
 
+# A new push to a pull request cancels that pull request's older run. Runs on main always finish.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  # Pull requests only run the jobs their files can affect. Pushes to main run everything.
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      web: ${{ github.event_name == 'push' || steps.filter.outputs.web == 'true' }}
+      swift: ${{ github.event_name == 'push' || steps.filter.outputs.swift == 'true' }}
+      docker: ${{ github.event_name == 'push' || steps.filter.outputs.docker == 'true' }}
+    steps:
+      - uses: dorny/paths-filter@v3
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            web:
+              - 'Web/**'
+              - '.github/workflows/**'
+            swift:
+              - 'AgentSamCore/**'
+              - 'Server/**'
+              - '.github/workflows/**'
+            # The image's Swift and web code is already compiled and tested by the server and
+            # web jobs. This release build only runs on pull requests that change how the image
+            # is put together; main still builds it on every push.
+            docker:
+              - 'deploy/**'
+              - '.dockerignore'
+              - 'railway.toml'
+              - '**/Package.swift'
+              - '**/Package.resolved'
+              - 'Web/package.json'
+              - 'Web/package-lock.json'
+              - 'Web/vite.config.*'
+              - '.github/workflows/**'
+
   web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -27,16 +71,27 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  # Server and engine tests run side by side instead of one after the other.
   server:
+    needs: changes
+    if: needs.changes.outputs.swift == 'true'
+    name: server (${{ matrix.package }})
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [Server, AgentSamCore]
     runs-on: ubuntu-latest
     container:
-      image: swift:6.4-noble
+      # Docker's official Swift image, from its Amazon ECR Public mirror, which has no Docker Hub
+      # pull rate limit.
+      image: public.ecr.aws/docker/library/swift:6.4-noble
       # Docker's default seccomp and AppArmor profiles stop bubblewrap from creating namespaces,
       # which would skip every run_program and terminal sandbox test.
       options: --security-opt seccomp=unconfined --security-opt apparmor=unconfined
     steps:
       - uses: actions/checkout@v4
       - name: Cache SwiftPM build
+        if: matrix.package == 'Server'
         uses: actions/cache@v4
         with:
           path: Server/.build
@@ -45,14 +100,13 @@ jobs:
       - name: Install the OS sandbox and toolchains used by run_program tests
         run: apt-get update && apt-get install -y --no-install-recommends bubblewrap python3
       - name: Build and test
-        working-directory: Server
-        run: swift test
-      - name: Engine tests (includes the run_program and terminal sandbox tests)
         timeout-minutes: 20
-        working-directory: AgentSamCore
+        working-directory: ${{ matrix.package }}
         run: swift test
 
   docker:
+    needs: changes
+    if: needs.changes.outputs.docker == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -64,4 +118,5 @@ jobs:
           file: deploy/Dockerfile
           tags: agentsam:ci
           cache-from: type=gha
-          cache-to: type=gha,mode=max
+          # Only main writes the layer cache (about 40 s of upload); pull requests read it.
+          cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max' || '' }}
