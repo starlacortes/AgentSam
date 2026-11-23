@@ -25,9 +25,9 @@ final class ConversationTests: XCTestCase {
         Team(name: name, goal: "Research and write", agents: [agent("Ada", role: .coordinator), agent("Scout", role: .worker), agent("Judge", role: .verifier)])
     }
 
-    private func engine(_ store: MissionStore, _ conversations: ConversationStore, _ memory: WorkspaceMemoryStore, keys: FileKeyRing, completion: @escaping ConversationEngine.Completion, missionRunner: ConversationEngine.MissionRunner? = nil) -> ConversationEngine {
+    private func engine(_ store: MissionStore, _ conversations: ConversationStore, _ memory: WorkspaceMemoryStore, keys: FileKeyRing, routing: Bool = true, completion: @escaping ConversationEngine.Completion, missionRunner: ConversationEngine.MissionRunner? = nil) -> ConversationEngine {
         let missions = MissionEngine(store: store, keyRing: keys)
-        return ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, missions: missions, completion: completion, missionRunner: missionRunner)
+        return ConversationEngine(store: store, conversations: conversations, memory: memory, keyRing: keys, missions: missions, routing: routing, completion: completion, missionRunner: missionRunner)
     }
 
     private func finishedConversation(_ conversations: ConversationStore, id: UUID, owner: String = "owner") async throws -> Conversation {
@@ -859,6 +859,29 @@ final class ConversationTests: XCTestCase {
         XCTAssertEqual(helpers.map(\.agentName), ["researchAda", "priceCheckAda"], "helpers stay on the finished reply")
         XCTAssertEqual(helpers.map(\.state), ["done", "done"])
         XCTAssertEqual(helpers.first?.summary, "Found three sources.")
+        await engine.shutdown()
+    }
+
+    func testWithoutRoutingAdaAnswersInOneLoopWithDelegateAndTasksOffered() async throws {
+        let store = MissionStore(root: directory)
+        await store.saveProviders([provider])
+        let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
+        try keys.set("test-key", for: provider.keyAccount)
+        let conversations = ConversationStore(root: directory)
+        let memory = WorkspaceMemoryStore(root: directory)
+        let engine = engine(store, conversations, memory, keys: keys, routing: false) { _, _, _, system, _, tools in
+            if system.contains("Summarize only durable") { return LLMReply(message: .assistant("## Notes"), inputTokens: 0, outputTokens: 0, model: "stub") }
+            XCTAssertFalse(system.contains("Decide how to handle"), "no routing call")
+            let names = Set((tools ?? []).map(\.function.name))
+            XCTAssertTrue(names.contains("delegate"))
+            XCTAssertTrue(names.contains("start_task"))
+            return LLMReply(message: .assistant("Straight answer."), inputTokens: 0, outputTokens: 0, model: "stub")
+        }
+        let conversation = try await conversations.create(ownerID: "owner")
+        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Research the market and write a report", launchedBy: "Owner", language: "en")
+        let result = try await finishedConversation(conversations, id: conversation.id)
+        XCTAssertEqual(result.messages.last?.text, "Straight answer.")
+        XCTAssertEqual(result.messages.last?.steps.map(\.label), ["Thinking it through", "Writing the answer"])
         await engine.shutdown()
     }
 
