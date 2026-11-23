@@ -120,6 +120,12 @@ func routes(_ app: Application, ctx: ServerContext) {
         try req.json(await ctx.skills.all())
     }
 
+    /// Roles Ada saved for her helpers, read-only. Ada proposes changes with helper_save and the
+    /// user approves them on a card.
+    api.get("helpers") { req async throws -> Response in
+        try req.json(await HelperStore(root: ctx.dataDir).all())
+    }
+
     // MARK: Teams (read-only backend record: who worked on a mission)
 
     api.get("teams") { req async throws -> Response in

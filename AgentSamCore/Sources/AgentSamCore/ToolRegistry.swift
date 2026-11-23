@@ -150,6 +150,7 @@ public enum ToolCatalog {
         ToolSpec("chat_schedule_run", .write, en: "Scheduling recurring work", es: "Programando el trabajo recurrente"),
         ToolSpec("chat_schedule_cancel", .write, en: "Cancelling the schedule", es: "Cancelando la programación"),
         ToolSpec("delegate", .write, en: "Asking a helper", es: "Pidiendo ayuda a un asistente"),
+        ToolSpec("helper_save", .approval, en: "Proposing a helper role", es: "Proponiendo un rol de asistente"),
         ToolSpec("start_task", .write, en: "Handing this to a task", es: "Pasando esto a una tarea"),
         ToolSpec("chat_trigger_add", .write, en: "Setting up a trigger", es: "Configurando un disparador"),
         ToolSpec("chat_trigger_remove", .write, en: "Removing a trigger", es: "Quitando un disparador"),

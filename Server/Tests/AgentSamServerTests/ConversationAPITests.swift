@@ -407,6 +407,43 @@ final class ConversationAPITests: XCTestCase {
         }, afterResponse: { res async in XCTAssertEqual(res.status, .badRequest) })
     }
 
+    func testApprovingAHelperProposalSavesItAndUndoPutsItBack() async throws {
+        let conversation = try await createConversation()
+        let access = try XCTUnwrap(app.storage[ServerContextKey.self]).access
+        @Sendable func propose(_ raw: String) async -> AgentActionRequest {
+            await access.actions.request(AgentActionRequest(ownerID: conversation.ownerID, conversationID: conversation.id, kind: .helperSave, title: "Save a role", detail: "Test", toolName: "helper_save", arguments: .object([("raw", .string(raw))])))
+        }
+        func decide(_ action: AgentActionRequest, approve: Bool) async throws -> AgentActionRequest? {
+            var decided: AgentActionRequest?
+            try await app.test(.POST, "api/conversations/\(conversation.id.uuidString)/actions/\(action.id.uuidString)", beforeRequest: { req in
+                self.authorize(&req)
+                try req.content.encode(ActionDecisionBody(approve: approve), as: .json)
+            }, afterResponse: { res async throws in
+                XCTAssertEqual(res.status, .ok, res.body.string)
+                decided = try res.content.decode([AgentActionRequest].self).first { $0.id == action.id }
+            })
+            return decided
+        }
+        let denied = try await decide(await propose(#"{"function":"research","role":"Never cite anything at all.","reason":"test"}"#), approve: false)
+        XCTAssertEqual(denied?.status, .denied)
+        var saved = await HelperStore(root: directory).all()
+        XCTAssertTrue(saved.isEmpty, "a denied proposal changes nothing")
+
+        let approved = try await decide(await propose(#"{"function":"research","role":"Cite a primary source for every claim.","reason":"Reports lacked sources"}"#), approve: true)
+        XCTAssertEqual(approved?.status, .completed)
+        XCTAssertTrue(approved?.result?.contains("Saved researchAda version 1") == true, approved?.result ?? "")
+        try await app.test(.GET, "api/helpers", beforeRequest: authorize, afterResponse: { res async throws in
+            XCTAssertEqual(try res.content.decode([SavedHelper].self).map(\.name), ["researchAda"])
+        })
+        let undone = try await decide(await propose(#"{"function":"research","reason":"Undo","undo":true}"#), approve: true)
+        XCTAssertEqual(undone?.status, .completed)
+        saved = await HelperStore(root: directory).all()
+        XCTAssertTrue(saved.isEmpty)
+        let audit = await access.audit.entries(ownerID: conversation.ownerID).map(\.action)
+        XCTAssertTrue(audit.contains("helper.saved"))
+        XCTAssertTrue(audit.contains("helper.undone"))
+    }
+
     func testFileDeletionApprovalExecutesOnlyOnce() async throws {
         let conversation = try await createConversation()
         let workspace = ChatWorkspaceStore(root: directory)

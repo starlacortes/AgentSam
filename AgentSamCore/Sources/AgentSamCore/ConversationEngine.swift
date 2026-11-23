@@ -17,6 +17,7 @@ public actor ConversationEngine {
     private let promptStore: PromptStore
     private let access: ConversationAccess?
     private let skills: SkillStore
+    private let helpers: HelperStore
     /// Whether a routing call decides DIRECT, SOLO, USE_SKILL or CLARIFY before Ada answers. Off: Ada
     /// answers in one loop and hands work on with `delegate` and `start_task` when it needs more.
     private let routing: Bool
@@ -29,7 +30,7 @@ public actor ConversationEngine {
     private var running: [UUID: Task<Void, Never>] = [:]
     private var memoryJobs: [UUID: Task<Void, Never>] = [:]
 
-    public init(store: MissionStore, conversations: ConversationStore, memory: WorkspaceMemoryStore, workspace: ChatWorkspaceStore? = nil, keyRing: KeyRing, client: LLMClient = LLMClient(), connectors: ConnectorHub? = nil, missions: MissionEngine, promptStore: PromptStore? = nil, access: ConversationAccess? = nil, knowledge: WorkspaceKnowledgeStore? = nil, photos: ConversationPhotoStore? = nil, skills: SkillStore? = nil, routing: Bool = true) {
+    public init(store: MissionStore, conversations: ConversationStore, memory: WorkspaceMemoryStore, workspace: ChatWorkspaceStore? = nil, keyRing: KeyRing, client: LLMClient = LLMClient(), connectors: ConnectorHub? = nil, missions: MissionEngine, promptStore: PromptStore? = nil, access: ConversationAccess? = nil, knowledge: WorkspaceKnowledgeStore? = nil, photos: ConversationPhotoStore? = nil, skills: SkillStore? = nil, helpers: HelperStore? = nil, routing: Bool = true) {
         self.store = store
         self.conversations = conversations
         self.memory = memory
@@ -43,12 +44,13 @@ public actor ConversationEngine {
         self.promptStore = promptStore ?? PromptStore(builtins: PromptStore.builtins)
         self.access = access
         self.skills = skills ?? SkillStore(root: store.root)
+        self.helpers = helpers ?? HelperStore(root: store.root)
         self.routing = routing
         self.completionOverride = nil
         self.missionOverride = nil
     }
 
-    init(store: MissionStore, conversations: ConversationStore, memory: WorkspaceMemoryStore, workspace: ChatWorkspaceStore? = nil, keyRing: KeyRing, connectors: ConnectorHub? = nil, missions: MissionEngine, promptStore: PromptStore? = nil, access: ConversationAccess? = nil, knowledge: WorkspaceKnowledgeStore? = nil, photos: ConversationPhotoStore? = nil, skills: SkillStore? = nil, routing: Bool = true, completion: @escaping Completion, missionRunner: MissionRunner? = nil) {
+    init(store: MissionStore, conversations: ConversationStore, memory: WorkspaceMemoryStore, workspace: ChatWorkspaceStore? = nil, keyRing: KeyRing, connectors: ConnectorHub? = nil, missions: MissionEngine, promptStore: PromptStore? = nil, access: ConversationAccess? = nil, knowledge: WorkspaceKnowledgeStore? = nil, photos: ConversationPhotoStore? = nil, skills: SkillStore? = nil, helpers: HelperStore? = nil, routing: Bool = true, completion: @escaping Completion, missionRunner: MissionRunner? = nil) {
         self.store = store
         self.conversations = conversations
         self.memory = memory
@@ -62,6 +64,7 @@ public actor ConversationEngine {
         self.promptStore = promptStore ?? PromptStore(builtins: PromptStore.builtins)
         self.access = access
         self.skills = skills ?? SkillStore(root: store.root)
+        self.helpers = helpers ?? HelperStore(root: store.root)
         self.routing = routing
         self.completionOverride = completion
         self.missionOverride = missionRunner
@@ -509,7 +512,8 @@ public actor ConversationEngine {
         // Handing work to a task needs a user-owned reply to show its progress in.
         let taskTools = ref == nil ? [] : TaskTools.definitions(catalog: SkillTeams.catalog(await skills.enabled()))
         // Helpers run inside this reply, so they need a user-owned reply to show their work in too.
-        let delegateTools = ref == nil ? [] : HelperTools.definitions(hasWorkstation: workstation != nil, hasMCP: !mcpTools.isEmpty)
+        // Proposing a saved helper role needs an approval card, so it is offered only with access.
+        let delegateTools = ref == nil ? [] : HelperTools.definitions(hasWorkstation: workstation != nil, hasMCP: !mcpTools.isEmpty, saved: await helpers.all(), canSave: access != nil)
         let offeredTools = OfferedTools.direct(connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedAccess: access != nil, hasWorkstation: workstation != nil, mcpTools: mcpTools, taskTools: taskTools, delegateTools: delegateTools)
         let tools = offeredTools.definitions
         let offered = offeredTools.names
@@ -580,6 +584,7 @@ public actor ConversationEngine {
         var runs = 0
         var tasks = 0
         var delegations = 0
+        var helperSaves = 0
         /// Set once a self-review runs: memory and skill tools then only suggest.
         var reviewed = false
         var writtenFiles: [String] = []
@@ -636,6 +641,17 @@ public actor ConversationEngine {
                 outcome = await startTask(call: call, coordinator: coordinator, context: context, language: language, ref: ref)
             } else {
                 outcome = .failure("Tasks need a user-owned conversation.")
+            }
+        case .delegate where call.function.name == HelperTools.saveToolName:
+            state.helperSaves += 1
+            if state.reviewed {
+                outcome = .failure(SelfReviewTools.applyLaterMessage)
+            } else if state.helperSaves > HelperTools.maxSavesPerReply {
+                outcome = .failure("Helper proposal limit reached for this reply (\(HelperTools.maxSavesPerReply)).")
+            } else if let ref, let access {
+                outcome = await proposeHelper(call: call, access: access, ref: ref, conversationID: conversationID, language: language)
+            } else {
+                outcome = .failure("Saving a helper role needs a user-owned conversation with approvals.")
             }
         case .delegate:
             state.delegations += 1
@@ -747,12 +763,34 @@ public actor ConversationEngine {
         return outcome
     }
 
+    /// Puts Ada's proposed helper role on an approval card. It always asks: no standing permission
+    /// covers it, and the approval route applies it (see AccessRoutes).
+    private func proposeHelper(call: APIToolCall, access: ConversationAccess, ref: ResponseRef, conversationID: UUID, language: String) async -> ToolOutcome {
+        let request: HelperTools.SaveRequest
+        switch HelperTools.saveRequest(from: call) {
+        case .failure(let error): return .failure(error.message)
+        case .success(let valid): request = valid
+        }
+        let current = await helpers.helper(for: request.function)
+        if request.undo && current == nil { return .failure("There is no saved role for \(request.name) to undo.") }
+        let card = HelperTools.card(for: request, current: current, language: language)
+        let lifetime = await access.permissions.approvalLifetime(ownerID: ref.ownerID)
+        let action = AgentActionRequest(
+            ownerID: ref.ownerID, conversationID: conversationID, kind: .helperSave,
+            title: card.title, detail: card.detail,
+            toolName: call.function.name, arguments: .object([("raw", .string(call.function.arguments))]), lifetime: lifetime
+        )
+        let saved = await access.actions.request(action)
+        await access.audit.record(ownerID: ref.ownerID, action: "helper.proposed", detail: "\(request.name)\(request.undo ? " undo" : ""): \(request.reason.prefix(200))")
+        return ToolOutcome(resultText: "Approval requested (\(saved.id.uuidString)). The user sees the proposed role on an approval card and approves or denies it there; this is the routine flow. Do not retry this call. Nothing has changed yet; until it is approved, helpers keep their current role.")
+    }
+
     /// Runs one `delegate` call to the end: the helper gets the tools Ada handed it (a subset of her
     /// own, dispatched exactly as hers are), works for a few rounds, and reports back. Approval cards,
     /// standing permissions, the run budget and the spending limit apply as they do for Ada.
     private func runHelper(call: APIToolCall, parent: OfferedTools, state: ToolRunState, context: ConversationPromptContext, language: String, ref: ResponseRef, conversationID: UUID, coordinator: AgentProfile, workstation: Workstation?) async -> ToolOutcome {
         let request: HelperTools.Request
-        switch HelperTools.request(from: call) {
+        switch HelperTools.request(from: call, saved: await helpers.all()) {
         case .failure(let error): return .failure(error.message)
         case .success(let valid): request = valid
         }

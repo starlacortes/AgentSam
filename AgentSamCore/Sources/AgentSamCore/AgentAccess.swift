@@ -275,7 +275,7 @@ public actor HostAccessStore {
 }
 
 public struct AgentActionRequest: Codable, Identifiable, Hashable, Sendable {
-    public enum Kind: String, Codable, Sendable { case connectorWrite, fileDelete, workstation, mcpCall }
+    public enum Kind: String, Codable, Sendable { case connectorWrite, fileDelete, workstation, mcpCall, helperSave }
     public enum Status: String, Codable, Sendable { case pending, approved, executing, completed, denied, expired, failed }
     public enum FileScope: String, Codable, Sendable { case conversation, project }
 
@@ -483,6 +483,7 @@ public actor AgentActionCenter {
         case .fileDelete: return "file.deletion.finished"
         case .workstation: return "workstation.executed"
         case .mcpCall: return "mcp.executed"
+        case .helperSave: return "helper.saved"
         }
     }
 

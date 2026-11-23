@@ -16,9 +16,15 @@ public enum HelperTools {
     public static let activityLabel = "Helper"
     /// How much of a helper's report Ada gets back.
     static let maxReportCharacters = 8_000
+    /// The tool Ada uses to propose a saved role for one of her helpers.
+    public static let saveToolName = "helper_save"
+    /// Saved-role proposals Ada may make in one reply.
+    public static let maxSavesPerReply = 2
+    static let roleCharacters = 20...1_500
+    static let reasonCharacters = 1...300
 
     /// Sets of tools Ada can hand to a helper. Reading is always included.
-    public enum Group: String, CaseIterable, Sendable {
+    public enum Group: String, CaseIterable, Codable, Sendable {
         /// Read connected data, the web, workspace and project files, and mission files.
         case read
         /// Write, patch and move files in the chat workspace and the project.
@@ -62,16 +68,25 @@ public enum HelperTools {
         return camel + "Ada"
     }
 
-    static func role(for function: String) -> Role? {
-        let key = function.lowercased().filter { $0.isLetter }
-        return builtInRoles.first { $0.function == key || name(for: $0.function)?.lowercased() == key }
+    /// The key a function is saved under: researchAda and "Research" are both "research",
+    /// "price check" is "pricecheck".
+    public static func key(for function: String) -> String {
+        guard let name = name(for: function) else { return "" }
+        return String(name.dropLast(3)).lowercased()
     }
 
-    public static func definitions(hasWorkstation: Bool, hasMCP: Bool) -> [APIToolDef] {
+    static func role(for function: String) -> Role? {
+        let key = key(for: function)
+        return builtInRoles.first { $0.function == key }
+    }
+
+    public static func definitions(hasWorkstation: Bool, hasMCP: Bool, saved: [SavedHelper] = [], canSave: Bool = false) -> [APIToolDef] {
         let functions = builtInRoles.map(\.function).joined(separator: ", ")
         var groups = Group.allCases.filter { $0 != .workstation || hasWorkstation }.filter { $0 != .mcp || hasMCP }.map(\.rawValue)
         if groups.isEmpty { groups = ["read"] }
-        return [
+        let savedLine = saved.isEmpty ? "" : " Saved roles (these replace a ready role of the same name): \(saved.prefix(HelperStore.maxHelpers).map { "\($0.function) (\($0.name), version \($0.version))" }.joined(separator: ", "))."
+        let groupItems: JSONValue = .object([("type", .string("string")), ("enum", .array(groups.map { .string($0) }))])
+        var defs = [
             APIToolDef(
                 name: "delegate",
                 description: """
@@ -84,12 +99,12 @@ public enum HelperTools {
                 parameters: .object([
                     ("type", .string("object")),
                     ("properties", .object([
-                        ("function", .object([("type", .string("string")), ("description", .string("What the helper does, in one or two words. Ready roles: \(functions). Any other word works too; then write a brief."))])),
+                        ("function", .object([("type", .string("string")), ("description", .string("What the helper does, in one or two words. Ready roles: \(functions).\(savedLine) Any other word works too; then write a brief."))])),
                         ("task", .object([("type", .string("string")), ("description", .string("The whole job, self-contained: what to produce, what to use, and what done looks like. The helper cannot see this chat."))])),
                         ("brief", .object([("type", .string("string")), ("description", .string("Optional. Extra instructions about the helper's role or method, for example when the function has no ready role."))])),
                         ("tools", .object([
                             ("type", .string("array")),
-                            ("items", .object([("type", .string("string")), ("enum", .array(groups.map { .string($0) }))])),
+                            ("items", groupItems),
                             ("description", .string("Tool groups to hand over, beyond reading, which is always included. A helper's connector writes and workstation commands still create approval cards. Leave out for read-only work.")),
                         ])),
                     ])),
@@ -97,6 +112,101 @@ public enum HelperTools {
                 ])
             ),
         ]
+        guard canSave else { return defs }
+        defs.append(APIToolDef(
+            name: saveToolName,
+            description: """
+            Propose a saved role for one of your helpers, so it works better next time: how it should work, what to \
+            check, what to deliver, and the tool groups it gets by default. Use it when you keep writing the same brief \
+            for a function, when a helper's report showed a recurring gap, or when the user asks you to improve a helper. \
+            The user approves or denies it on a card; nothing changes until then. undo: true puts back the version before \
+            the current one. A role is prompt text only: it cannot change permissions, keys, spending limits or connections, \
+            and its tools still go through the same approvals.
+            """,
+            parameters: .object([
+                ("type", .string("object")),
+                ("properties", .object([
+                    ("function", .object([("type", .string("string")), ("description", .string("The helper's function in one to three words, e.g. research or price check."))])),
+                    ("role", .object([("type", .string("string")), ("description", .string("The whole role, written to the helper: \(roleCharacters.lowerBound) to \(roleCharacters.upperBound) characters. Leave out with undo."))])),
+                    ("tools", .object([("type", .string("array")), ("items", groupItems), ("description", .string("Default tool groups beyond reading, used when you delegate without naming tools."))])),
+                    ("reason", .object([("type", .string("string")), ("description", .string("One sentence for the user: what you noticed and what this changes."))])),
+                    ("undo", .object([("type", .string("boolean")), ("description", .string("true puts back the previous version instead of saving a new one."))])),
+                ])),
+                ("required", .array([.string("function"), .string("reason")])),
+            ])
+        ))
+        return defs
+    }
+
+    /// A checked `helper_save` call.
+    public struct SaveRequest: Sendable, Equatable {
+        public var function: String
+        public var name: String
+        public var role: String
+        public var groups: Set<Group>
+        public var reason: String
+        public var undo: Bool
+    }
+
+    public static func saveRequest(from call: APIToolCall) -> Result<SaveRequest, TriggerError> {
+        let args = AgentTools.arguments(of: call)
+        let function = (args["function"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let name = name(for: function) else { return .failure(.invalid("helper_save needs a function of one to three short words, such as research or price check.")) }
+        let reason = (args["reason"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard reasonCharacters.contains(reason.count) else { return .failure(.invalid("helper_save needs a reason of at most \(reasonCharacters.upperBound) characters.")) }
+        let undo = args["undo"]?.boolValue ?? false
+        if undo { return .success(SaveRequest(function: function, name: name, role: "", groups: [.read], reason: reason, undo: true)) }
+        let role = (args["role"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard roleCharacters.contains(role.count) else { return .failure(.invalid("helper_save needs a role of \(roleCharacters.lowerBound) to \(roleCharacters.upperBound) characters.")) }
+        var groups: Set<Group> = [.read]
+        for raw in (args["tools"]?.arrayValue ?? []).compactMap(\.stringValue) {
+            guard let group = Group(rawValue: raw.lowercased()) else {
+                return .failure(.invalid("Unknown tool group \"\(raw)\". Groups: \(Group.allCases.map(\.rawValue).joined(separator: ", "))."))
+            }
+            groups.insert(group)
+        }
+        return .success(SaveRequest(function: function, name: name, role: role, groups: groups, reason: reason, undo: false))
+    }
+
+    /// The approval card's text for a proposal. `current` is the saved version it would replace.
+    static func card(for request: SaveRequest, current: SavedHelper?, language: String) -> (title: String, detail: String) {
+        let es = language == "es"
+        if request.undo {
+            let title = es ? "Deshacer el último cambio de \(request.name)" : "Undo the last change to \(request.name)"
+            let back = current?.history.first.map { es ? "Vuelve a la versión \($0.version)." : "Goes back to version \($0.version)." }
+                ?? (es ? "Quita el rol guardado; vuelve el rol de serie, si lo hay." : "Removes the saved role; the ready role, if there is one, applies again.")
+            return (title, "\(back)\n\(es ? "Motivo" : "Why"): \(request.reason)")
+        }
+        let version = (current?.version ?? 0) + 1
+        let title = current == nil
+            ? (es ? "Guardar un rol para \(request.name)" : "Save a role for \(request.name)")
+            : (es ? "Mejorar \(request.name) (versión \(version))" : "Improve \(request.name) (version \(version))")
+        let tools = request.groups.map(\.rawValue).sorted().joined(separator: ", ")
+        let detail = """
+        \(es ? "Motivo" : "Why"): \(request.reason)
+        \(es ? "Herramientas por defecto" : "Default tools"): \(tools)
+        \(es ? "Rol" : "Role"):
+        \(request.role)
+        """
+        return (title, detail)
+    }
+
+    /// Applies an approved proposal. Called by the approval route.
+    public static func apply(_ request: SaveRequest, to store: HelperStore) async -> ToolOutcome {
+        do {
+            if request.undo {
+                if let helper = try await store.undo(function: request.function) {
+                    return ToolOutcome(resultText: "\(helper.name) is back to its earlier role (now version \(helper.version)). It applies from the next helper run.")
+                }
+                return ToolOutcome(resultText: "Removed the saved role for \(request.name). Its ready role, if it has one, applies again.")
+            }
+            let helper = try await store.save(function: request.function, role: request.role, groups: request.groups, reason: request.reason)
+            return ToolOutcome(resultText: "Saved \(helper.name) version \(helper.version). It applies from the next helper run.")
+        } catch let error as HelperStoreError {
+            return .failure(error.message)
+        } catch {
+            return .failure(error.localizedDescription)
+        }
     }
 
     public struct Request: Sendable, Equatable {
@@ -105,10 +215,13 @@ public enum HelperTools {
         public var task: String
         public var brief: String?
         public var groups: Set<Group>
+        /// The saved role in use, when Ada saved one for this function.
+        public var savedRole: String? = nil
+        public var savedVersion: Int? = nil
     }
 
     /// Reads a call's arguments, or says what is wrong with them.
-    public static func request(from call: APIToolCall) -> Result<Request, TriggerError> {
+    public static func request(from call: APIToolCall, saved: [SavedHelper] = []) -> Result<Request, TriggerError> {
         let args = AgentTools.arguments(of: call)
         let function = (args["function"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard let name = name(for: function) else { return .failure(.invalid("delegate needs a function of one to three short words, such as research or judge.")) }
@@ -116,6 +229,7 @@ public enum HelperTools {
         guard !task.isEmpty else { return .failure(.invalid("delegate requires a task.")) }
         guard task.count <= 8_000 else { return .failure(.invalid("The task is too long; keep it under 8,000 characters.")) }
         let brief = args["brief"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let savedHelper = saved.first { $0.id == key(for: function) }
         var groups: Set<Group> = [.read]
         if let requested = args["tools"]?.arrayValue {
             for raw in requested.compactMap(\.stringValue) {
@@ -124,10 +238,12 @@ public enum HelperTools {
                 }
                 groups.insert(group)
             }
+        } else if let savedHelper {
+            groups = Set(savedHelper.groups).union([.read])
         } else if let preset = role(for: function) {
             groups = preset.groups
         }
-        return .success(Request(function: function, name: name, task: task, brief: brief?.isEmpty == false ? String(brief!.prefix(1_500)) : nil, groups: groups))
+        return .success(Request(function: function, name: name, task: task, brief: brief?.isEmpty == false ? String(brief!.prefix(1_500)) : nil, groups: groups, savedRole: savedHelper?.role, savedVersion: savedHelper?.version))
     }
 
     /// Whether a helper with these groups may run `name`, offered from `family`.
@@ -156,7 +272,7 @@ public enum HelperTools {
     }
 
     static func systemPrompt(request: Request, language: String, tools: [String]) -> String {
-        let preset = role(for: request.function)?.role
+        let preset = request.savedRole ?? role(for: request.function)?.role
         var text = "You are \(request.name), a helper working for Ada. "
         if let preset { text += preset + " " }
         if let brief = request.brief { text += "\nAda's instructions for your role: \(brief)\n" }
