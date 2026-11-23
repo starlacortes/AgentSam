@@ -638,7 +638,7 @@ public actor ConversationEngine {
             if state.tasks > TaskTools.maxPerReply {
                 outcome = .failure("Task limit reached for this reply (\(TaskTools.maxPerReply)). Finish with what you have.")
             } else if let ref {
-                outcome = await startTask(call: call, coordinator: coordinator, context: context, language: language, ref: ref)
+                outcome = await startTask(call: call, parent: offeredTools, state: state, coordinator: coordinator, context: context, language: language, ref: ref, conversationID: conversationID, workstation: workstation)
             } else {
                 outcome = .failure("Tasks need a user-owned conversation.")
             }
@@ -788,7 +788,7 @@ public actor ConversationEngine {
     /// Runs one `delegate` call to the end: the helper gets the tools Ada handed it (a subset of her
     /// own, dispatched exactly as hers are), works for a few rounds, and reports back. Approval cards,
     /// standing permissions, the run budget and the spending limit apply as they do for Ada.
-    private func runHelper(call: APIToolCall, parent: OfferedTools, state: ToolRunState, context: ConversationPromptContext, language: String, ref: ResponseRef, conversationID: UUID, coordinator: AgentProfile, workstation: Workstation?) async -> ToolOutcome {
+    private func runHelper(call: APIToolCall, parent: OfferedTools, state: ToolRunState, context: ConversationPromptContext, language: String, ref: ResponseRef, conversationID: UUID, coordinator: AgentProfile, workstation: Workstation?, maxRounds: Int = HelperTools.maxRounds) async -> ToolOutcome {
         let request: HelperTools.Request
         switch HelperTools.request(from: call, saved: await helpers.all()) {
         case .failure(let error): return .failure(error.message)
@@ -818,7 +818,7 @@ public actor ConversationEngine {
         do {
             var report = ""
             var finished = false
-            for _ in 0..<HelperTools.maxRounds {
+            for _ in 0..<maxRounds {
                 try Task.checkCancellation()
                 let reply = try await complete(coordinator: coordinator, system: system, messages: messages, tools: offeredTools.definitions.isEmpty ? nil : offeredTools.definitions)
                 rounds += 1
@@ -993,54 +993,128 @@ public actor ConversationEngine {
 
     /// Runs one `start_task` call to the end: picks the skill's team (or Ada alone), launches the
     /// mission, shows its progress on the reply, and returns its report to Ada's loop.
-    private func startTask(call: APIToolCall, coordinator: AgentProfile, context: ConversationPromptContext, language: String, ref: ResponseRef) async -> ToolOutcome {
+    /// Runs one `start_task` call on helpers: Ada plans up to four steps, each runs as a helper with
+    /// the tools it needs (under the same approvals, budgets and audit as her own tools), judgeAda
+    /// checks the result, and the whole run is recorded as a mission for its history and files page.
+    private func startTask(call: APIToolCall, parent: OfferedTools, state: ToolRunState, coordinator: AgentProfile, context: ConversationPromptContext, language: String, ref: ResponseRef, conversationID: UUID, workstation: Workstation?) async -> ToolOutcome {
         let request: TaskTools.Request
         switch TaskTools.request(from: call) {
         case .failure(let error): return .failure(error.message)
         case .success(let valid): request = valid
         }
         let es = language == "es"
-        let team: Team
-        let skillName: String
-        if let skill = request.skill {
-            let skillList = await skills.enabled()
-            let selected = await skillTeams(for: ConversationDecision(action: .useSkill, skillIDs: [skill]), skills: skillList, teams: await store.loadTeams(), coordinator: coordinator, providers: await store.loadProviders())
-            guard let first = selected.first else {
-                let known = skillList.map(\.id).joined(separator: ", ")
-                return .failure("No enabled skill \"\(skill)\" can run (unknown, or its specialists have no provider key). Enabled skills: \(known.isEmpty ? "none" : known). Leave skill out to work on it yourself.")
+        var skill: Skill?
+        if let id = request.skill {
+            let enabled = await skills.enabled()
+            guard let found = await skills.skill(id: id), found.enabled else {
+                let known = enabled.map(\.id).joined(separator: ", ")
+                return .failure("No enabled skill \"\(id)\". Enabled skills: \(known.isEmpty ? "none" : known). Leave skill out to plan it yourself.")
             }
-            team = first
-            skillName = skillList.first { $0.teamID == first.id }?.name ?? first.name
-        } else {
-            var solo = Self.soloTeam(coordinator: coordinator, language: language, store: promptStore)
-            if let existing = await store.team(id: Self.soloTeamID) { solo.createdAt = existing.createdAt }
-            await store.saveTeam(solo)
-            team = solo
-            skillName = es ? "Ada sola" : "Ada working alone"
+            skill = found
         }
-        let label = team.id == Self.soloTeamID
-            ? (es ? "Trabajando en ello yo sola" : "Working on it myself")
-            : (es ? "Trabajando con especialistas: \(team.name)" : "Working with specialists: \(team.name)")
-        let ada = AgentActivity(agentID: coordinator.id, agentName: "Ada", summary: request.reason ?? label, state: "working")
+        let procedure = skill.map { String(SkillTeams.procedureBlock($0).trimmingCharacters(in: .whitespacesAndNewlines).prefix(4_000)) }
+        let started = CostMeter.current?.total ?? 0
+        var mission = Mission(teamID: TaskTools.teamID, teamName: skill?.name ?? (es ? "Tarea de Ada" : "Ada's task"), objective: request.objective, sourceName: "Ada conversation", inputContext: context.missionHandoff, status: .running, phase: .planning, outputLanguage: language)
+        mission.launchedBy = ref.launchedBy
+        mission.startedAt = Date()
+        await store.saveMission(mission)
+        await access?.actions.link(missionID: mission.id, conversationID: conversationID, ownerID: ref.ownerID)
+        await access?.audit.record(ownerID: ref.ownerID, action: "task.start", detail: "\(mission.id.uuidString)\(skill.map { " [\($0.id)]" } ?? ""): \(request.objective.prefix(200))")
         _ = try? await conversations.updateMessage(id: ref.conversationID, ownerID: ref.ownerID, messageID: ref.responseID) { message in
-            if !message.teamIDs.contains(team.id) { message.teamIDs.append(team.id) }
-            message.activity = [ada]
+            if !message.missionIDs.contains(mission.id) { message.missionIDs.append(mission.id) }
         }
-        await beginStep(label, in: ref)
+        await store.appendEvent(mission.id, kind: .missionStart, text: mission.objective)
+        await store.appendEvent(mission.id, kind: .phase, text: MissionPhase.planning.rawValue)
+        await beginStep(request.reason ?? (es ? "Planificando la tarea" : "Planning the task"), in: ref)
+
+        func finish(_ status: MissionStatus, report: String, verdict: VerificationReport.Verdict?) async -> Mission {
+            mission.status = status
+            mission.phase = .done
+            mission.finishedAt = Date()
+            mission.finalReport = report
+            mission.totalCostUSD = max(0, (CostMeter.current?.total ?? 0) - started)
+            await store.writeDeliverable(missionID: mission.id, name: "final-report.md", content: report)
+            await store.appendEvent(mission.id, kind: .deliverable, text: "final-report.md", deliverableName: "final-report.md")
+            await store.appendEvent(mission.id, kind: .report, text: String(report.prefix(20_000)))
+            if mission.totalCostUSD > 0 { await store.appendEvent(mission.id, kind: .cost, costUSD: mission.totalCostUSD) }
+            await store.appendEvent(mission.id, kind: .missionEnd, text: status == .completed ? "Task finished\(verdict.map { " (\($0.rawValue))" } ?? "")." : "Task \(status.rawValue).")
+            await store.saveMission(mission)
+            await access?.audit.record(ownerID: ref.ownerID, action: "task.finished", detail: "\(mission.id.uuidString): \(status.rawValue)\(verdict.map { ", \($0.rawValue)" } ?? "")")
+            return mission
+        }
+
         do {
-            let mission = try await runMission(team: team, objective: request.objective, context: context.missionHandoff, launchedBy: ref.launchedBy, language: language, conversationID: ref.conversationID, ownerID: ref.ownerID, projectName: context.projectName)
-            _ = try? await conversations.updateMessage(id: ref.conversationID, ownerID: ref.ownerID, messageID: ref.responseID) { message in
-                if !message.missionIDs.contains(mission.id) { message.missionIDs.append(mission.id) }
+            // Plan.
+            let hasMCP = parent.definitions.contains { parent.family(of: $0.function.name) == .mcp }
+            let planTool = TaskTools.planDefinition(hasWorkstation: workstation != nil, hasMCP: hasMCP)
+            var plan: [TaskTools.Step]?
+            let planMessages: [APIMessage] = [.user("OBJECTIVE:\n\(request.objective)\(context.missionHandoff.isEmpty ? "" : "\n\nCONTEXT FROM THE CONVERSATION:\n\(context.missionHandoff.prefix(6_000))")")]
+            if let reply = try? await complete(coordinator: coordinator, system: TaskTools.planSystemPrompt(language: language, procedure: procedure), messages: planMessages, tools: [planTool]) {
+                plan = reply.message.tool_calls?.lazy.compactMap { TaskTools.steps(from: $0) }.first
             }
-            let finished = try await monitor(missions: [mission], teams: [team], conversationID: ref.conversationID, ownerID: ref.ownerID, responseID: ref.responseID, ada: ada)
-            guard let done = finished.first else { return .failure("The task's mission disappeared before it finished.") }
-            CostMeter.current?.add(done.totalCostUSD)
+            try Task.checkCancellation()
+            if plan == nil { await store.appendEvent(mission.id, kind: .notice, text: "No usable plan came back, so one helper does the whole objective.") }
+            let steps = plan ?? TaskTools.fallbackPlan(objective: request.objective)
+            await store.appendEvent(mission.id, kind: .plan, text: TaskTools.planSummary(steps))
+            await store.appendEvent(mission.id, kind: .phase, text: MissionPhase.working.rawValue)
+
+            // Work: each step is a helper.
+            var reports: [(name: String, report: String)] = []
+            var files: [String] = []
+            var failures = 0
+            for step in steps {
+                try Task.checkCancellation()
+                let task = TaskTools.stepTask(step, objective: request.objective, earlier: reports)
+                await store.appendEvent(mission.id, kind: .taskStarted, agentName: step.name, text: HelperTools.firstLine(step.task, limit: 300))
+                var arguments: [(String, JSONValue)] = [("function", .string(step.function)), ("task", .string(task)), ("tools", .array(step.groups.map(\.rawValue).sorted().map { .string($0) }))]
+                if let id = skill?.id { arguments.append(("skill", .string(id))) }
+                let stepCall = APIToolCall(id: UUID().uuidString, function: .init(name: "delegate", arguments: TaskTools.json(.object(arguments))))
+                let stepState = ToolRunState()
+                let outcome = await runHelper(call: stepCall, parent: parent, state: stepState, context: context, language: language, ref: ref, conversationID: conversationID, coordinator: coordinator, workstation: workstation, maxRounds: TaskTools.stepRounds)
+                let report = TaskTools.reportBody(outcome)
+                reports.append((step.name, report))
+                state.writtenFiles.append(contentsOf: stepState.writtenFiles)
+                for name in stepState.writtenFiles where !files.contains(name) {
+                    files.append(name)
+                    if let content = await workspace.read(conversationID: conversationID, name: name) {
+                        await store.writeDeliverable(missionID: mission.id, name: name, content: content)
+                        await store.appendEvent(mission.id, kind: .deliverable, agentName: step.name, text: name, deliverableName: name)
+                    }
+                }
+                if outcome.succeeded {
+                    await store.appendEvent(mission.id, kind: .taskDone, agentName: step.name, text: HelperTools.firstLine(report, limit: 300, fallback: "Done"))
+                } else {
+                    failures += 1
+                    await store.appendEvent(mission.id, kind: .error, agentName: step.name, text: HelperTools.firstLine(outcome.resultText, limit: 300))
+                }
+            }
+
+            // Check: judgeAda reads the files and reports, read-only.
+            try Task.checkCancellation()
+            await store.appendEvent(mission.id, kind: .phase, text: MissionPhase.verifying.rawValue)
+            await beginStep(es ? "judgeAda está revisando el resultado" : "judgeAda is checking the result", in: ref)
+            let judgeArguments = TaskTools.json(.object([
+                ("function", .string("judge")), ("task", .string(TaskTools.judgeTask(objective: request.objective, reports: reports, files: files))), ("tools", .array([])),
+            ]))
+            let judgeCall = APIToolCall(id: UUID().uuidString, function: .init(name: "delegate", arguments: judgeArguments))
+            let judged = await runHelper(call: judgeCall, parent: parent, state: ToolRunState(), context: context, language: language, ref: ref, conversationID: conversationID, coordinator: coordinator, workstation: workstation)
+            let check = TaskTools.reportBody(judged)
+            let verdict = judged.succeeded ? TaskTools.verdict(in: check) : .unverified
+            await store.appendEvent(mission.id, kind: .verifyVerdict, agentName: "judgeAda", text: verdict.rawValue.uppercased())
+            await store.writeDeliverable(missionID: mission.id, name: "verification.md", content: "# Check by judgeAda: \(verdict.rawValue.uppercased())\n\n\(check)\n")
+
+            // Report.
+            await store.appendEvent(mission.id, kind: .phase, text: MissionPhase.reporting.rawValue)
+            let status: MissionStatus = failures == steps.count ? .failed : .completed
+            let done = await finish(status, report: TaskTools.finalReport(objective: request.objective, reports: reports, verdict: verdict, check: check, files: files), verdict: verdict)
             await beginStep(es ? "Revisando el resultado" : "Checking the result", in: ref)
-            return TaskTools.result(mission: done, skillName: skillName, files: await store.deliverables(missionID: done.id))
+            return TaskTools.result(mission: done, skillName: skill?.name ?? (es ? "ayudantes de Ada" : "Ada's helpers"), files: files)
         } catch is CancellationError {
+            _ = await finish(.stopped, report: "The task was stopped.", verdict: nil)
             return .failure("The task was stopped.")
         } catch {
-            return .failure("The task could not start: \(error.localizedDescription)")
+            _ = await finish(.failed, report: "The task failed: \(error.localizedDescription)", verdict: nil)
+            return .failure("The task failed: \(error.localizedDescription)")
         }
     }
 

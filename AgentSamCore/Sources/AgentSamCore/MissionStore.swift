@@ -202,6 +202,7 @@ public actor MissionStore {
         _ missionID: UUID,
         kind: RunEvent.Kind,
         agent: AgentProfile? = nil,
+        agentName: String? = nil,
         text: String? = nil,
         deliverableName: String? = nil,
         costUSD: Double? = nil
@@ -213,7 +214,7 @@ public actor MissionStore {
             missionID: missionID,
             kind: kind,
             agentID: agent?.id,
-            agentName: agent?.name,
+            agentName: agent?.name ?? agentName,
             text: text,
             deliverableName: deliverableName,
             costUSD: costUSD

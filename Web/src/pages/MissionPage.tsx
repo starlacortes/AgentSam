@@ -60,6 +60,8 @@ export function MissionPage() {
   const deliverables = detail?.deliverables ?? []
   const hasReport = deliverables.includes(REPORT)
   const finished = mission ? !running && mission.status !== 'queued' : false
+  // A task Ada ran on helpers has no team behind it: it is stopped from the chat and started again by asking Ada.
+  const fromTeam = Boolean(team)
 
   // A finished mission opens on its final report.
   useEffect(() => {
@@ -134,7 +136,7 @@ export function MissionPage() {
           </div>
         </div>
         <div className="row">
-          {running ? (
+          {running && fromTeam ? (
             <button className="btn danger" onClick={() => void stop()}>
               {t('Stop')}
             </button>
@@ -144,9 +146,11 @@ export function MissionPage() {
               <Link className="btn ghost" to="/">
                 {t('Follow up with Ada')}
               </Link>
-              <button className="btn ghost" disabled={busy} onClick={() => void runAgain()}>
-                {busy ? t('Launching…') : t('Run again')}
-              </button>
+              {fromTeam ? (
+                <button className="btn ghost" disabled={busy} onClick={() => void runAgain()}>
+                  {busy ? t('Launching…') : t('Run again')}
+                </button>
+              ) : null}
             </>
           ) : null}
           {isAdmin && finished ? (
