@@ -90,16 +90,6 @@ public actor ConversationStore {
         return conversation
     }
 
-    public func updateProposal(id: UUID, ownerID: String, proposalID: UUID, status: TeamProposal.Status) throws -> Conversation {
-        guard let conversation = try get(id: id, ownerID: ownerID),
-              let message = conversation.messages.first(where: { $0.proposal?.id == proposalID }),
-              let proposal = message.proposal else { throw ConversationError.notFound }
-        guard proposal.status == .pending else { throw ConversationError.proposalHandled }
-        return try updateMessage(id: id, ownerID: ownerID, messageID: message.id) { message in
-            message.proposal?.status = status
-        }
-    }
-
     public func reconcileInterrupted() throws {
         let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
         for file in files where file.pathExtension == "json" {

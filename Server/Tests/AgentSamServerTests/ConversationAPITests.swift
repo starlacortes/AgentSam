@@ -3,11 +3,6 @@ import XCTVapor
 import AgentSamCore
 import Foundation
 
-private struct AppliedProposal: Decodable {
-    var team: Team
-    var conversation: Conversation
-}
-
 final class ConversationAPITests: XCTestCase {
     private let token = "conversation-test-token"
     private var directory: URL!
@@ -177,40 +172,6 @@ final class ConversationAPITests: XCTestCase {
         })
         try await app.test(.GET, "api/conversations/\(conversation.id.uuidString)/files", afterResponse: { res async in
             XCTAssertEqual(res.status, .unauthorized)
-        })
-    }
-
-    func testProposalOnlyMutatesAfterApprovalAndCannotBeAppliedTwice() async throws {
-        let conversation = try await createConversation()
-        var seeded: Team?
-        try await app.test(.GET, "api/teams", beforeRequest: authorize, afterResponse: { res async throws in
-            seeded = try res.content.decode([Team].self).first
-        })
-        let original = try XCTUnwrap(seeded)
-        var agents = original.agents
-        for index in agents.indices {
-            agents[index].providerID = "anthropic"
-            agents[index].model = "claude-sonnet-4-5"
-        }
-        let draft = TeamProposalDraft(baseTeamID: original.id, name: "Approved research", goal: original.goal, agents: agents)
-        let proposal = try TeamProposalValidation.make(draft: draft, teams: [original], providers: ProviderConfig.builtin)
-        let store = ConversationStore(root: directory)
-        _ = try await store.append(id: conversation.id, ownerID: "shared-server-token", message: ConversationMessage(role: .assistant, text: "Review this draft", proposal: proposal))
-        try await app.test(.GET, "api/teams/\(original.id.uuidString)", beforeRequest: authorize, afterResponse: { res async throws in
-            XCTAssertEqual(try res.content.decode(Team.self).name, original.name)
-        })
-        try await app.test(.POST, "api/conversations/\(conversation.id.uuidString)/proposals/\(proposal.id.uuidString)/apply", beforeRequest: authorize, afterResponse: { res async throws in
-            XCTAssertEqual(res.status, .ok, res.body.string)
-            XCTAssertEqual(try res.content.decode(AppliedProposal.self).team.name, "Approved research")
-        })
-        try await app.test(.POST, "api/conversations/\(conversation.id.uuidString)/proposals/\(proposal.id.uuidString)/apply", beforeRequest: authorize, afterResponse: { res async in
-            XCTAssertEqual(res.status, .badRequest)
-        })
-        try await app.test(.GET, "api/teams/\(original.id.uuidString)", beforeRequest: authorize, afterResponse: { res async throws in
-            let team = try res.content.decode(Team.self)
-            XCTAssertEqual(team.name, "Approved research")
-            XCTAssertEqual(team.id, original.id)
-            XCTAssertEqual(team.toolScope?.permissions.sendEmail, false)
         })
     }
 

@@ -61,14 +61,6 @@ struct KeyBody: Decodable {
     var key: String
 }
 
-struct TeamInput: Decodable {
-    var id: UUID?
-    var name: String
-    var emoji: String?
-    var goal: String?
-    var agents: [AgentProfile]?
-}
-
 struct MissionDetail: Encodable {
     var mission: Mission
     var events: [RunEvent]

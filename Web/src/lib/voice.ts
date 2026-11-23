@@ -534,10 +534,6 @@ async function postRecording(path: string, audio: Blob, language?: string): Prom
   return data.text
 }
 
-export function transcribe(chatID: string, audio: Blob): Promise<string> {
-  return postRecording(`/api/chats/${chatID}/transcribe`, audio)
-}
-
 export function transcribeConversation(conversationID: string, audio: Blob, language?: string): Promise<string> {
   return postRecording(`/api/conversations/${conversationID}/transcribe`, audio, language)
 }

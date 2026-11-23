@@ -472,26 +472,6 @@ public enum ConversationRoute: String, Codable, Sendable {
     case clarify = "CLARIFY"
 }
 
-public struct TeamProposalDraft: Decodable, Sendable {
-    public var baseTeamID: UUID?
-    public var name: String
-    public var emoji: String?
-    public var goal: String
-    public var agents: [AgentProfile]
-    public var rationale: String?
-    public var toolScope: ToolScope?
-
-    public init(baseTeamID: UUID? = nil, name: String, emoji: String? = nil, goal: String, agents: [AgentProfile], rationale: String? = nil, toolScope: ToolScope? = nil) {
-        self.baseTeamID = baseTeamID
-        self.name = name
-        self.emoji = emoji
-        self.goal = goal
-        self.agents = agents
-        self.rationale = rationale
-        self.toolScope = toolScope
-    }
-}
-
 public struct ConversationDecision: Decodable, Sendable {
     public var action: ConversationRoute
     public var message: String?
@@ -499,17 +479,15 @@ public struct ConversationDecision: Decodable, Sendable {
     public var skillIDs: [String]?
     public var teamIDs: [UUID]?
     public var rationale: String?
-    public var proposal: TeamProposalDraft?
     /// For CLARIFY: two to four short answers the user can pick with one click.
     public var options: [String]?
 
-    public init(action: ConversationRoute, message: String? = nil, skillIDs: [String]? = nil, teamIDs: [UUID]? = nil, rationale: String? = nil, proposal: TeamProposalDraft? = nil, options: [String]? = nil) {
+    public init(action: ConversationRoute, message: String? = nil, skillIDs: [String]? = nil, teamIDs: [UUID]? = nil, rationale: String? = nil, options: [String]? = nil) {
         self.action = action
         self.message = message
         self.skillIDs = skillIDs
         self.teamIDs = teamIDs
         self.rationale = rationale
-        self.proposal = proposal
         self.options = options
     }
 
@@ -527,8 +505,6 @@ public enum ConversationError: Error, LocalizedError, Sendable {
     case emptyMessage
     case messageTooLong
     case alreadyRunning
-    case invalidProposal(String)
-    case proposalHandled
     case noProvider
     case missingProviderKey(String)
     case persistence(String)
@@ -539,8 +515,6 @@ public enum ConversationError: Error, LocalizedError, Sendable {
         case .emptyMessage: "Write a message first."
         case .messageTooLong: "Messages can be at most 20,000 characters."
         case .alreadyRunning: "Ada is already responding in this conversation."
-        case .invalidProposal(let reason): reason
-        case .proposalHandled: "This team proposal has already been handled."
         case .noProvider: "Add a model provider before chatting with Ada."
         case .missingProviderKey(let name): "Add an API key for \(name) in Settings before chatting with Ada."
         case .persistence(let reason): reason

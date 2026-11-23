@@ -8,7 +8,7 @@ extension ConversationError: AbortError {
         case .notFound: .notFound
         case .alreadyRunning: .conflict
         case .persistence: .internalServerError
-        case .emptyMessage, .messageTooLong, .invalidProposal, .proposalHandled, .noProvider, .missingProviderKey: .badRequest
+        case .emptyMessage, .messageTooLong, .noProvider, .missingProviderKey: .badRequest
         }
     }
 
@@ -76,11 +76,6 @@ struct TriggerAddBody: Content {
     var prompt: String
     var query: String?
     var language: String?
-}
-
-struct ProposalApplication: Encodable {
-    var team: Team
-    var conversation: Conversation
 }
 
 func conversationRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
@@ -209,35 +204,6 @@ func conversationRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
         try await ctx.conversations.delete(id: id, ownerID: owner)
         ConversationPhotoStore(root: ctx.store.root).removeAll(conversationID: id)
         return try req.json(AckResult(ok: true, detail: nil))
-    }
-
-    api.post("conversations", ":id", "proposals", ":proposalID", "apply") { req async throws -> Response in
-        let owner = try req.requirePrincipal().conversationOwnerID
-        let id = try req.conversationID
-        guard let proposalID = req.parameters.get("proposalID").flatMap(UUID.init(uuidString:)) else {
-            throw Abort(.badRequest, reason: "Invalid team proposal ID.")
-        }
-        guard let conversation = try await ctx.conversations.get(id: id, ownerID: owner),
-              let proposal = conversation.messages.compactMap(\.proposal).first(where: { $0.id == proposalID }) else {
-            throw ConversationError.notFound
-        }
-        guard proposal.status == .pending else { throw ConversationError.proposalHandled }
-        let teams = await ctx.store.loadTeams()
-        let providers = await ctx.store.loadProviders()
-        let team = try TeamProposalValidation.validate(proposal, teams: teams, providers: providers)
-        await ctx.saveTeam(team)
-        let updated = try await ctx.conversations.updateProposal(id: id, ownerID: owner, proposalID: proposalID, status: .applied)
-        return try req.json(ProposalApplication(team: team, conversation: updated))
-    }
-
-    api.post("conversations", ":id", "proposals", ":proposalID", "dismiss") { req async throws -> Response in
-        let owner = try req.requirePrincipal().conversationOwnerID
-        let id = try req.conversationID
-        guard let proposalID = req.parameters.get("proposalID").flatMap(UUID.init(uuidString:)) else {
-            throw Abort(.badRequest, reason: "Invalid team proposal ID.")
-        }
-        let conversation = try await ctx.conversations.updateProposal(id: id, ownerID: owner, proposalID: proposalID, status: .dismissed)
-        return try req.json(conversation)
     }
 
     api.get("workspace", "memory") { req async throws -> Response in

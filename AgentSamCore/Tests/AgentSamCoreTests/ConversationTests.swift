@@ -552,28 +552,6 @@ final class ConversationTests: XCTestCase {
         await engine.shutdown()
     }
 
-    func testProposalIsValidatedWithoutMutatingTeam() throws {
-        let existing = team("Research")
-        let draft = TeamProposalDraft(baseTeamID: existing.id, name: "Research v2", goal: "Deeper research", agents: existing.agents)
-        let proposal = try TeamProposalValidation.make(draft: draft, teams: [existing], providers: [provider])
-        let validated = try TeamProposalValidation.validate(proposal, teams: [existing], providers: [provider])
-        XCTAssertEqual(validated.id, existing.id)
-        XCTAssertEqual(validated.createdAt, existing.createdAt)
-        XCTAssertEqual(validated.toolScope?.permissions.sendEmail, false)
-        let bad = TeamProposalDraft(name: "Invalid", goal: "Unknown models", agents: [AgentProfile(name: "Ada", emoji: "•", title: "Lead", role: .coordinator, systemPrompt: "Lead", providerID: "test", model: "not-configured"), agent("Worker", role: .worker)])
-        XCTAssertThrowsError(try TeamProposalValidation.make(draft: bad, teams: [], providers: [provider]))
-    }
-
-    func testProposalRejectsDuplicateAgentIDs() throws {
-        let existing = team("Research")
-        var agents = existing.agents
-        agents[1].id = agents[0].id
-        let draft = TeamProposalDraft(baseTeamID: existing.id, name: "Research v2", goal: existing.goal, agents: agents)
-        XCTAssertThrowsError(try TeamProposalValidation.make(draft: draft, teams: [existing], providers: [provider])) { error in
-            XCTAssertEqual((error as? ConversationError)?.errorDescription, "The coordinator must be named Ada, and agent names and IDs must remain unique.")
-        }
-    }
-
     func testMemoryCompactionRetainsProvenanceAndGuideResetIsIsolated() async throws {
         let store = ConversationStore(root: directory)
         let memory = WorkspaceMemoryStore(root: directory)
