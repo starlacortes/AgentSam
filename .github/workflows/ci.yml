@@ -82,9 +82,9 @@ jobs:
         package: [Server, AgentSamCore]
     runs-on: ubuntu-latest
     container:
-      # Docker's official Swift image, from its Amazon ECR Public mirror, which has no Docker Hub
-      # pull rate limit.
-      image: public.ecr.aws/docker/library/swift:6.4-noble
+      # Docker Hub pulls are faster here than the ECR Public mirror the Dockerfile uses (about
+      # 30 s against 50 to 60 s), and GitHub-hosted runners rarely hit its rate limit.
+      image: swift:6.4-noble
       # Docker's default seccomp and AppArmor profiles stop bubblewrap from creating namespaces,
       # which would skip every run_program and terminal sandbox test.
       options: --security-opt seccomp=unconfined --security-opt apparmor=unconfined
