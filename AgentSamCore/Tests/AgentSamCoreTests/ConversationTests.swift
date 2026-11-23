@@ -607,6 +607,14 @@ final class ConversationTests: XCTestCase {
         XCTAssertTrue(message.steps.isEmpty)
         XCTAssertTrue(message.quickReplies.isEmpty)
         XCTAssertNil(message.completedAt)
+        XCTAssertFalse(message.usedBrowser)
+    }
+
+    func testUsedBrowserSurvivesSavingAndLoading() throws {
+        var message = ConversationMessage(role: .assistant, text: "Done", status: .running)
+        message.usedBrowser = true
+        let loaded = try JSONDecoder().decode(ConversationMessage.self, from: JSONEncoder().encode(message))
+        XCTAssertTrue(loaded.usedBrowser)
     }
 
     func testSuggestionsAreSplitFromTheVisibleAnswer() {

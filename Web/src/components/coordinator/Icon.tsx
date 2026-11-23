@@ -1,6 +1,6 @@
 import type { ReactNode, SVGProps } from 'react'
 
-export type IconName = 'plus' | 'search' | 'chat' | 'folder' | 'chevron' | 'users' | 'plug' | 'settings' | 'memory' | 'mic' | 'arrow' | 'close' | 'menu' | 'collapse' | 'file' | 'copy' | 'spark' | 'check' | 'info' | 'shield' | 'keyboard' | 'stop' | 'trash' | 'activity' | 'more' | 'monitor' | 'terminal' | 'refresh' | 'download' | 'edit' | 'arrowDown' | 'eye' | 'phone' | 'tablet' | 'panel' | 'retry' | 'play' | 'camera' | 'image' | 'archive'
+export type IconName = 'plus' | 'search' | 'chat' | 'folder' | 'chevron' | 'users' | 'plug' | 'settings' | 'memory' | 'mic' | 'arrow' | 'close' | 'menu' | 'collapse' | 'file' | 'copy' | 'spark' | 'check' | 'info' | 'shield' | 'keyboard' | 'stop' | 'trash' | 'activity' | 'more' | 'monitor' | 'terminal' | 'refresh' | 'download' | 'edit' | 'arrowDown' | 'eye' | 'phone' | 'tablet' | 'panel' | 'retry' | 'play' | 'camera' | 'image' | 'archive' | 'expand'
 
 const paths: Record<IconName, ReactNode> = {
   plus: <path d="M12 5v14M5 12h14" />,
@@ -40,6 +40,7 @@ const paths: Record<IconName, ReactNode> = {
   eye: <><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" /><circle cx="12" cy="12" r="3" /></>,
   phone: <><rect x="7" y="3" width="10" height="18" rx="2" /><path d="M11 18h2" /></>,
   tablet: <><rect x="5" y="3" width="14" height="18" rx="2" /><path d="M11 18h2" /></>,
+  expand: <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />,
   panel: <><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M14 4v16" /></>,
   play: <path d="M7 4.5v15l12-7.5z" />,
   retry: <path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.5M4 4v4.5h4.5" />,

@@ -26,6 +26,7 @@ import { useDocumentTitle } from '../lib/useDocumentTitle'
 
 const DRAFT_PREFIX = 'agentsam.draft.'
 const CANVAS_WIDTH_KEY = 'agentsam.canvasWidth'
+const BROWSER_AUTO_KEY = 'agentsam.browserAutoOpen'
 const MAX_ATTACHMENT_BYTES = 200_000
 const TEXT_ATTACHMENT = /\.(txt|md|markdown|csv|tsv|json|ya?ml|xml|html?|css|m?js|ts|tsx|jsx|py|rb|go|rs|swift|java|kt|c|h|cpp|sh|sql|log|toml|ini|env\.example)$/i
 
@@ -79,6 +80,13 @@ export function CoordinatorPage() {
   const [promptCardsOpen, setPromptCardsOpen] = useState<{ draft?: string } | null>(null)
   const [browserAvailable, setBrowserAvailable] = useState(false)
   const [browserOpen, setBrowserOpen] = useState(false)
+  /** The reply Ada opened the browser for; while set, the window folds away by itself once she's done. */
+  const [browserFor, setBrowserFor] = useState<string | null>(null)
+  /** Phones: the browser fills the screen instead of sharing it with the chat. */
+  const [browserFull, setBrowserFull] = useState(false)
+  const [browserAutoOpen, setBrowserAutoOpen] = useState(() => readStored(BROWSER_AUTO_KEY) !== 'off')
+  /** Replies whose browser use already opened the window (or found it closed by the person), so it opens once per reply. */
+  const browserSeen = useRef(new Set<string>())
   const [archiveSettings, setArchiveSettings] = useState<ArchiveSettings | null>(null)
   const [retentionFor, setRetentionFor] = useState<string | null>(null)
   const [archivedOpen, setArchivedOpen] = useState(false)
@@ -116,6 +124,8 @@ export function CoordinatorPage() {
       ?? reply.activity.find((item) => item.agentName === 'Ada' && item.state === 'working')?.summary
       ?? null
   }, [conversation?.messages])
+  // The reply that is using Ada's browser right now, if any.
+  const browserReply = useMemo(() => [...(conversation?.messages ?? [])].reverse().find((message) => message.role === 'assistant' && message.status === 'running' && message.usedBrowser)?.id ?? null, [conversation?.messages])
   const missionIDs = useMemo(() => [...new Set([...(conversation?.messages ?? [])].reverse().flatMap((message) => message.missionIDs))], [conversation?.messages])
 
   // Per-conversation drafts survive reloads and switching chats.
@@ -132,6 +142,22 @@ export function CoordinatorPage() {
     if (!isAdmin) return
     void api<BrowserView>('browser').then((view) => setBrowserAvailable(view.available)).catch(() => setBrowserAvailable(false))
   }, [isAdmin])
+
+  // When Ada starts using her browser, its live window opens beside the chat by itself, once per reply.
+  useEffect(() => {
+    if (!browserReply || !browserAvailable || browserSeen.current.has(browserReply)) return
+    browserSeen.current.add(browserReply)
+    if (!browserAutoOpen || browserOpen) return
+    setBrowserFor(browserReply)
+    setBrowserOpen(true)
+  }, [browserReply, browserAvailable, browserAutoOpen, browserOpen])
+  // Ada is done with the window once that reply has finished and no browser approval is waiting on the person.
+  const browserDone = Boolean(browserFor) && browserReply !== browserFor
+    && !conversation?.messages.some((message) => message.id === browserFor && message.status === 'running')
+    && !actions.some((action) => action.kind === 'browser' && action.status === 'pending')
+  const openBrowser = () => { setBrowserFor(null); setBrowserOpen(true) }
+  const closeBrowser = useCallback(() => { setBrowserOpen(false); setBrowserFor(null); setBrowserFull(false) }, [])
+  const chooseBrowserAutoOpen = (on: boolean) => { setBrowserAutoOpen(on); writeStored(BROWSER_AUTO_KEY, on ? null : 'off') }
 
   // A new chat starts with a fresh panel, kept open if it was.
   useEffect(() => { setCanvas((current) => current ? { tab: current.tab, source: null, missionID: null } : null) }, [id])
@@ -294,6 +320,8 @@ export function CoordinatorPage() {
   useEffect(() => {
     const escape = (event: globalThis.KeyboardEvent) => {
       if (event.key !== 'Escape' || !running || voiceOpen) return
+      // Escape typed into Ada's browser belongs to the page there, not to the chat.
+      if (event.target instanceof Element && event.target.closest('.co-browser-dock')) return
       event.preventDefault()
       stopRef.current()
     }
@@ -468,13 +496,15 @@ export function CoordinatorPage() {
     void attach(event.clipboardData.files)
   }
 
+  // Opening the preview by hand puts it in front: Ada's browser closes to make room.
   const openCanvas = useCallback((next: Partial<CanvasState>) => {
+    closeBrowser()
     setCanvas((current) => ({
       tab: next.tab ?? current?.tab ?? 'preview',
       source: 'source' in next ? next.source ?? null : current?.source ?? null,
       missionID: 'missionID' in next ? next.missionID ?? null : current?.missionID ?? null,
     }))
-  }, [])
+  }, [closeBrowser])
 
   const resizeCanvas = useCallback((width: number) => {
     const next = clampCanvasWidth(width)
@@ -600,7 +630,6 @@ export function CoordinatorPage() {
   const chatMenu: PopMenuItem[] = [
     ...(conversation && !conversation.schedule && !conversation.triggers?.length ? [{ label: t('Automate this chat'), icon: 'refresh' as const, disabled: running, onSelect: () => setScheduleOpen(true) }] : []),
     { label: t('Connections'), icon: 'plug', note: t(connectorLabel(gmail)), onSelect: () => navigate('/settings/connections') },
-    ...(browserAvailable ? [{ label: t('Open Ada’s browser'), icon: 'monitor' as const, onSelect: () => setBrowserOpen(true) }] : []),
     { label: t('Open the guide'), icon: 'info', onSelect: () => void restartGuide().catch((err) => setError(errorMessage(err))) },
     ...(conversation ? [{ label: t('Delete conversation'), icon: 'trash' as const, danger: true, disabled: running, onSelect: () => void remove() }] : []),
   ]
@@ -613,7 +642,9 @@ export function CoordinatorPage() {
     { label: t('Prompt cards'), icon: 'spark', note: promptCards.length ? String(promptCards.length) : undefined, onSelect: () => setPromptCardsOpen({}) },
   ]
 
-  return <div className={`co-app ${canvas ? 'with-canvas' : ''}`} style={canvas ? { ['--co-canvas-width' as string]: `${clampCanvasWidth(canvasWidth)}px` } : undefined}>
+  // While Ada's browser is open it is the main area, with the chat beside it; the preview panel waits behind it.
+  const showCanvas = canvas && !browserOpen
+  return <div className={`co-app ${showCanvas ? 'with-canvas' : ''} ${browserOpen ? 'with-browser' : ''} ${browserOpen && browserFull ? 'browser-full' : ''}`} style={showCanvas ? { ['--co-canvas-width' as string]: `${clampCanvasWidth(canvasWidth)}px` } : undefined}>
     <CoordinatorSidebar conversations={conversations} selectedID={conversation?.id ?? null} open={sidebarOpen} onClose={() => setSidebarOpen(false)} onSelect={(chatID) => navigate(`/chats/${chatID}`)} onNew={(project) => void newChat(project)} onArchive={(chatID) => void archiveChat(chatID)} onShowArchived={showArchived} archivedNotice={archivedNotice} onUndoArchive={() => void undoArchive()} />
     <main className="co-main">
       <header className="co-chat-header">
@@ -622,7 +653,8 @@ export function CoordinatorPage() {
         <div className="co-header-actions">
           {conversation?.archivedAt ? <button className="co-archived-pill" title={t('Restore this chat to the sidebar')} onClick={() => void api<Conversation>(`conversations/${conversation.id}/archive`, { method: 'DELETE' }).then(restored).catch((err) => setError(errorMessage(err)))}><Icon name="archive" size={13} /><span>{t('Archived')}</span><b>{t('Restore')}</b></button> : null}
           {conversation?.schedule || conversation?.triggers?.length ? <button className="co-icon-button co-schedule-toggle active" aria-label={t('Automation on — open settings')} aria-pressed title={t('Automation')} onClick={() => setScheduleOpen(true)}><Icon name="refresh" size={16} /></button> : null}
-          <button className={`co-icon-button co-canvas-toggle ${canvas ? 'active' : ''}`} aria-label={canvas ? t('Hide preview and console') : t('Show preview and console')} aria-pressed={Boolean(canvas)} title={t('Preview & console')} onClick={() => canvas ? setCanvas(null) : openCanvas({ tab: missionIDs.length ? 'console' : 'preview' })}><Icon name="panel" size={16} /></button>
+          {browserAvailable ? <button className={`co-icon-button co-browser-toggle ${browserOpen ? 'active' : ''}`} aria-label={browserOpen ? t('Hide Ada’s browser') : t('Show Ada’s browser')} aria-pressed={browserOpen} title={t('Ada’s browser')} onClick={() => browserOpen ? closeBrowser() : openBrowser()}><Icon name="monitor" size={16} />{browserReply && !browserOpen ? <i className="co-browser-live-dot" aria-hidden="true" /> : null}</button> : null}
+          <button className={`co-icon-button co-canvas-toggle ${showCanvas ? 'active' : ''}`} aria-label={showCanvas ? t('Hide preview and console') : t('Show preview and console')} aria-pressed={Boolean(showCanvas)} title={t('Preview & console')} onClick={() => { if (showCanvas) { setCanvas(null); return } openCanvas({ tab: missionIDs.length ? 'console' : 'preview' }) }}><Icon name="panel" size={16} /></button>
           <button className="co-voice-button" onClick={() => { stopReadAloud(); setVoiceOpen(true) }} disabled={sending}><Icon name="mic" size={15} /><span>{t('Voice')}</span></button>
           <PopMenu label={t('More chat options')} icon="more" className="co-chat-menu" items={chatMenu} />
         </div>
@@ -648,7 +680,8 @@ export function CoordinatorPage() {
         </form>
       </div>
     </main>
-    {canvas ? <SidePanel state={canvas} missionIDs={missionIDs} onChange={setCanvas} onClose={() => setCanvas(null)} onResize={resizeCanvas} /> : null}
+    {browserOpen ? <BrowserWindow onClose={closeBrowser} closing={browserDone} onKeepOpen={() => setBrowserFor(null)} autoOpen={browserAutoOpen} onAutoOpen={chooseBrowserAutoOpen} full={browserFull} onFull={setBrowserFull} /> : null}
+    {showCanvas ? <SidePanel state={canvas} missionIDs={missionIDs} onChange={setCanvas} onClose={() => setCanvas(null)} onResize={resizeCanvas} /> : null}
     {retentionFor ? <RetentionPrompt onClose={() => setRetentionFor(null)} onChosen={(settings) => {
       const chatID = retentionFor
       setArchiveSettings(settings)
@@ -656,11 +689,10 @@ export function CoordinatorPage() {
       void archiveNow(chatID)
     }} /> : null}
     {archivedOpen ? <ArchivedChats settings={archiveSettings} onSettings={setArchiveSettings} onRestored={restored} onClose={() => setArchivedOpen(false)} onOpen={(chatID) => { setArchivedOpen(false); navigate(`/chats/${chatID}`) }} /> : null}
-    {browserOpen ? <BrowserWindow onClose={() => setBrowserOpen(false)} /> : null}
     {promptCardsOpen ? <PromptCardsModal cards={promptCards} draft={promptCardsOpen.draft} onChange={setPromptCards} onUse={(text) => { setPromptCardsOpen(null); prompt(text) }} onClose={() => setPromptCardsOpen(null)} /> : null}
     {scheduleOpen && conversation ? <ScheduleModal conversation={conversation} gmailConnected={Boolean(gmail?.configured)} onUpdated={updateProposal} onClose={() => setScheduleOpen(false)} /> : null}
     {guide && (!guide.completed || searchParams.get('guide') === '1') ? <Guide onFinish={finishGuide} /> : null}
-    {voiceOpen ? <VoiceMode onSend={sendMessage} onTranscribe={transcribeVoice} onClose={() => setVoiceOpen(false)} activity={liveActivity} transcript={conversation && (conversation.messages.length || actions.length) ? (voice) => <ConversationMessages conversation={conversation} busy={sending || running} actions={actions} onActions={setActions} readAloud={false} handlers={{
+    {voiceOpen ? <VoiceMode docked={browserOpen} onSend={sendMessage} onTranscribe={transcribeVoice} onClose={() => setVoiceOpen(false)} activity={liveActivity} transcript={conversation && (conversation.messages.length || actions.length) ? (voice) => <ConversationMessages conversation={conversation} busy={sending || running} actions={actions} onActions={setActions} readAloud={false} handlers={{
       ...handlers,
       // In voice mode, replies picked from the chat are sent through voice so Ada answers out loud.
       onRetry: voice.send,

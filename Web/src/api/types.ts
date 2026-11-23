@@ -154,6 +154,8 @@ export interface ConversationMessage {
   completedAt?: string
   /** For a run a trigger started: what happened. */
   trigger?: TriggerEvent
+  /** True once Ada used her live browser during this reply; the web app then opens it beside the chat. */
+  usedBrowser?: boolean
 }
 
 export interface TriggerEvent {

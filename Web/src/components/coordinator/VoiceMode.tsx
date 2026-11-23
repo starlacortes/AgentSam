@@ -135,7 +135,7 @@ export interface VoiceChatHandlers {
   edit: (text: string) => void
 }
 
-export function VoiceMode({ onSend, onTranscribe, onClose, activity = null, transcript: conversation = null }: { onSend: (text: string, waitForCompletion: boolean, onPartial?: (update: VoicePartial) => void, includePhotos?: boolean) => Promise<VoiceReply | null>; onTranscribe: (audio: Blob) => Promise<string>; onClose: () => void; /** What Ada is doing right now, such as "Searching Gmail"; null while she isn't working. */ activity?: string | null; /** The chat itself (messages, copy, approval cards), shown beside the orb once there is one. */ transcript?: ((handlers: VoiceChatHandlers) => ReactNode) | null }) {
+export function VoiceMode({ onSend, onTranscribe, onClose, activity = null, transcript: conversation = null, docked = false }: { onSend: (text: string, waitForCompletion: boolean, onPartial?: (update: VoicePartial) => void, includePhotos?: boolean) => Promise<VoiceReply | null>; onTranscribe: (audio: Blob) => Promise<string>; onClose: () => void; /** What Ada is doing right now, such as "Searching Gmail"; null while she isn't working. */ activity?: string | null; /** The chat itself (messages, copy, approval cards), shown beside the orb once there is one. */ transcript?: ((handlers: VoiceChatHandlers) => ReactNode) | null; /** True while Ada's browser is open: voice mode sits in the panel beside it instead of covering the page. */ docked?: boolean }) {
   const { t, lang } = useI18n()
   const [phase, setPhase] = useState<'idle' | 'listening' | 'thinking' | 'speaking'>('idle')
   const [rest, setRest] = useState<Rest>('start')
@@ -250,7 +250,7 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null, tran
     stopSpeaking()
     onClose()
   }
-  useDialogA11y(root, close)
+  useDialogA11y(root, close, !docked)
 
   // Voice mode opens from a tap, and this runs inside it, so iOS will let Ada's first reply play.
   useLayoutEffect(() => {
@@ -547,7 +547,7 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null, tran
   const orbLabel = phase === 'listening' ? t('Finish speaking') : phase === 'speaking' ? sending.current ? t('Stop speaking') : t('Stop Ada and talk') : t('Start listening')
   const showReplay = canReplay && speechOutput && phase !== 'thinking'
   const chat = conversation?.(chatHandlers) ?? null
-  return <div className={`co-voice ${chat ? 'with-chat' : ''}`} ref={root} role="dialog" aria-modal="true" aria-labelledby="co-voice-title">
+  return <div className={`co-voice ${chat ? 'with-chat' : ''} ${docked ? 'docked' : ''}`} ref={root} role={docked ? 'region' : 'dialog'} aria-modal={docked ? undefined : true} aria-labelledby="co-voice-title">
     <header className="co-voice-head"><span className="co-brand-mark">A</span><div><b id="co-voice-title">{t('Voice with Ada')}</b><small>{t('One conversation, brought to life')}</small></div><button className="co-icon-button" aria-label={t('Return to chat')} onClick={close}><Icon name="close" /></button></header>
     <div className="co-voice-body">
     <main className="co-voice-stage">

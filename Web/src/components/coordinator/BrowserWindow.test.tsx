@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { api } from '../../api/client'
 import { I18nProvider } from '../../i18n'
-import { BrowserWindow } from './BrowserWindow'
+import { BROWSER_CLOSE_SECONDS, BrowserWindow, type BrowserWindowProps } from './BrowserWindow'
 
 vi.mock('../../api/client', async (importOriginal) => ({ ...await importOriginal<typeof import('../../api/client')>(), api: vi.fn() }))
 
@@ -24,9 +24,17 @@ class FakeClient extends EventTarget {
 }
 vi.mock('@novnc/novnc', () => ({ default: FakeClient }))
 
-function open(onClose = vi.fn()) {
-  render(<I18nProvider><BrowserWindow onClose={onClose} /></I18nProvider>)
+function open(onClose = vi.fn(), props: Partial<BrowserWindowProps> = {}) {
+  render(<I18nProvider><BrowserWindow onClose={onClose} {...props} /></I18nProvider>)
   return onClose
+}
+
+function drivable(control = 'ada') {
+  vi.mocked(api).mockImplementation(async (path: string, init?: { body?: unknown }) => {
+    if (path === 'browser/start') return { state: 'running', password: 'p', drivable: true, control }
+    if (path === 'browser/control') return { control: (init?.body as { control: string }).control }
+    return {}
+  })
 }
 
 describe('Ada’s browser window', () => {
@@ -90,12 +98,12 @@ describe('Ada’s browser window', () => {
     client.dispatchEvent(new Event('connect'))
     await screen.findByText('Ada is driving')
     expect(client.viewOnly).toBe(true)
-    expect((screen.getByLabelText('Text to type in the browser') as HTMLInputElement).disabled).toBe(true)
+    expect(screen.queryByLabelText('Text to type in the browser')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Take over' }))
     await screen.findByText('You’re in control')
     expect(api).toHaveBeenCalledWith('browser/control', { method: 'POST', body: { control: 'person' } })
     expect(client.viewOnly).toBe(false)
-    expect((screen.getByLabelText('Text to type in the browser') as HTMLInputElement).disabled).toBe(false)
+    expect(screen.getByLabelText('Text to type in the browser')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Hand back' }))
     await screen.findByText('Ada is driving')
     expect(client.viewOnly).toBe(true)
@@ -126,5 +134,47 @@ describe('Ada’s browser window', () => {
     expect(api).not.toHaveBeenCalledWith('browser/erase', { method: 'POST' })
     fireEvent.click(screen.getByRole('button', { name: 'Press again to sign out of every site' }))
     await waitFor(() => expect(api).toHaveBeenCalledWith('browser/erase', { method: 'POST' }))
+  })
+
+  it('closes by itself after a countdown once Ada is done, unless the person keeps it', async () => {
+    drivable()
+    vi.useFakeTimers()
+    try {
+      const onClose = vi.fn()
+      const onKeepOpen = vi.fn()
+      open(onClose, { closing: true, onKeepOpen })
+      expect(screen.getByRole('button', { name: 'Keep open' })).toBeTruthy()
+      await act(async () => { vi.advanceTimersByTime((BROWSER_CLOSE_SECONDS - 1) * 1000) })
+      expect(onClose).not.toHaveBeenCalled()
+      await act(async () => { vi.advanceTimersByTime(1000) })
+      expect(onClose).toHaveBeenCalledTimes(1)
+      fireEvent.click(screen.getByRole('button', { name: 'Keep open' }))
+      expect(onKeepOpen).toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('never counts down while the person is in control, and taking over keeps it open', async () => {
+    drivable('person')
+    const onKeepOpen = vi.fn()
+    open(vi.fn(), { closing: true, onKeepOpen })
+    await waitFor(() => expect(clients).toHaveLength(1))
+    clients[0]!.dispatchEvent(new Event('connect'))
+    await screen.findByText('You’re in control')
+    expect(screen.queryByRole('button', { name: 'Keep open' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Hand back' }))
+    expect(onKeepOpen).toHaveBeenCalled()
+  })
+
+  it('offers to fill the screen and to turn off opening by itself', async () => {
+    drivable()
+    const onFull = vi.fn()
+    const onAutoOpen = vi.fn()
+    open(vi.fn(), { onFull, autoOpen: true, onAutoOpen })
+    fireEvent.click(screen.getByRole('button', { name: 'Fill the screen with the browser' }))
+    expect(onFull).toHaveBeenCalledWith(true)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Open by itself when Ada uses it' }))
+    expect(onAutoOpen).toHaveBeenCalledWith(false)
   })
 })
