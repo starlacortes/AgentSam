@@ -743,21 +743,47 @@ final class ConversationTests: XCTestCase {
         await engine.shutdown()
     }
 
-    func testAdaHandsWorkToATaskMidReplyAndFinishesWithItsResult() async throws {
+    func testAdaHandsWorkToATaskThatRunsOnHelpersAndIsChecked() async throws {
         let store = MissionStore(root: directory)
         await store.saveProviders([provider])
         let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
         try keys.set("test-key", for: provider.keyAccount)
         let conversations = ConversationStore(root: directory)
         let memory = WorkspaceMemoryStore(root: directory)
-        let root = directory!
         let engine = engine(store, conversations, memory, keys: keys, completion: { _, _, _, system, messages, tools in
             if system.contains("Summarize only durable") { return LLMReply(message: .assistant("## Notes"), inputTokens: 0, outputTokens: 0, model: "stub") }
             if system.contains("Decide how to handle") { return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub") }
+            let names = Set((tools ?? []).map(\.function.name))
             let toolResults = messages.filter { $0.role == "tool" }.compactMap(\.content)
+            if system.contains("planning a task that your helpers") {
+                XCTAssertEqual(names, ["plan_steps"])
+                XCTAssertTrue(messages.first?.content?.contains("Review all 40 files") == true)
+                return LLMReply(message: APIMessage(role: "assistant", content: nil, tool_calls: [
+                    APIToolCall(id: "p", function: .init(name: "plan_steps", arguments: #"{"steps":[{"function":"research","task":"Read every file and list the problems"},{"function":"write","task":"Write review.md from the research","tools":["files"]}]}"#)),
+                ]), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
+            if system.contains("You are researchAda") {
+                XCTAssertFalse(names.contains("chat_write_file"))
+                XCTAssertFalse(names.contains("start_task"), "helpers cannot start tasks")
+                return LLMReply(message: .assistant("Read 40 files; three have problems."), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
+            if system.contains("You are writeAda") {
+                XCTAssertTrue(messages.first?.content?.contains("Read 40 files; three have problems.") == true, "a step sees the reports before it")
+                if toolResults.isEmpty {
+                    return LLMReply(message: APIMessage(role: "assistant", content: nil, tool_calls: [
+                        APIToolCall(id: "w", function: .init(name: "chat_write_file", arguments: ##"{"path":"review.md","content":"# Review"}"##)),
+                    ]), inputTokens: 0, outputTokens: 0, model: "stub")
+                }
+                return LLMReply(message: .assistant("Wrote review.md."), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
+            if system.contains("You are judgeAda") {
+                XCTAssertFalse(names.contains("chat_write_file"), "the check is read-only")
+                XCTAssertTrue(messages.first?.content?.contains("review.md") == true)
+                return LLMReply(message: .assistant("PASS: review.md covers the three problems.\nVERDICT: PASS"), inputTokens: 0, outputTokens: 0, model: "stub")
+            }
             if toolResults.isEmpty {
-                XCTAssertTrue(tools?.contains { $0.function.name == "start_task" } ?? false)
-                // A bad skill name fails and lists what exists; then Ada works on it herself.
+                XCTAssertTrue(names.contains("start_task"))
+                // A bad skill name fails and lists what exists; then Ada plans it herself.
                 return LLMReply(message: APIMessage(role: "assistant", content: nil, tool_calls: [
                     APIToolCall(id: "t1", function: .init(name: "start_task", arguments: #"{"objective":"Review all 40 files and write review.md","skill":"no-such-skill"}"#)),
                     APIToolCall(id: "t2", function: .init(name: "start_task", arguments: #"{"objective":"Review all 40 files and write review.md","reason":"This needs a full review"}"#)),
@@ -766,20 +792,11 @@ final class ConversationTests: XCTestCase {
             }
             XCTAssertTrue(toolResults[0].contains("No enabled skill"), toolResults[0])
             XCTAssertTrue(toolResults[1].contains("Task finished"), toolResults[1])
-            XCTAssertTrue(toolResults[1].contains("Reviewed 40 files"), toolResults[1])
+            XCTAssertTrue(toolResults[1].contains("Wrote review.md."), toolResults[1])
+            XCTAssertTrue(toolResults[1].contains("Check by judgeAda: CLEAN"), toolResults[1])
+            XCTAssertTrue(toolResults[1].contains("Files it produced: review.md"), toolResults[1])
             XCTAssertTrue(toolResults[2].contains("Task limit reached"), toolResults[2])
             return LLMReply(message: .assistant("The review is done: see review.md."), inputTokens: 0, outputTokens: 0, model: "stub")
-        }, missionRunner: { team, objective, _, launchedBy, _ in
-            XCTAssertEqual(team.id, ConversationEngine.soloTeamID)
-            XCTAssertEqual(objective, "Review all 40 files and write review.md")
-            XCTAssertEqual(launchedBy, "Owner")
-            let store = MissionStore(root: root)
-            var mission = await store.createMission(team: team, objective: objective)
-            mission.status = .completed
-            mission.phase = .done
-            mission.finalReport = "Reviewed 40 files."
-            await store.saveMission(mission)
-            return mission
         })
         let conversation = try await conversations.create(ownerID: "owner")
         _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Review every file in this project", launchedBy: "Owner", language: "en")
@@ -787,10 +804,39 @@ final class ConversationTests: XCTestCase {
         let answer = try XCTUnwrap(result.messages.last)
         XCTAssertEqual(answer.status, .complete)
         XCTAssertEqual(answer.text, "The review is done: see review.md.")
-        XCTAssertEqual(answer.missionIDs.count, 1, "the task's mission is linked to the reply")
-        XCTAssertEqual(answer.teamIDs, [ConversationEngine.soloTeamID])
-        XCTAssertTrue(answer.steps.contains { $0.label == "Working on it myself" })
+        XCTAssertEqual(answer.missionIDs.count, 1, "the task's record is linked to the reply")
+        XCTAssertEqual(answer.fileIDs, ["review.md"])
+        XCTAssertTrue(answer.steps.contains { $0.label == "This needs a full review" })
+        XCTAssertEqual(answer.activity.filter { $0.teamName == HelperTools.activityLabel }.map(\.agentName), ["researchAda", "writeAda", "judgeAda"])
+
+        let stored = await store.mission(id: answer.missionIDs[0])
+        let mission = try XCTUnwrap(stored)
+        XCTAssertEqual(mission.status, .completed)
+        XCTAssertEqual(mission.teamID, TaskTools.teamID)
+        XCTAssertEqual(mission.launchedBy, "Owner")
+        let deliverables = Set(await store.deliverables(missionID: mission.id))
+        XCTAssertTrue(deliverables.isSuperset(of: ["review.md", "final-report.md", "verification.md"]), "\(deliverables)")
+        let events = await store.events(missionID: mission.id, afterSeq: 0)
+        XCTAssertTrue(events.first { $0.kind == .plan }?.text?.contains("Task 1 — researchAda: Read every file") == true)
+        XCTAssertEqual(events.filter { $0.kind == .taskDone }.compactMap(\.agentName), ["researchAda", "writeAda"])
+        XCTAssertEqual(events.first { $0.kind == .verifyVerdict }?.text, "CLEAN")
+        XCTAssertEqual(events.last?.kind, .missionEnd)
+        let teams = await store.loadTeams()
+        XCTAssertTrue(teams.isEmpty, "a task saves no team")
         await engine.shutdown()
+    }
+
+    func testTaskPlansAndVerdictsAreReadSafely() {
+        let call = APIToolCall(id: "p", function: .init(name: "plan_steps", arguments: #"{"steps":[{"function":"research","task":"a"},{"function":"","task":"b"},{"function":"write","task":"c","tools":["files","bogus"]},{"function":"x","task":"d"},{"function":"y","task":"e"},{"function":"z","task":"f"}]}"#))
+        let steps = try? XCTUnwrap(TaskTools.steps(from: call))
+        XCTAssertEqual(steps?.map(\.name), ["researchAda", "writeAda", "xAda", "yAda"], "unnamed steps are dropped and the plan is capped")
+        XCTAssertEqual(steps?[1].groups, [.read, .files])
+        XCTAssertNil(TaskTools.steps(from: APIToolCall(id: "p", function: .init(name: "plan_steps", arguments: #"{"steps":[]}"#))))
+        XCTAssertEqual(TaskTools.fallbackPlan(objective: "Do it").map(\.name), ["buildAda"])
+        XCTAssertEqual(TaskTools.verdict(in: "Looks fine.\nVERDICT: PASS"), .clean)
+        XCTAssertEqual(TaskTools.verdict(in: "VERDICT: CONCERN, one gap"), .concerns)
+        XCTAssertEqual(TaskTools.verdict(in: "**Verdict: FAIL**"), .failed)
+        XCTAssertEqual(TaskTools.verdict(in: "No verdict line here, PASS"), .unverified)
     }
 
     func testAdaDelegatesToHelpersWithScopedToolsAndGetsTheirReports() async throws {
