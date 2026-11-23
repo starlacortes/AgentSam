@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEve
 import { useI18n } from '../../i18n'
 import { api } from '../../api/client'
 import type { VoiceInfo } from '../../api/chatTypes'
-import { takeSpeakable } from '../../lib/coordinator'
+import { replyLanguage, takeSpeakable } from '../../lib/coordinator'
 import { markVoice } from '../../lib/voiceTiming'
 import { canRecord, MIN_RECORDING_MS, Speaker, useRecorder } from '../../lib/voice'
 import { Icon } from './Icon'
@@ -359,7 +359,8 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null, tran
       // or the opening of the answer would be skipped.
       if (startedOver(previous, source)) from = 0
       previous = source
-      const words = lang === 'es' ? 'es' : 'en'
+      // Said in the reply's own language, which may not be the app's.
+      const words = replyLanguage(source, lang)
       for (let next = takeSpeakable(source, from, done, undefined, undefined, words); next; next = takeSpeakable(source, from, done, undefined, undefined, words)) {
         from = next.end
         if (!next.text) continue

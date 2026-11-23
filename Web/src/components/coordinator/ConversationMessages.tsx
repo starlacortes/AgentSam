@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom'
 import { api, errorMessage } from '../../api/client'
 import type { AgentActionRequest, Conversation, ConversationMessage, MissionDetail } from '../../api/types'
 import { dateLocale, useI18n } from '../../i18n'
-import { voiceTranscript } from '../../lib/coordinator'
+import { replyLanguage, voiceTranscript } from '../../lib/coordinator'
 import { Speaker } from '../../lib/voice'
 import { isHTML, isPreviewableLanguage, pickEntry } from '../../lib/preview'
 import { Markdown, type CodeTools } from '../Markdown'
@@ -124,7 +124,7 @@ function useReadAloud(conversationID: string, message: ConversationMessage, lang
     sharedSpeaker.onChange = (speaking) => { sharedOwner?.(speaking) }
     sharedSpeaker.unlock()
     // The whole reply is read, however long; the server splits it into pieces.
-    sharedSpeaker.enqueue(voiceTranscript(message.speech ?? message.text, language === 'es' ? 'es' : 'en'), `/api/conversations/${conversationID}/messages/${message.id}/speech?lang=${language}&chunk=0`)
+    sharedSpeaker.enqueue(voiceTranscript(message.speech ?? message.text, replyLanguage(message.speech ?? message.text, language)), `/api/conversations/${conversationID}/messages/${message.id}/speech?lang=${language}&chunk=0`)
   }]
 }
 

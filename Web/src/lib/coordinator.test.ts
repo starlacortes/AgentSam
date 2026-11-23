@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentActivity, Conversation, ConversationMessage } from '../api/types'
 import { intervalLabel } from '../api/types'
-import { canvasForFinishedFiles, connectorLabel, groupedConversations, pollDelay, presentWork, shouldPoll, takeSpeakable, voiceTranscript, workspaceFileSource, wroteFreshFiles } from './coordinator'
+import { canvasForFinishedFiles, replyLanguage, connectorLabel, groupedConversations, pollDelay, presentWork, shouldPoll, takeSpeakable, voiceTranscript, workspaceFileSource, wroteFreshFiles } from './coordinator'
 
 const activity: AgentActivity = { id: 'activity-1', agentID: 'agent-1', agentName: 'Scout', summary: 'Reviewing the brief', state: 'working', updatedAt: '2026-01-01T00:00:00Z', teamID: 'team-1', teamName: 'Research' }
 
@@ -105,6 +105,11 @@ describe('voice transcript', () => {
   it('says what was skipped in Spanish for a Spanish reply', () => {
     expect(voiceTranscript('Aquí está.\n```js\nx = 1\n```\n| A | B |\n| --- | --- |\n| 1 | 2 |\nMira [la guía](https://example.com/guia) o https://example.com.', 'es'))
       .toBe('Aquí está. Hay un ejemplo de código en pantalla. La tabla está en pantalla. Mira la guía o el enlace en pantalla.')
+  })
+  it('tells the reply language from its prose, not its code or links', () => {
+    expect(replyLanguage('Aquí está la tabla de precios.\n| A | B |\n| --- | --- |\n| 1 | 2 |', 'en')).toBe('es')
+    expect(replyLanguage('Here is the fix for the build.\n```js\n// añadir la función de búsqueda para el menú\n```\nSee https://example.com/es/la-guía-del-menú', 'es')).toBe('en')
+    expect(replyLanguage('OK', 'es')).toBe('es')
   })
   it('reads a very long reply in full', () => {
     const long = Array.from({ length: 400 }, (_, i) => `Point ${i + 1} is worth a sentence of its own.`).join(' ')

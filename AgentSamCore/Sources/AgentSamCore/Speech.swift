@@ -357,10 +357,11 @@ public struct SpeechClient: Sendable {
     /// that to the server, which is where the voice is made.
     public static func spokenText(_ markdown: String, language: String? = nil) -> String {
         var text = markdown
-        let spanish = language.map { SpokenNumbers.language(of: markdown, fallback: $0) == "es" } ?? false
         for fence in ["```suggestions", "```details"] {
             if let range = text.range(of: fence, options: .caseInsensitive) { text = String(text[..<range.lowerBound]) }
         }
+        // What is said in place of skipped parts follows the language of the prose around them.
+        let spanish = language.map { SpokenNumbers.language(of: spokenProse(text), fallback: $0) == "es" } ?? false
         func replace(_ pattern: String, _ template: String) {
             text = text.replacingOccurrences(of: pattern, with: template, options: .regularExpression)
         }
@@ -380,6 +381,15 @@ public struct SpeechClient: Sendable {
         text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let language else { return text }
         return SpokenNumbers.normalize(text, language: SpokenNumbers.language(of: text, fallback: language))
+    }
+
+    /// The prose of a reply, without code, tables and links, for telling which language it is in.
+    /// The browser's `replyLanguage` in coordinator.ts does the same; change both together.
+    public static func spokenProse(_ markdown: String) -> String {
+        markdown
+            .replacingOccurrences(of: "```[\\s\\S]*?(?:```|$)", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "(?m)(?:^[ \\t]*\\|.*(?:\\n|$))+", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "https?://\\S+", with: " ", options: .regularExpression)
     }
 
     /// Most characters of a reply spoken in ONE speech request (the provider limit, with room for the

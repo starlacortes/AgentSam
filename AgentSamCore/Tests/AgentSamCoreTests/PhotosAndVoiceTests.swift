@@ -403,6 +403,13 @@ final class PhotosAndVoiceTests: XCTestCase {
         XCTAssertTrue(spanish.contains("La tabla está en pantalla."), spanish)
     }
 
+    func testSkippedPartsFollowTheLanguageOfTheProseNotTheCode() {
+        let english = SpeechClient.spokenText("Here is the fix for the build.\n```js\n// añadir la función de búsqueda para el menú y la página\n```\nThat is all.", language: "es")
+        XCTAssertTrue(english.contains("Code example omitted from speech."), english)
+        let spanish = SpeechClient.spokenText("Aquí está la tabla de precios.\n| Plan | Price |\n| --- | --- |\n| The basic one | $10 |", language: "en")
+        XCTAssertTrue(spanish.contains("La tabla está en pantalla."), spanish)
+    }
+
     func testAVeryLongReplyIsReadInFullPieceByPiece() {
         let reply = (1...400).map { "Point \($0) is worth a sentence of its own." }.joined(separator: " ")
         let spoken = SpeechClient.spokenText(reply)

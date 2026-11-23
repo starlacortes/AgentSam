@@ -109,7 +109,34 @@ export function voiceTranscript(markdown: string, lang: 'en' | 'es' = 'en'): str
     .replace(/ ([.,!?])/g, '$1')
     .replace(/(?<!\.)\.\.(?!\.)/g, '.')
     .trim()
-    .slice(0, 5000)
+}
+
+const SPANISH_MARKERS = new Set(['el', 'la', 'los', 'las', 'de', 'del', 'que', 'y', 'en', 'un', 'una', 'por', 'con', 'para', 'es', 'son',
+  'está', 'esta', 'este', 'pero', 'como', 'más', 'tu', 'su', 'lo', 'le', 'se', 'al', 'hay', 'cuesta',
+  'dólares', 'pesos', 'euros', 'mil', 'millones', 'sí', 'muy', 'también', 'precio'])
+const ENGLISH_MARKERS = new Set(['the', 'and', 'is', 'are', 'of', 'to', 'you', 'for', 'with', 'that', 'this', 'it', 'on', 'your', 'be',
+  'was', 'have', 'has', 'will', 'can', 'costs', 'dollars', 'price', 'thousand', 'million', 'at'])
+
+/**
+ * The language a reply is written in, judged from its prose only (code, tables and links are left
+ * out), so the words said in place of skipped parts match the voice. Mirrors the server's
+ * `SpokenNumbers.language(of:fallback:)` and `SpeechClient.spokenProse`; change them together.
+ */
+export function replyLanguage(markdown: string, fallback: string): 'en' | 'es' {
+  const prose = markdown
+    .replace(/```[\s\S]*?(?:```|$)/g, ' ')
+    .replace(TABLE, ' ')
+    .replace(/https?:\/\/\S+/g, ' ')
+    .toLowerCase()
+  let spanish = (prose.match(/[áéíóúñ¿¡]/g)?.length ?? 0) * 2
+  let english = 0
+  for (const word of prose.split(/[^\p{L}]+/u)) {
+    if (SPANISH_MARKERS.has(word)) spanish += 1
+    if (ENGLISH_MARKERS.has(word)) english += 1
+  }
+  if (spanish > english) return 'es'
+  if (english > spanish) return 'en'
+  return fallback.toLowerCase().startsWith('es') ? 'es' : 'en'
 }
 
 /** What is said in place of things that are shown but not read. The server says the same (`SpeechClient.spokenText`). */
