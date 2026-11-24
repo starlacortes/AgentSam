@@ -143,7 +143,7 @@ public actor ConversationEngine {
         guard objective.count <= 20_000 else { throw ConversationError.messageTooLong }
         if let notice = await dailyCapNotice(ownerID: ownerID, language: lang) { throw ConversationError.persistence(notice) }
         let skill: Skill?
-        switch await enabledSkill(skillID) {
+        switch await enabledSkill(skillID, ownerID: ownerID) {
         case .failure(let error): throw ConversationError.persistence(error.message)
         case .success(let found): skill = found
         }
@@ -279,7 +279,7 @@ public actor ConversationEngine {
             // Any team saved on disk (for example through the API) becomes a skill the first time it
             // is seen. The solo team is Ada's own roster and is never a skill.
             await skills.migrate(teams: allTeams, skipping: [Self.soloTeamID])
-            let skillList = await skills.enabled()
+            let skillList = await skills.enabled(for: ownerID)
             let providers = await store.loadProviders()
             let coordinator = try coordinator(providers: providers)
             // Voice: say a few words right away while the real answer is worked out. It runs beside
@@ -539,11 +539,11 @@ public actor ConversationEngine {
         let workstation = await workstation(ownerID: ref?.ownerID)
         let mcpTools = sharedAllowed ? (await access?.mcp?.toolDefs() ?? []) : []
         // Handing work to a task needs a user-owned reply to show its progress in.
-        let taskTools = ref == nil ? [] : TaskTools.definitions(catalog: SkillTeams.catalog(await skills.enabled()))
+        let taskTools = ref == nil ? [] : TaskTools.definitions(catalog: SkillTeams.catalog(await skills.enabled(for: ref?.ownerID)))
         // Helpers run inside this reply, so they need a user-owned reply to show their work in too.
         // Proposing a saved helper role needs an approval card, so it is offered only with access.
         let hasBrowser = await browser(ownerID: ref?.ownerID) != nil
-        let delegateTools = ref == nil ? [] : HelperTools.definitions(hasWorkstation: workstation != nil, hasMCP: !mcpTools.isEmpty, hasBrowser: hasBrowser, saved: await helpers.all(), canSave: access != nil, skills: await skills.enabled().map(\.id))
+        let delegateTools = ref == nil ? [] : HelperTools.definitions(hasWorkstation: workstation != nil, hasMCP: !mcpTools.isEmpty, hasBrowser: hasBrowser, saved: await helpers.all(ownerID: ref?.ownerID), canSave: access != nil, skills: await skills.enabled(for: ref?.ownerID).map(\.id))
         let offered = OfferedTools.direct(connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedAccess: access != nil, hasWorkstation: workstation != nil, hasBrowser: hasBrowser, mcpTools: mcpTools, taskTools: taskTools, delegateTools: delegateTools)
         return (offered, connectorTools, workstation)
     }
@@ -670,7 +670,7 @@ public actor ConversationEngine {
             }
             if !outcome.wroteFiles.isEmpty { state.writtenFiles.append(contentsOf: outcome.wroteFiles) }
         case .skill:
-            if state.reviewed { outcome = .failure(SelfReviewTools.applyLaterMessage) } else { outcome = await SkillTools.run(call: call, skills: skills) }
+            if state.reviewed { outcome = .failure(SelfReviewTools.applyLaterMessage) } else { outcome = await SkillTools.run(call: call, skills: skills, ownerID: ref?.ownerID) }
         case .task:
             state.tasks += 1
             if state.tasks > TaskTools.maxPerReply {
@@ -834,7 +834,7 @@ public actor ConversationEngine {
         case .failure(let error): return .failure(error.message)
         case .success(let valid): request = valid
         }
-        let current = await helpers.helper(for: request.function)
+        let current = await helpers.helper(for: request.function, ownerID: ref.ownerID)
         if request.undo && current == nil { return .failure("There is no saved role for \(request.name) to undo.") }
         let card = HelperTools.card(for: request, current: current, language: language)
         let lifetime = await access.permissions.approvalLifetime(ownerID: ref.ownerID)
@@ -853,12 +853,12 @@ public actor ConversationEngine {
     /// standing permissions, the run budget and the spending limit apply as they do for Ada.
     private func runHelper(call: APIToolCall, parent: OfferedTools, state: ToolRunState, context: ConversationPromptContext, language: String, ref: ResponseRef, conversationID: UUID, coordinator: AgentProfile, workstation: Workstation?, maxRounds: Int = HelperTools.maxRounds) async -> ToolOutcome {
         let request: HelperTools.Request
-        switch HelperTools.request(from: call, saved: await helpers.all()) {
+        switch HelperTools.request(from: call, saved: await helpers.all(ownerID: ref.ownerID)) {
         case .failure(let error): return .failure(error.message)
         case .success(var valid):
             if let id = valid.skillID {
-                guard let skill = await skills.skill(id: id), skill.enabled else {
-                    let known = await skills.enabled().map(\.id).joined(separator: ", ")
+                guard let skill = await skills.skill(id: id, for: ref.ownerID), skill.enabled else {
+                    let known = await skills.enabled(for: ref.ownerID).map(\.id).joined(separator: ", ")
                     return .failure("No enabled skill \"\(id)\". Enabled skills: \(known.isEmpty ? "none" : known). Leave skill out, or put the steps in the brief.")
                 }
                 valid.procedure = String(SkillTeams.procedureBlock(skill).trimmingCharacters(in: .whitespacesAndNewlines).prefix(4_000))
@@ -1085,7 +1085,7 @@ public actor ConversationEngine {
         case .success(let valid): request = valid
         }
         let skill: Skill?
-        switch await enabledSkill(request.skill) {
+        switch await enabledSkill(request.skill, ownerID: ref.ownerID) {
         case .failure(let error): return (.failure(error.message), nil)
         case .success(let found): skill = found
         }
@@ -1094,10 +1094,10 @@ public actor ConversationEngine {
     }
 
     /// The enabled skill with this ID, nil for none, or an error that lists the enabled skills.
-    private func enabledSkill(_ id: String?) async -> Result<Skill?, TriggerError> {
+    private func enabledSkill(_ id: String?, ownerID: String) async -> Result<Skill?, TriggerError> {
         guard let id else { return .success(nil) }
-        guard let found = await skills.skill(id: id), found.enabled else {
-            let known = await skills.enabled().map(\.id).joined(separator: ", ")
+        guard let found = await skills.skill(id: id, for: ownerID), found.enabled else {
+            let known = await skills.enabled(for: ownerID).map(\.id).joined(separator: ", ")
             return .failure(.invalid("No enabled skill \"\(id)\". Enabled skills: \(known.isEmpty ? "none" : known). Leave skill out to plan it yourself."))
         }
         return .success(found)

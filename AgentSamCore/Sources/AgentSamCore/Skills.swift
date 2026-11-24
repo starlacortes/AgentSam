@@ -33,8 +33,15 @@ public struct Skill: Codable, Identifiable, Hashable, Sendable {
     public var enabled: Bool
     public var createdAt: Date
     public var updatedAt: Date
+    /// The person the skill belongs to (`Principal.conversationOwnerID`). Nil means general: every
+    /// person's Ada sees it. Built-ins, skills migrated from teams, and skills saved before skills
+    /// were private are general; an admin can also share one of their own skills with everyone.
+    public var ownerID: String?
 
-    public init(id: String, name: String, whenToUse: String, procedure: [String] = [], specialists: [String] = [], teamID: UUID = UUID(), origin: Origin, enabled: Bool = true, createdAt: Date = Date(), updatedAt: Date = Date()) {
+    /// Seen by everyone, rather than private to one person.
+    public var general: Bool { ownerID == nil }
+
+    public init(id: String, name: String, whenToUse: String, procedure: [String] = [], specialists: [String] = [], teamID: UUID = UUID(), origin: Origin, enabled: Bool = true, createdAt: Date = Date(), updatedAt: Date = Date(), ownerID: String? = nil) {
         self.id = id
         self.name = name
         self.whenToUse = whenToUse
@@ -45,6 +52,7 @@ public struct Skill: Codable, Identifiable, Hashable, Sendable {
         self.enabled = enabled
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.ownerID = ownerID
     }
 
     /// Turns a name into an ID: lowercase letters, digits, and single hyphens.
@@ -199,39 +207,97 @@ public actor SkillStore {
         }
     }
 
-    /// Every skill, built-ins first.
-    public func all() -> [Skill] {
-        Skill.builtIns + file.skills.sorted { $0.createdAt < $1.createdAt }
+    /// The skills one person's Ada uses: built-ins, general skills, and the person's own, built-ins
+    /// first. A person's own skill takes the place of a general one with the same ID. With no owner,
+    /// only the general skills.
+    public func all(for ownerID: String?) -> [Skill] {
+        let custom = file.skills.sorted { $0.createdAt < $1.createdAt }
+        let own = ownerID.map { owner in custom.filter { $0.ownerID == owner } } ?? []
+        let ownIDs = Set(own.map(\.id))
+        let general = custom.filter { $0.ownerID == nil && !ownIDs.contains($0.id) }
+        return Skill.builtIns + (general + own).sorted { $0.createdAt < $1.createdAt }
     }
 
-    public func enabled() -> [Skill] { all().filter(\.enabled) }
+    public func enabled(for ownerID: String?) -> [Skill] { all(for: ownerID).filter(\.enabled) }
 
-    public func skill(id: String) -> Skill? {
+    public func skill(id: String, for ownerID: String?) -> Skill? {
         let key = id.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return all().first(where: { $0.id == key }) ?? all().first(where: { $0.name.lowercased() == key })
+        let visible = all(for: ownerID)
+        return visible.first(where: { $0.id == key }) ?? visible.first(where: { $0.name.lowercased() == key })
     }
+
+    /// IDs of the saved skills shared with everyone, including ones a person's own version hides.
+    public func generalIDs() -> Set<String> { Set(file.skills.filter { $0.ownerID == nil }.map(\.id)) }
 
     /// Every team a skill runs as, so callers can tell skill teams from anything else on disk.
-    public func teamIDs() -> Set<UUID> { Set(all().map(\.teamID)) }
+    public func teamIDs() -> Set<UUID> { Set((Skill.builtIns + file.skills).map(\.teamID)) }
 
-    /// Saves a custom skill, keeping its team and creation date when it already exists.
+    /// Saves a custom skill for one person, keeping its team and creation date when that person
+    /// already has it. It is private to them; only `share` makes a skill general.
     @discardableResult
-    public func save(_ skill: Skill) throws -> Skill {
+    public func save(_ skill: Skill, ownerID: String) throws -> Skill {
         guard !Skill.builtIns.contains(where: { $0.id == skill.id }) else {
             throw SkillError.invalid("“\(skill.id)” is a built-in skill and cannot be changed. Save a new skill with a different name.")
         }
         var skill = skill
+        skill.ownerID = ownerID
         skill.updatedAt = Date()
-        if let index = file.skills.firstIndex(where: { $0.id == skill.id }) {
+        if let index = file.skills.firstIndex(where: { $0.id == skill.id && $0.ownerID == ownerID }) {
             skill.createdAt = file.skills[index].createdAt
             skill.teamID = file.skills[index].teamID
             file.skills[index] = skill
         } else {
-            guard file.skills.count < Self.maxCustomSkills else { throw SkillError.invalid("There are already \(Self.maxCustomSkills) custom skills. Turn one off or update an existing one instead.") }
+            guard file.skills.filter({ $0.ownerID == ownerID }).count < Self.maxCustomSkills else {
+                throw SkillError.invalid("You already have \(Self.maxCustomSkills) custom skills. Turn one off or update an existing one instead.")
+            }
             file.skills.append(skill)
         }
         persist()
         return skill
+    }
+
+    /// Shares a copy of one of the owner's skills with everyone. The private original stays, so the
+    /// owner keeps their own version. Sharing again replaces the general copy with the latest text.
+    @discardableResult
+    public func share(id: String, from ownerID: String) throws -> Skill {
+        guard let original = file.skills.first(where: { $0.id == id && $0.ownerID == ownerID }) else {
+            throw SkillError.invalid("Only your own saved skills can be shared.")
+        }
+        var copy = original
+        copy.ownerID = nil
+        copy.updatedAt = Date()
+        if let index = file.skills.firstIndex(where: { $0.id == id && $0.ownerID == nil }) {
+            copy.createdAt = file.skills[index].createdAt
+            copy.teamID = file.skills[index].teamID
+            file.skills[index] = copy
+        } else {
+            guard file.skills.filter({ $0.ownerID == nil }).count < Self.maxCustomSkills else {
+                throw SkillError.invalid("There are already \(Self.maxCustomSkills) general skills. Stop sharing one first.")
+            }
+            copy.teamID = UUID()
+            copy.createdAt = Date()
+            file.skills.append(copy)
+        }
+        persist()
+        return copy
+    }
+
+    /// Stops sharing a general skill. When the person has no private version of it, the general one
+    /// becomes theirs, so nothing is lost; otherwise the general copy is removed.
+    public func unshare(id: String, to ownerID: String) throws {
+        guard !Skill.builtIns.contains(where: { $0.id == id }) else {
+            throw SkillError.invalid("Built-in skills are always shared.")
+        }
+        guard let index = file.skills.firstIndex(where: { $0.id == id && $0.ownerID == nil }) else {
+            throw SkillError.invalid("There is no general skill “\(id)”.")
+        }
+        if file.skills.contains(where: { $0.id == id && $0.ownerID == ownerID }) {
+            file.skills.remove(at: index)
+        } else {
+            file.skills[index].ownerID = ownerID
+            file.skills[index].updatedAt = Date()
+        }
+        persist()
     }
 
     /// Converts saved teams into skills, once per team. Ada's solo team, teams that already back a
@@ -250,7 +316,7 @@ public actor SkillStore {
             if id.isEmpty { id = "team" }
             let base = id
             var suffix = 2
-            while all().contains(where: { $0.id == id }) {
+            while (Skill.builtIns + file.skills).contains(where: { $0.id == id }) {
                 id = "\(base)-\(suffix)"
                 suffix += 1
             }
@@ -343,7 +409,8 @@ public enum SkillTools {
                 name: "skill_save",
                 description: """
                 Save or update one of your own skills: a procedure you (and the helpers you delegate to) will follow \
-                whenever a matching request comes in. Use it when the user asks you to remember how to handle a kind of \
+                whenever a matching request comes in. Skills are private to the person you are talking to; other people's \
+                Ada does not see them. Use it when the user asks you to remember how to handle a kind of \
                 request ("whenever I ask for X, do it this way"), or asks to change or turn off a skill you saved. \
                 Built-in skills cannot be changed. The skill is used from the next message on.
                 """,
@@ -366,9 +433,11 @@ public enum SkillTools {
         ]
     }
 
-    public static func run(call: APIToolCall, skills: SkillStore) async -> ToolOutcome {
+    /// Runs `skill_save` for one person: the skill is saved private to them.
+    public static func run(call: APIToolCall, skills: SkillStore, ownerID: String?) async -> ToolOutcome {
         let args = AgentTools.arguments(of: call)
         guard call.function.name == "skill_save" else { return ToolOutcome(resultText: "Unknown skill tool.", succeeded: false) }
+        guard let ownerID, !ownerID.isEmpty else { return ToolOutcome(resultText: "Skills can only be saved from a person's own conversation.", succeeded: false) }
         let name = (args["name"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let whenToUse = (args["when_to_use"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let procedure = (args["procedure"]?.arrayValue ?? []).compactMap { $0.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
@@ -383,7 +452,7 @@ public enum SkillTools {
         }
         let skill = Skill(id: id, name: name, whenToUse: whenToUse, procedure: procedure, specialists: specialists, origin: .ada, enabled: args["enabled"]?.boolValue ?? true)
         do {
-            let saved = try await skills.save(skill)
+            let saved = try await skills.save(skill, ownerID: ownerID)
             return ToolOutcome(resultText: "Saved skill \(saved.id) (\(saved.enabled ? "on" : "off")). It is used from the next message on.")
         } catch {
             return ToolOutcome(resultText: error.localizedDescription, succeeded: false)

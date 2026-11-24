@@ -254,7 +254,7 @@ public actor WorkspaceKnowledgeStore {
     private func discover(ownerID: String) async throws -> [WorkspaceKnowledgeDraft] {
         let teams = await store.loadTeams()
         await skills.migrate(teams: teams, skipping: [ConversationEngine.soloTeamID])
-        let skillList = await skills.all()
+        let skillList = await skills.all(for: ownerID)
         let providers = await store.loadProviders()
         let chats = try await conversations.list(ownerID: ownerID)
         var statuses: [ConnectorStatus] = []

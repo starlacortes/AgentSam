@@ -200,15 +200,15 @@ public enum HelperTools {
     }
 
     /// Applies an approved proposal. Called by the approval route.
-    public static func apply(_ request: SaveRequest, to store: HelperStore) async -> ToolOutcome {
+    public static func apply(_ request: SaveRequest, to store: HelperStore, ownerID: String) async -> ToolOutcome {
         do {
             if request.undo {
-                if let helper = try await store.undo(function: request.function) {
+                if let helper = try await store.undo(function: request.function, ownerID: ownerID) {
                     return ToolOutcome(resultText: "\(helper.name) is back to its earlier role (now version \(helper.version)). It applies from the next helper run.")
                 }
                 return ToolOutcome(resultText: "Removed the saved role for \(request.name). Its ready role, if it has one, applies again.")
             }
-            let helper = try await store.save(function: request.function, role: request.role, groups: request.groups, reason: request.reason)
+            let helper = try await store.save(function: request.function, role: request.role, groups: request.groups, reason: request.reason, ownerID: ownerID)
             return ToolOutcome(resultText: "Saved \(helper.name) version \(helper.version). It applies from the next helper run.")
         } catch let error as HelperStoreError {
             return .failure(error.message)
