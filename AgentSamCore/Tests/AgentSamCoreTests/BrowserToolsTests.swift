@@ -385,8 +385,13 @@ final class BrowserToolsTests: XCTestCase {
 
         let missing = await go("browser_upload_file", #"{"ref":"4","file":"nope.png"}"#)
         XCTAssertEqual(missing?.succeeded, false)
-        let nowhere = await go("browser_upload_file", #"{"url":"https://example.com/a.pdf"}"#)
-        XCTAssertEqual(nowhere?.succeeded, false)
+        // Without ref or x/y the agent answers the chooser Ada's last click opened.
+        let answer = await go("browser_upload_file", #"{"url":"https://example.com/a.pdf"}"#)
+        XCTAssertEqual(answer?.succeeded, true)
+        sent = await agent.requests.last!
+        XCTAssertEqual(sent["op"]?.stringValue, "upload")
+        XCTAssertNil(sent["ref"])
+        XCTAssertNil(sent["x"])
 
         await agent.setElement(["found": .bool(true), "tag": .string("div"), "name": .string("Pad text"), "editable": .bool(true), "url": .string("https://pad.example/p/1")])
         let picture = await go("browser_paste", #"{"image_url":"https://example.com/cat.jpg"}"#)
