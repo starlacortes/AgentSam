@@ -106,6 +106,23 @@ describe('finished action cards', () => {
     expect(screen.queryByText(/"customer_id": "42"/)).toBeNull()
   })
 
+  it('starts an automatic card folded even when it is the latest, and while it runs', () => {
+    renderUI(<ActionApprovalCard action={done} onResolved={vi.fn()} />)
+    expect(screen.queryByText(/"customer_id": "42"/)).toBeNull()
+    expect(screen.getByText('ran automatically')).toBeTruthy()
+    cleanup()
+    renderUI(<ActionApprovalCard action={{ ...done, status: 'executing' }} onResolved={vi.fn()} />)
+    expect(screen.queryByText(/"customer_id": "42"/)).toBeNull()
+    expect(screen.getByText('running automatically')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Ran googleads_mutate automatically/ }))
+    expect(screen.getByText(/"customer_id": "42"/)).toBeTruthy()
+  })
+
+  it('keeps a finished card that needed approval open while it is the latest', () => {
+    renderUI(<ActionApprovalCard action={{ ...done, automatic: false }} onResolved={vi.fn()} />)
+    expect(screen.getByText(/"customer_id": "42"/)).toBeTruthy()
+  })
+
   it('never folds a card still waiting for approval', () => {
     renderUI(<ActionApprovalCard action={{ ...done, status: 'pending', automatic: false, expiresAt: new Date(Date.now() + 60_000).toISOString() }} onResolved={vi.fn()} collapsed />)
     expect(screen.getByRole('button', { name: 'Approve once' })).toBeTruthy()
@@ -114,12 +131,13 @@ describe('finished action cards', () => {
   it('places cards by time and collapses only those with newer messages below', () => {
     const message = (id: string, role: 'user' | 'assistant', createdAt: string) => ({ id, role, text: id, createdAt, status: 'complete' as const, missionIDs: [], teamIDs: [], activity: [] })
     const messages = [message('m1', 'user', '2026-01-01T00:00:00Z'), message('m2', 'assistant', '2026-01-01T00:00:30Z'), message('m3', 'user', '2026-01-01T00:05:00Z')]
-    const placed = placeActions(messages, [done, { ...done, id: 'late', createdAt: '2026-01-01T00:06:00Z' }])
+    const approved = { ...done, automatic: false }
+    const placed = placeActions(messages, [approved, { ...approved, id: 'late', createdAt: '2026-01-01T00:06:00Z' }])
     expect(placed.get(1)?.map((a) => a.id)).toEqual(['action-9'])
     expect(placed.get(2)?.map((a) => a.id)).toEqual(['late'])
     const conversation = { id: 'chat-1', title: 'Chat', messages } as unknown as Conversation
     const handlers = { onUpdated: vi.fn(), onRetry: vi.fn(), onEdit: vi.fn(), onQuickReply: vi.fn(), onOpenCanvas: vi.fn(), onStarter: vi.fn() }
-    renderUI(<ConversationMessages conversation={conversation} handlers={handlers} actions={[done, { ...done, id: 'late', createdAt: '2026-01-01T00:06:00Z' }]} />)
+    renderUI(<ConversationMessages conversation={conversation} handlers={handlers} actions={[approved, { ...approved, id: 'late', createdAt: '2026-01-01T00:06:00Z' }]} />)
     expect(screen.getAllByText(/"customer_id": "42"/)).toHaveLength(1)
     expect(screen.getAllByRole('button', { expanded: false })).toHaveLength(1)
   })

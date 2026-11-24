@@ -441,6 +441,8 @@ export const coordinatorSpanish: Record<string, string> = {
   'Choose which actions Ada may take without asking, and the limits that keep them small.': 'Elige qué acciones puede hacer Ada sin preguntar, y los límites que las mantienen pequeñas.',
   'External writes need your one-use approval unless a rule under What Ada can do alone allows them. Connector permissions still apply. Read tools do not need approval.': 'Las escrituras externas necesitan tu aprobación de un solo uso, salvo que una regla en Lo que Ada puede hacer sola las permita. Los permisos de cada conexión siguen aplicándose. Las lecturas no necesitan aprobación.',
   'ran automatically': 'hecho automáticamente',
+  'running automatically': 'en marcha automáticamente',
+  'failed': 'falló',
   'Collapse': 'Contraer',
   'Create Gmail drafts': 'Crear borradores en Gmail',
   'Send email from Gmail': 'Enviar correos desde Gmail',
