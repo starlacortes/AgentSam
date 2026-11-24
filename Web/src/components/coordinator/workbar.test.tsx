@@ -37,3 +37,18 @@ describe('work bar', () => {
     expect(screen.getByText('PASS: figures check out')).toBeTruthy()
   })
 })
+
+describe('work bar on a phone', () => {
+  const original = window.matchMedia
+  afterEach(() => { window.matchMedia = original })
+
+  it('stays one line while helpers work, and opens on a tap', () => {
+    window.matchMedia = ((query: string) => ({ matches: query.includes('max-width'), media: query, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia
+    render(<I18nProvider><AgentWorkroom conversation={chat('running', [line('Ada', 'working', 'Answering'), line('researchAda', 'working', 'Find battery sources', 'Helper')])} /></I18nProvider>)
+    expect(screen.getByText('Ada is working')).toBeTruthy()
+    expect(screen.getByText('1 helping')).toBeTruthy()
+    expect(screen.queryByText('Find battery sources')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /Details/ }))
+    expect(screen.getByText('Find battery sources')).toBeTruthy()
+  })
+})

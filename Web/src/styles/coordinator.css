@@ -924,9 +924,11 @@
 .co-workbar-details li > div > span { display: -webkit-box; margin-top: 3px; color: var(--mut); font-size: 11.5px; line-height: 1.45; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .co-workbar-hint { margin: 10px 0 0; color: var(--dim); font-size: 11px; line-height: 1.45; }
 @media (max-width: 700px) {
-  .co-workbar-line { padding: 7px 14px; }
-  .co-workbar-details { padding: 2px 14px 10px; }
-  .co-workbar-count { display: none; }
+  .co-workbar-line { min-height: 36px; padding: 5px 14px; }
+  .co-workbar-details { padding: 2px 14px 10px; max-height: 200px; }
+  /* The chat's own status line already says what is happening; here a count of helpers is enough. */
+  .co-workbar-line:has(.co-workbar-count) .co-workbar-detail { visibility: hidden; }
+  .co-workbar-toggle { padding: 3px 8px; }
 }
 
 /* Saved helper roles in Settings › Memory & knowledge */
