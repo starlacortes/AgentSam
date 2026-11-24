@@ -229,7 +229,8 @@ final class WorkstationTests: XCTestCase {
         // Set up once per person, as their own account with their own key.
         let lines = try String(contentsOf: log, encoding: .utf8).split(separator: "\n")
         XCTAssertEqual(lines, ["\(aliceName) ssh-ed25519 AAAA\(aliceName) ada@agentsam", "\(bobName) ssh-ed25519 AAAA\(bobName) ada@agentsam"])
-        let aliceTarget = try XCTUnwrap(aliceMachine.config.ssh)
+        let aliceSSH = await aliceMachine.config.ssh
+        let aliceTarget = try XCTUnwrap(aliceSSH)
         let arguments = await aliceMachine.sshArguments(aliceTarget, script: "true")
         XCTAssertTrue(arguments.contains("\(aliceName)@kokoro.example.com"), arguments.description)
         XCTAssertTrue(arguments.contains(where: { $0.hasSuffix("people/\(aliceName)/workstation/ssh/id_ed25519") }), arguments.description)
