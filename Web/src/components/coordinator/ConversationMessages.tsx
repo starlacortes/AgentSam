@@ -45,6 +45,12 @@ export function placeActions(messages: ConversationMessage[], actions: AgentActi
   return placed
 }
 
+function autoChipLabel(action: AgentActionRequest, t: (key: string) => string): string {
+  if (action.status === 'executing' || action.status === 'approved') return t('running automatically')
+  if (action.status === 'failed') return t('failed')
+  return t('ran automatically')
+}
+
 export function ActionApprovalCard({ action, onResolved, collapsed = false }: { action: AgentActionRequest; onResolved: (actions: AgentActionRequest[]) => void; collapsed?: boolean }) {
   const { t } = useI18n()
   const [busy, setBusy] = useState(false)
@@ -59,10 +65,11 @@ export function ActionApprovalCard({ action, onResolved, collapsed = false }: { 
       onResolved(await api<AgentActionRequest[]>(`conversations/${action.conversationID}/actions/${action.id}`, { method: 'POST', body: { approve } }))
     } catch (err) { setError(errorMessage(err)) } finally { setBusy(false) }
   }
-  const chip = <span className="co-chip">{expired ? t('expired') : action.automatic ? t('ran automatically') : t(action.status)}</span>
-  // A finished card folds to one line once newer conversation arrives; tapping it opens it again.
-  const canFold = actionFinished(action) && !busy
-  const expanded = !canFold || (open ?? !collapsed)
+  const chip = <span className="co-chip">{expired ? t('expired') : action.automatic ? autoChipLabel(action, t) : t(action.status)}</span>
+  // Cards that ran on a standing permission need nothing from the person, so they start folded,
+  // even while running. Other finished cards fold once newer conversation arrives. Tapping opens them.
+  const canFold = (action.automatic || actionFinished(action)) && !busy
+  const expanded = !canFold || (open ?? !(collapsed || action.automatic))
   if (!expanded) return <section className="co-team-proposal co-action-card collapsed" aria-label={t('Action approval')}>
     <button type="button" className="co-action-summary" aria-expanded={false} onClick={() => setOpen(true)}>
       <Icon name="shield" size={14} /><b>{action.title}</b><span className="co-action-tool">{action.toolName}</span>{chip}<Icon name="chevron" size={13} />
