@@ -14,7 +14,9 @@
 
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:net'
-import { readFileSync, rmSync, mkdirSync, chmodSync, existsSync } from 'node:fs'
+import { readFileSync, rmSync, mkdirSync, chmodSync, existsSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, basename } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 // ---------------------------------------------------------------------------------------------
@@ -370,6 +372,53 @@ export function allowedURL(raw) {
   return url.href
 }
 
+/** Largest file Ada may upload or paste. */
+export const MAX_FILE_BYTES = 15 * 1024 * 1024
+
+const MIME_BY_EXTENSION = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml', bmp: 'image/bmp', pdf: 'application/pdf', txt: 'text/plain', csv: 'text/csv', md: 'text/markdown', json: 'application/json', zip: 'application/zip', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }
+
+/** A safe file name for something Ada uploads: the last part of a path or address, plain characters only. */
+export function fileNameFor(raw, mime) {
+  let name = basename(String(raw || '').split(/[?#]/)[0] || '')
+  try { name = decodeURIComponent(name) } catch {}
+  name = name.replace(/[^A-Za-z0-9._ -]/g, '_').replace(/^\.+/, '').slice(0, 120)
+  if (!name) name = 'file'
+  if (!/\.[A-Za-z0-9]{1,5}$/.test(name)) {
+    const ext = Object.keys(MIME_BY_EXTENSION).find((k) => MIME_BY_EXTENSION[k] === mime)
+    if (ext) name += '.' + ext
+  }
+  return name
+}
+
+export function mimeFor(name, fallback) {
+  const ext = String(name).toLowerCase().split('.').pop()
+  return MIME_BY_EXTENSION[ext] || fallback || 'application/octet-stream'
+}
+
+/** Turns an image into PNG (the one picture type the clipboard takes) and puts it on the clipboard. */
+export async function clipboardImageScript(base64, mime) {
+  const bytes = Uint8Array.from(atob(base64), (ch) => ch.charCodeAt(0))
+  let blob = new Blob([bytes], { type: mime })
+  if (mime !== 'image/png') {
+    const bitmap = await createImageBitmap(blob)
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height)
+    canvas.getContext('2d').drawImage(bitmap, 0, 0)
+    blob = await canvas.convertToBlob({ type: 'image/png' })
+  }
+  await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+  return true
+}
+
+/** Offers a file to the focused element as a paste, for editors where the clipboard is not available. */
+export function pasteFileScript(el, base64, mime, name) {
+  const bytes = Uint8Array.from(atob(base64), (ch) => ch.charCodeAt(0))
+  const data = new DataTransfer()
+  data.items.add(new File([bytes], name, { type: mime }))
+  const event = new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true, composed: true })
+  el.dispatchEvent(event)
+  return event.defaultPrevented
+}
+
 /** "12" names element 12 of the page; "2.5" names element 5 inside frame 2. */
 export function splitRef(raw) {
   const match = /^\[?\s*(?:(\d+)\.)?(\d+)\s*\]?$/.exec(String(raw ?? '').trim())
@@ -489,6 +538,7 @@ class Chromium {
     this.contexts = new Map() // `${sessionId}|${frameId}` -> the frame's main script context
     this.current = null
     this.order = [] // targetIds in the order they opened, so tab numbers follow the tab strip
+    this.listeners = new Set() // short-lived waiters for DevTools events
     this.onExit = () => {}
   }
 
@@ -525,6 +575,7 @@ class Chromium {
       this.buffer = this.buffer.slice(end + 1)
       let message
       try { message = JSON.parse(raw) } catch { continue }
+      if (message.method) for (const listener of this.listeners) { try { listener(message) } catch {} }
       if (message.id && this.pending.has(message.id)) {
         const { resolve, reject } = this.pending.get(message.id)
         this.pending.delete(message.id)
@@ -602,6 +653,7 @@ class Chromium {
 
   /** Reports the session's script contexts and attaches its out-of-process frames as they appear. */
   async prepare(sessionId) {
+    await this.send('Page.enable', {}, sessionId).catch(() => {})
     await this.send('Runtime.enable', {}, sessionId).catch(() => {})
     await this.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }, sessionId).catch(() => {})
   }
@@ -907,7 +959,8 @@ export class BrowserAgent {
         const changed = await this.checkExpected(session, request)
         if (changed) return { ok: false, message: changed }
         const text = String(request.text ?? '')
-        if (!text) throw new Error('There is no text to paste.')
+        const image = !text && (request.url || request.files)
+        if (!text && !image) throw new Error('There is no text or picture to paste.')
         if (request.ref) {
           const { frame, ref, info } = await this.describeTarget(session, request.ref)
           if (!info?.found) throw new Error(`There is no element [${request.ref}] on this page any more. Look at the page again.`)
@@ -918,6 +971,7 @@ export class BrowserAgent {
         const target = await this.focused(session)
         if (!target.info?.found || !target.info.editable) throw new Error('No text field has the focus. Click into the place to write first (browser_click, or browser_click_at for editors inside frames), then paste.')
         if (target.info.isPassword) throw new Error('Ada never types into password or code fields. Ask the person to take over the browser and sign in themselves.')
+        if (image) return { message: await this.pasteImage(session, target, (await this.loadFiles(request))[0]), page: await this.outline(session, request.maxChars) }
         let how = 'with Ctrl+V'
         try {
           await this.writeClipboard(target, text)
@@ -930,6 +984,52 @@ export class BrowserAgent {
         }
         await sleep(500)
         return { message: `Pasted ${text.length} characters ${how} into ${target.info.name ? `"${target.info.name.slice(0, 60)}"` : `a ${target.info.tag}`}.`, page: await this.outline(session, request.maxChars) }
+      }
+      case 'upload': {
+        // Gives files to a file field, or to the file chooser that clicking a button opens.
+        const { session } = await c.page()
+        const changed = await this.checkExpected(session, request)
+        if (changed) return { ok: false, message: changed }
+        const files = await this.loadFiles(request)
+        const paths = this.stage(files)
+        const names = files.map((f) => f.name).join(', ')
+        if (request.ref) {
+          const { frame, ref, info } = await this.describeTarget(session, request.ref)
+          if (!info?.found) throw new Error(`There is no element [${request.ref}] on this page any more. Look at the page again.`)
+          if (info.tag === 'input' && info.type === 'file') {
+            const params = { expression: `window.__ada?.refs.get(${JSON.stringify(ref)})`, returnByValue: false }
+            if (frame.contextId) params.contextId = frame.contextId
+            const { result } = await c.send('Runtime.evaluate', params, frame.session)
+            await c.send('DOM.setFileInputFiles', { files: paths, objectId: result.objectId }, frame.session)
+            await c.settle(session, 4000)
+            return { message: `Gave ${names} to the file field.`, page: await this.outline(session, request.maxChars) }
+          }
+        }
+        // A button or drop area: catch the file chooser its click opens, in whichever frame it is.
+        const sessions = [...new Set(this.chromium.frames(session).map((f) => f.session).concat(session))]
+        for (const s of sessions) await c.send('Page.setInterceptFileChooserDialog', { enabled: true }, s).catch(() => {})
+        try {
+          const opened = this.waitFor((m) => m.method === 'Page.fileChooserOpened', 5000)
+          if (request.ref) {
+            const { frame, ref } = await this.resolve(session, request.ref)
+            const point = await this.pointOf(session, frame, ref)
+            await this.clickAt(session, point.x, point.y)
+          } else {
+            const x = Number(request.x)
+            const y = Number(request.y)
+            const problem = pointProblem(x, y, await this.viewport(session))
+            if (problem) throw new Error(problem)
+            await this.clickAt(session, x, y)
+          }
+          const event = await opened
+          if (!event) throw new Error('Clicking there did not open a file chooser. Find the upload button or file field (browser_look, or a screenshot) and try that.')
+          if (event.params.mode === 'selectSingle' && paths.length > 1) paths.length = 1
+          await c.send('DOM.setFileInputFiles', { files: paths, backendNodeId: event.params.backendNodeId }, event.sessionId)
+        } finally {
+          for (const s of sessions) await c.send('Page.setInterceptFileChooserDialog', { enabled: false }, s).catch(() => {})
+        }
+        await c.settle(session, 4000)
+        return { message: `Gave ${names} to the file chooser.`, page: await this.outline(session, request.maxChars) }
       }
       case 'type': {
         const { session } = await c.page()
@@ -1118,6 +1218,89 @@ export class BrowserAgent {
     throw new Error(last)
   }
 
+  /**
+   * The files of an upload or image paste, from Ada's server (base64, from the chat's files) or
+   * downloaded here from a public web address. Returns { name, mime, base64, bytes }.
+   */
+  async loadFiles(request) {
+    const out = []
+    for (const file of Array.isArray(request.files) ? request.files.slice(0, 10) : []) {
+      const bytes = Buffer.from(String(file.data || ''), 'base64')
+      if (!bytes.length) throw new Error(`The file ${file.name || ''} is empty.`)
+      if (bytes.length > MAX_FILE_BYTES) throw new Error(`The file ${file.name || ''} is larger than 15 MB.`)
+      const name = fileNameFor(file.name, file.mime)
+      out.push({ name, mime: file.mime || mimeFor(name), bytes })
+    }
+    if (request.url) {
+      const url = allowedURL(request.url)
+      if (!url || url === 'about:blank') throw new Error('Files can only be downloaded from http and https addresses.')
+      const response = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(30000) })
+      if (!response.ok) throw new Error(`Downloading ${url} failed: HTTP ${response.status}.`)
+      if (!allowedURL(response.url)) throw new Error('The download was redirected to an address that is not allowed.')
+      const declared = Number(response.headers.get('content-length') || 0)
+      if (declared > MAX_FILE_BYTES) throw new Error('That file is larger than 15 MB.')
+      const bytes = Buffer.from(await response.arrayBuffer())
+      if (bytes.length > MAX_FILE_BYTES) throw new Error('That file is larger than 15 MB.')
+      const type = (response.headers.get('content-type') || '').split(';')[0].trim()
+      const name = fileNameFor(new URL(response.url).pathname, type)
+      out.push({ name, mime: type && type !== 'application/octet-stream' ? type : mimeFor(name), bytes })
+    }
+    if (!out.length) throw new Error('No file was given: pass a file from the chat or a web address.')
+    return out
+  }
+
+  /** Writes files to a private folder of the browser's own, for a file chooser. */
+  stage(files) {
+    const dir = mkdtempSync(join(tmpdir(), 'ada-upload-'))
+    chmodSync(dir, 0o700)
+    return files.map((f) => {
+      const path = join(dir, f.name)
+      writeFileSync(path, f.bytes, { mode: 0o600 })
+      return path
+    })
+  }
+
+  /** Waits for one DevTools event that `match` accepts. */
+  waitFor(match, timeout) {
+    const c = this.chromium
+    let listener
+    const promise = new Promise((resolve) => {
+      const timer = setTimeout(() => { c.listeners.delete(listener); resolve(null) }, timeout)
+      listener = (message) => { if (match(message)) { clearTimeout(timer); c.listeners.delete(listener); resolve(message) } }
+      c.listeners.add(listener)
+    })
+    return promise
+  }
+
+  /** Pastes a picture: through the clipboard and Ctrl+V, else as a paste event the editor can take. */
+  async pasteImage(session, target, file) {
+    const c = this.chromium
+    if (!file.mime.startsWith('image/')) throw new Error(`${file.name} is not a picture (${file.mime}). Use browser_upload_file for other files.`)
+    const base64 = file.bytes.toString('base64')
+    try {
+      const { session: top } = await c.page()
+      const origin = await c.evaluate(top, () => location.origin)
+      await c.send('Browser.grantPermissions', { origin, permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'] }).catch(() => {})
+      const params = { expression: `(${clipboardImageScript.toString()})(${JSON.stringify(base64)}, ${JSON.stringify(file.mime)})`, awaitPromise: true, returnByValue: true, userGesture: true }
+      const wrote = await c.send('Runtime.evaluate', params, top)
+      if (wrote.exceptionDetails || wrote.result?.value !== true) throw new Error(wrote.exceptionDetails?.exception?.description || 'clipboard refused')
+      await this.press(session, { key: 'v', code: 'KeyV', keyCode: 86, modifiers: 2, commands: ['paste'] })
+      await sleep(800)
+      return `Pasted the picture ${file.name} with Ctrl+V. Take a screenshot to check that it landed.`
+    } catch (error) {
+      if (process.env.ADA_BROWSER_DEBUG) console.error('image paste fallback:', error?.message)
+    }
+    const params = { expression: `(${activeScript.toString()})()`, returnByValue: false }
+    if (target.frame.contextId) params.contextId = target.frame.contextId
+    const { result } = await c.send('Runtime.evaluate', params, target.frame.session)
+    if (!result?.objectId) throw new Error('The picture could not be pasted: nothing has the focus.')
+    const taken = await c.callOn(target.frame.session, result.objectId, pasteFileScript, base64, file.mime, file.name)
+    await sleep(800)
+    return taken
+      ? `Offered the picture ${file.name} to the editor as a paste, and it took it. Take a screenshot to check that it landed.`
+      : `Offered the picture ${file.name} to the editor as a paste, but it may have ignored it. Take a screenshot to check; if it is not there, look for the editor's own "insert image" or upload button and use browser_upload_file.`
+  }
+
   /** The number Ada sees for a frame ([2.5] is element 5 in frame 2). It stays the same while the frame lives. */
   frameNumber(frameId) {
     if (!this.frameNumbers.has(frameId)) this.frameNumbers.set(frameId, this.nextFrame++)
@@ -1253,7 +1436,7 @@ export function serve(agent, { port, host = '127.0.0.1', token }) {
     socket.setTimeout(120000, () => socket.destroy())
     socket.on('data', async (chunk) => {
       data += chunk
-      if (data.length > 1_000_000) { socket.destroy(); return }
+      if (data.length > 25_000_000) { socket.destroy(); return }
       const end = data.indexOf('\n')
       if (end < 0) return
       const line = data.slice(0, end)

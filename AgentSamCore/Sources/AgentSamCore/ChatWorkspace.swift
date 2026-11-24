@@ -139,10 +139,20 @@ public actor ChatWorkspaceStore {
         return lines[(startLine - 1)...].joined(separator: "\n")
     }
 
+    /// A file's bytes, for uploading it in Ada's browser. Credentials (`.env`, `.pem`, keys) never leave.
+    public func readData(conversationID: UUID, name: String, limit: Int) -> (name: String, data: Data)? {
+        guard let url = AgentTools.resolve(name, in: directory(conversationID)) else { return nil }
+        let blocked: Set<String> = ["env", "pem", "key", "p12", "pfx", "keychain", "kdbx"]
+        guard !blocked.contains(url.pathExtension.lowercased()), !url.lastPathComponent.hasPrefix(".env"),
+              let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue, size <= limit,
+              let data = try? Data(contentsOf: url) else { return nil }
+        return (url.lastPathComponent, data)
+    }
+
     /// Writes binary data (a screenshot) into the conversation's workspace.
     @discardableResult
-    public func writeData(conversationID: UUID, name: String, data: Data) -> String? {
-        guard let url = AgentTools.resolve(name, in: directory(conversationID)), data.count <= AgentTools.maxFileBytes else { return nil }
+    public func writeData(conversationID: UUID, name: String, data: Data, limit: Int = AgentTools.maxFileBytes) -> String? {
+        guard let url = AgentTools.resolve(name, in: directory(conversationID)), data.count <= limit else { return nil }
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try data.write(to: url, options: [.atomic])

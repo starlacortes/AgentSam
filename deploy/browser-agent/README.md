@@ -75,7 +75,12 @@ scroll, go, tabs, wait, screenshot, click_at, drag, hover), and admins watch eve
   editors keep its lines; where a page has no clipboard it inserts the text in one step. Ada
   cannot press Ctrl+V herself, so she never pastes what the person copied. Typing and pasting
   without a number go to the element with the focus, followed into frames, and are refused in
-  password and code fields there too. Signing in, submitting a form,
+  password and code fields there too.
+- **Files and pictures.** `upload` gives files to a file field, or catches the file chooser that
+  clicking an upload button opens. `paste` with a picture puts it on the clipboard as PNG and
+  presses Ctrl+V, or offers it to the editor as a paste event. Files come from Ada's server (the
+  chat's files) or are downloaded by the agent from a public http or https address, at most 15 MB,
+  into a private temporary folder of the browser's own. Signing in, submitting a form,
 paying, sending, deleting and security settings create an approval card on Ada's server; the
 approved action runs once, and the agent refuses it if the page or element changed meanwhile.
 To sign in to a site, the person presses **Take over** in the live window, signs in, and presses

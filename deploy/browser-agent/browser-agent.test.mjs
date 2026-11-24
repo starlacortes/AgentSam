@@ -66,6 +66,8 @@ function findChromium() {
   return null
 }
 
+const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==', 'base64')
+
 const PAGES = {
   '/': `<!doctype html><title>Home</title><h1>Shop</h1><p>Welcome to the test shop.</p>
     <a href="/second">Second page</a>
@@ -82,9 +84,16 @@ const PAGES = {
     <h1>Pad</h1>
     <iframe id="same" src="/inner" title="Toolbar" style="left:0;top:100px;width:600px;height:150px"></iframe>
     <iframe id="other" src="OTHER/pad" title="Pad body" style="left:0;top:300px;width:800px;height:400px"></iframe>`,
+  '/upload': `<!doctype html><title>Upload</title>
+    <label>Attachment <input type="file" id="direct" onchange="document.getElementById('a').textContent='direct got '+this.files[0].name+' '+this.files[0].size"></label>
+    <input type="file" id="hidden" style="display:none" onchange="document.getElementById('b').textContent='hidden got '+this.files[0].name">
+    <button onclick="document.getElementById('hidden').click()">Insert image</button>
+    <button>Does nothing</button>
+    <p id="a"></p><p id="b"></p>`,
   '/inner': '<!doctype html><title>Toolbar</title><button onclick="document.body.dataset.n=(+document.body.dataset.n||0)+1;this.textContent=\'Bold \'+document.body.dataset.n">Bold</button>',
   '/pad': `<!doctype html><title>Pad</title><style>body{margin:0}#ed{position:absolute;left:20px;top:20px;width:500px;height:150px;border:1px solid}#pad{position:absolute;left:20px;top:200px;width:300px;height:100px;background:#eee}</style>
-    <div id="ed" contenteditable="true" aria-label="Pad text"></div>
+    <div id="ed" contenteditable="true" aria-label="Pad text" onpaste="const f=event.clipboardData.files;if(f.length){event.preventDefault();document.getElementById('pasted').textContent='pasted file '+f[0].type+' '+f[0].size}"></div>
+    <p id="pasted"></p>
     <div id="pad" onmousedown="this.dataset.down=event.offsetX+','+event.offsetY" onmouseup="document.getElementById('log').textContent='down '+this.dataset.down+' up '+event.offsetX+','+event.offsetY"></div>
     <p id="log">nothing yet</p>
     <button onclick="this.textContent='Sent'" style="position:absolute;left:400px;top:220px">Send</button>
@@ -95,6 +104,7 @@ test('the agent reads, clicks, types and refuses password fields in a real Chrom
   const binary = findChromium()
   if (!binary) { t.skip('no Chromium here'); return }
   const site = createServer((req, res) => {
+    if (req.url === '/pic.png') { res.writeHead(200, { 'content-type': 'image/png' }); res.end(PNG); return }
     const page = PAGES[new URL(req.url, 'http://x').pathname]
     res.writeHead(page ? 200 : 404, { 'content-type': 'text/html' })
     res.end(page ? page.replace('OTHER', `http://localhost:${site.address().port}`) : 'missing')
@@ -224,6 +234,15 @@ test('the agent reads, clicks, types and refuses password fields in a real Chrom
     await call({ op: 'key', key: 'Backspace' })
     const empty = await call({ op: 'look', query: 'Pad text' })
     assert.doesNotMatch(empty.page.text, /second line/)
+    // A picture: pasted from a web address, and from a file Ada's server sends.
+    await call({ op: 'mouse', action: 'click', x: 100, y: 360 })
+    const picture = await call({ op: 'paste', url: base + '/pic.png' })
+    assert.equal(picture.ok, true, picture.message)
+    assert.match(picture.message, /picture pic\.png/)
+    const seenPaste = await call({ op: 'look', query: 'pasted file' })
+    assert.match(seenPaste.page.text, /pasted file image\/png \d+/)
+    const notPicture = await call({ op: 'paste', files: [{ name: 'notes.txt', data: Buffer.from('hi').toString('base64') }] })
+    assert.match(notPicture.message, /not a picture/)
     const noPaste = await call({ op: 'key', key: 'ctrl+v' })
     assert.match(noPaste.message, /browser_paste/)
 
@@ -242,6 +261,21 @@ test('the agent reads, clicks, types and refuses password fields in a real Chrom
     assert.match(byRef.page.text, /textbox "Pad text" text="via ref"/)
     const scrolled = await call({ op: 'scroll', direction: 'down', x: 100, y: 360 })
     assert.equal(scrolled.ok, true, scrolled.message)
+
+    // Uploads: into a file field directly, and through the chooser a button opens.
+    const upload = await call({ op: 'open', url: base + '/upload' })
+    const uref = (pattern) => upload.page.text.split('\n').find((l) => pattern.test(l)).match(/^\[(\d+)\]/)[1]
+    const direct = await call({ op: 'upload', ref: uref(/file field "Attachment"/), files: [{ name: '../../etc/report.pdf', data: Buffer.from('%PDF-1').toString('base64') }] })
+    assert.equal(direct.ok, true, direct.message)
+    assert.match(direct.page.text, /direct got report\.pdf 6/)
+    const chooser = await call({ op: 'upload', ref: uref(/button "Insert image"/), url: base + '/pic.png' })
+    assert.equal(chooser.ok, true, chooser.message)
+    assert.match(chooser.page.text, /hidden got pic\.png/)
+    const none = await call({ op: 'upload', ref: uref(/button "Does nothing"/), url: base + '/pic.png' })
+    assert.match(none.message, /did not open a file chooser/)
+    const local = await call({ op: 'upload', ref: uref(/button "Insert image"/), url: 'file:///etc/passwd' })
+    assert.match(local.message, /only be downloaded from http/)
+    await call({ op: 'open', url: base + '/editor' })
 
     const gridShot = await call({ op: 'screenshot', grid: true })
     assert.equal(gridShot.width, 1280)
