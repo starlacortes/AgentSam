@@ -58,8 +58,24 @@ see Ada's browser, everyone else with a workstation sees only their own.
 
 ## Ada's browser tools
 
-Ada drives the window with the `browser_*` tools (open, look, click, type, select, key, scroll,
-go, tabs, wait, screenshot), and admins watch every step live. Signing in, submitting a form,
+Ada drives the window with the `browser_*` tools (open, look, click, type, paste, select, key,
+scroll, go, tabs, wait, screenshot, click_at, drag, hover), and admins watch every step live.
+
+- **Frames.** The outline reads every frame of the page, also frames from other sites (embedded
+  editors such as CryptPad's). Their elements are listed after the page and numbered `[frame.n]`,
+  for example `[3.2]`, and every tool that takes a number works on them.
+- **The mouse.** `mouse` moves, clicks (left, right, double) and drags at page pixels, the same
+  coordinates as a screenshot, and `scroll` can scroll whatever is under a point. Before a click,
+  `describe_point` says what is there, followed into frames from other sites, so Ada's server applies
+  the same approval rules as for numbered clicks.
+- **Seeing.** `screenshot` can draw a labelled 100-pixel grid over the page for the picture only.
+  Ada's server shows the picture to the vision model (Settings, Providers, "Vision model") and
+  gives Ada its answer.
+- **Pasting.** `paste` puts Ada's text on the browser's clipboard and presses Ctrl+V, so rich
+  editors keep its lines; where a page has no clipboard it inserts the text in one step. Ada
+  cannot press Ctrl+V herself, so she never pastes what the person copied. Typing and pasting
+  without a number go to the element with the focus, followed into frames, and are refused in
+  password and code fields there too. Signing in, submitting a form,
 paying, sending, deleting and security settings create an approval card on Ada's server; the
 approved action runs once, and the agent refuses it if the page or element changed meanwhile.
 To sign in to a site, the person presses **Take over** in the live window, signs in, and presses
@@ -74,7 +90,7 @@ Run the agent's tests with `node --test deploy/browser-agent/browser-agent.test.
 
 ## Not done yet
 
-One profile per person (not one per site account), no per-site grants or daily limits, Ada's
-cursor is not drawn on the picture, and iframes (some embedded sign-in and payment widgets) are
-not readable. The profile sits on the workstation, where Ada's own `sudo pacman` could reach it:
+One profile per person (not one per site account), no per-site grants or daily limits, and Ada's
+cursor is not drawn on the picture. Clicking a bare canvas by position cannot be checked for risk
+(there is no label to read), so approvals there rely on what the page says around it. The profile sits on the workstation, where Ada's own `sudo pacman` could reach it:
 keep `workstation_run` on approval until the browser has a machine of its own.
