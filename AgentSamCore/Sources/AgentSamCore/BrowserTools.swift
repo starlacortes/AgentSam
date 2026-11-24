@@ -60,15 +60,30 @@ public enum BrowserTools {
                 ("submit", prop("boolean", "Press Enter after typing.")),
             ], required: ["text"]),
             tool("browser_paste", """
-            Paste text, as a person pastes with Ctrl+V: the way to write long or multi-line text (a document, a \
-            pad, an email body) in one step, and the one rich editors like Google Docs and CryptPad handle best. \
-            Pastes into the numbered field, or without ref into whatever has the focus; click into the editor \
-            first. Never into password or code fields. Look or take a screenshot afterwards to check it landed.
+            Paste, as a person pastes with Ctrl+V: text, or a picture. The way to write long or multi-line text \
+            (a document, a pad, an email body) in one step, and the one rich editors like Google Docs and \
+            CryptPad handle best. For a picture, give image_url (a public web address) or file (a picture in \
+            this chat's files) instead of text. Pastes into the numbered field, or without ref into whatever has \
+            the focus; click into the editor first. Never into password or code fields. Take a screenshot \
+            afterwards to check it landed.
             """, [
                 ref,
                 ("text", prop("string", "The text to paste.")),
+                ("image_url", prop("string", "Instead of text: a picture at a public http or https address.")),
+                ("file", prop("string", "Instead of text: a picture in this chat's files, by its name.")),
                 ("clear", prop("boolean", "Empty the numbered field first.")),
-            ], required: ["text"]),
+            ]),
+            tool("browser_upload_file", """
+            Give a file to a page, as a person picks one in the file chooser: to attach a document, or insert a \
+            picture through an editor's upload or "insert image" button. Name the file field or the button that \
+            opens the chooser by ref, or by x and y. The file comes from url (a public web address) or file \
+            (this chat's files), at most 15 MB. The file goes to that site, so upload only what the person would \
+            want there.
+            """, [
+                ref, x, y,
+                ("url", prop("string", "The file at a public http or https address.")),
+                ("file", prop("string", "A file in this chat's files, by its name.")),
+            ]),
             tool("browser_click_at", """
             Click at a point of the window, like a person with a mouse: for things the outline cannot number \
             (canvas apps, editors inside frames, maps, custom widgets). Find the point with browser_screenshot \
@@ -256,12 +271,23 @@ public enum BrowserTools {
         case needsApproval(title: String, detail: String, arguments: String, risk: Risk)
     }
 
-    /// Looks at a screenshot for Ada with a model that can see, and answers the prompt. Nil when it could not.
-    public typealias Viewer = @Sendable (_ image: APIImage, _ prompt: String) async -> String?
+    /// Looks at a screenshot for Ada with a model that can see, and answers the prompt.
+    public struct Viewer: Sendable {
+        /// The model's name, for messages.
+        public var model: String
+        public var look: @Sendable (_ image: APIImage, _ prompt: String) async throws -> String
+        public init(model: String, look: @escaping @Sendable (_ image: APIImage, _ prompt: String) async throws -> String) {
+            self.model = model
+            self.look = look
+        }
+    }
+
+    /// Reads a file from this chat's files: its name, media type and bytes. Nil when there is no such file.
+    public typealias FileReader = @Sendable (_ name: String) async -> (name: String, data: Data)?
 
     /// Runs one browser call. `saveFile` stores a screenshot in the chat and returns its name; `see`
     /// is the vision model, when one is set up.
-    public static func run(call: APIToolCall, link: BrowserLink, see: Viewer? = nil, saveFile: @Sendable (String, Data) async -> String?) async -> Step {
+    public static func run(call: APIToolCall, link: BrowserLink, see: Viewer? = nil, readFile: FileReader? = nil, saveFile: @Sendable (String, Data) async -> String?) async -> Step {
         let args = AgentTools.arguments(of: call)
         let ref = refString(args["ref"])
         let pageCharacters: JSONValue = .number(Double(actionPageCharacters))
@@ -289,7 +315,14 @@ public enum BrowserTools {
                 }
             }
             let text = args["text"]?.stringValue ?? ""
-            if paste && text.isEmpty { return .done(.failure("There is no text to paste.")) }
+            var picture: [String: JSONValue] = [:]
+            if paste && text.isEmpty {
+                switch await fileSource(url: args["image_url"]?.stringValue, file: args["file"]?.stringValue, readFile: readFile) {
+                case .none: return .done(.failure("There is nothing to paste: give text, or a picture by image_url or file."))
+                case .failure(let message): return .done(.failure(message))
+                case .source(let source): picture = source
+                }
+            }
             let submit = !paste && (args["submit"]?.boolValue ?? false)
             let described = await describe(ref, link: link)
             guard case .success(let element) = described else { return .done(described.failureOutcome) }
@@ -300,6 +333,7 @@ public enum BrowserTools {
                 return .done(.failure("What has the focus is not a place to write. Click into the field or editor first (browser_click, or browser_click_at for editors the outline does not number), then try again."))
             }
             var request: [String: JSONValue] = ["text": .string(text), "clear": .bool(args["clear"]?.boolValue ?? false)]
+            request.merge(picture) { a, _ in a }
             if let ref { request["ref"] = .string(ref) }
             if !paste { request["submit"] = .bool(submit) }
             if let risk = typeRisk(element) ?? (submit ? enterRisk(element) : nil) {
@@ -339,6 +373,22 @@ public enum BrowserTools {
             }
             request["maxChars"] = pageCharacters
             return .done(format(await link.call("mouse", request)))
+        case "browser_upload_file":
+            var request: [String: JSONValue] = ["maxChars": pageCharacters]
+            if let ref {
+                request["ref"] = .string(ref)
+            } else if let at = point(args, "x", "y") {
+                request["x"] = .number(at.x)
+                request["y"] = .number(at.y)
+            } else {
+                return .done(.failure("Name the file field or upload button by ref, or by x and y."))
+            }
+            switch await fileSource(url: args["url"]?.stringValue, file: args["file"]?.stringValue, readFile: readFile) {
+            case .none: return .done(.failure("Give the file by url (a public web address) or file (a name from this chat's files)."))
+            case .failure(let message): return .done(.failure(message))
+            case .source(let source): request.merge(source) { a, _ in a }
+            }
+            return .done(format(await link.call("upload", request)))
         case "browser_hover":
             guard let at = point(args, "x", "y") else { return .done(.failure("x and y are required, in page pixels.")) }
             return .done(format(await link.call("mouse", ["action": .string("move"), "x": .number(at.x), "y": .number(at.y), "maxChars": pageCharacters])))
@@ -388,15 +438,24 @@ public enum BrowserTools {
             let reply = await link.call("screenshot", ["grid": .bool(grid)])
             guard reply.ok, let base64 = reply.body["jpeg"]?.stringValue, let data = Data(base64Encoded: base64) else { return .done(failure(reply)) }
             let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
-            guard let name = await saveFile("browser/screenshot-\(stamp).jpg", data) else { return .done(.failure("The screenshot could not be saved.")) }
             let page = reply.body["url"]?.stringValue ?? ""
-            let saved = "Saved a screenshot of \(page) as \(name) (the person can open it in this chat's files)."
+            // A picture the chat cannot keep (too large) still goes to the vision model.
+            let name = await saveFile("browser/screenshot-\(stamp).jpg", data)
+            let files = name.map { [$0] } ?? []
+            let saved = name.map { "Saved a screenshot of \(page) as \($0) (the person can open it in this chat's files)." } ?? "Took a screenshot of \(page) (too large to keep in the chat's files)."
             guard let see else {
-                return .done(ToolOutcome(resultText: saved + " No vision model is set up, so you cannot see it: use browser_look to read the page. An admin can choose a vision model in Settings, under Providers, “Vision model”.", wroteFiles: [name]))
+                return .done(ToolOutcome(resultText: saved + " No model that can look at pictures is set up, so you cannot see it: use browser_look to read the page. An admin can choose one in Settings, under Providers, “Vision model” (for example a Claude, GPT or Gemini model).", wroteFiles: files))
             }
             let question = args["question"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            guard let seen = await see(APIImage(mediaType: "image/jpeg", data: base64), visionPrompt(question: question, reply: reply, grid: grid)) else {
-                return .done(ToolOutcome(resultText: saved + " The vision model did not answer, so you cannot see it this time: use browser_look to read the page, or try again.", wroteFiles: [name]))
+            let seen: String
+            do {
+                seen = try await see.look(APIImage(mediaType: "image/jpeg", data: base64), visionPrompt(question: question, reply: reply, grid: grid)).trimmingCharacters(in: .whitespacesAndNewlines)
+            } catch {
+                let reason = String(String(describing: error).prefix(300))
+                return .done(ToolOutcome(resultText: saved + " The vision model (\(see.model)) could not look at it: \(reason). If this keeps happening, the model may not accept pictures; an admin can choose another one in Settings, under Providers, “Vision model”. Meanwhile use browser_look.", wroteFiles: files, succeeded: false))
+            }
+            guard !seen.isEmpty else {
+                return .done(ToolOutcome(resultText: saved + " The vision model (\(see.model)) gave an empty answer; try again or use browser_look.", wroteFiles: files))
             }
             let width = Int(reply.body["width"]?.numberValue ?? 0)
             let height = Int(reply.body["height"]?.numberValue ?? 0)
@@ -407,7 +466,7 @@ public enum BrowserTools {
                 "END OF WHAT IT SEES",
                 "The window is \(width)×\(height) page pixels. Positions are estimates: after browser_click_at, browser_drag or browser_hover, check the result (the returned page, or another screenshot).",
             ].joined(separator: "\n")
-            return .done(ToolOutcome(resultText: text, wroteFiles: [name]))
+            return .done(ToolOutcome(resultText: text, wroteFiles: files))
         default:
             return .done(.failure("Unknown browser tool."))
         }
@@ -430,6 +489,22 @@ public enum BrowserTools {
 
     /// Agent operations an approval card may run.
     static let approvableOps: Set<String> = ["click", "type", "key", "mouse", "paste"]
+
+    /// Largest file Ada may upload or paste.
+    static let maxFileBytes = 15 * 1024 * 1024
+
+    enum FileSource { case none, failure(String), source([String: JSONValue]) }
+
+    /// Where an upload or picture comes from: a web address the agent downloads, or a chat file sent along.
+    static func fileSource(url: String?, file: String?, readFile: FileReader?) async -> FileSource {
+        if let url = url?.trimmingCharacters(in: .whitespacesAndNewlines), !url.isEmpty { return .source(["url": .string(url)]) }
+        guard let file = file?.trimmingCharacters(in: .whitespacesAndNewlines), !file.isEmpty else { return .none }
+        guard let readFile, let found = await readFile(file) else {
+            return .failure("There is no file named \(file) in this chat's files. List them, or give a web address instead.")
+        }
+        guard found.data.count <= maxFileBytes else { return .failure("\(file) is larger than 15 MB.") }
+        return .source(["files": .array([.object([("name", .string(found.name)), ("data", .string(found.data.base64EncodedString()))])])])
+    }
 
     /// What the vision model is told about its job.
     static let visionSystem = """
@@ -582,6 +657,8 @@ public enum BrowserTools {
         if let ref = refString(args["ref"]) { parts.append("[\(ref)]") }
         if let text = args["text"]?.stringValue { parts.append("\(call.function.name == "browser_paste" ? "pasted" : "typed") \(text.count) characters") }
         if let at = point(args, "x", "y") { parts.append("at (\(Int(at.x)), \(Int(at.y)))") }
+        if let file = args["file"]?.stringValue { parts.append("file \(file.prefix(120))") }
+        if let image = args["image_url"]?.stringValue { parts.append("picture \(image.prefix(200))") }
         if let from = point(args, "from_x", "from_y"), let to = point(args, "to_x", "to_y") { parts.append("from (\(Int(from.x)), \(Int(from.y))) to (\(Int(to.x)), \(Int(to.y)))") }
         if let key = args["key"]?.stringValue { parts.append(key) }
         if let option = args["option"]?.stringValue { parts.append("chose \(option.prefix(60))") }

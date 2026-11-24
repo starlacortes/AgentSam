@@ -195,6 +195,7 @@ public enum ToolCatalog {
         ToolSpec("browser_tabs", .read, en: "Checking the browser tabs", es: "Revisando las pestañas"),
         ToolSpec("browser_wait", .read, en: "Waiting for the page", es: "Esperando a la página"),
         ToolSpec("browser_paste", .write, en: "Pasting text in the browser", es: "Pegando texto en el navegador"),
+        ToolSpec("browser_upload_file", .write, en: "Uploading a file in the browser", es: "Subiendo un archivo en el navegador"),
         ToolSpec("browser_click_at", .write, en: "Clicking on the screen", es: "Haciendo clic en la pantalla"),
         ToolSpec("browser_drag", .write, en: "Dragging with the mouse", es: "Arrastrando con el ratón"),
         ToolSpec("browser_hover", .write, en: "Moving the mouse", es: "Moviendo el ratón"),

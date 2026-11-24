@@ -485,18 +485,18 @@ public actor ConversationEngine {
     }
 
     /// The model that looks at Ada's browser screenshots for her: the vision model chosen in
-    /// settings, or her own model when it can see, or the image processor provider. Nil when none
-    /// of them can look at pictures, so the tool can say so.
+    /// settings, or her own model when it can see, or the image processor provider. A model an
+    /// admin chose is trusted as chosen (if it refuses pictures, the error says so); Ada's own
+    /// model is used only when it is known to see. Nil when there is none.
     private func screenshotViewer(for ada: AgentProfile) async -> BrowserTools.Viewer? {
         let providers = await store.loadProviders()
         let viewer = await visionCoordinator(for: ada, providers: providers, hasPhotos: true)
-        guard let provider = providers.first(where: { $0.id == viewer.providerID }),
-              keyRing.get(provider.keyAccount) != nil,
-              VisionSupport.accepts(provider: provider, model: viewer.model) else { return nil }
-        return { [self] image, prompt in
-            let reply = try? await self.complete(coordinator: viewer, system: BrowserTools.visionSystem, messages: [.user(prompt, images: [image])], tools: nil, maxTokens: 1_500)
-            let text = (reply?.message.content ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            return text.isEmpty ? nil : text
+        guard let provider = providers.first(where: { $0.id == viewer.providerID }), keyRing.get(provider.keyAccount) != nil else { return nil }
+        let chosen = viewer.providerID != ada.providerID || viewer.model != ada.model
+        guard chosen || VisionSupport.accepts(provider: provider, model: viewer.model) else { return nil }
+        return BrowserTools.Viewer(model: viewer.model) { [self] image, prompt in
+            let reply = try await self.complete(coordinator: viewer, system: BrowserTools.visionSystem, messages: [.user(prompt, images: [image])], tools: nil, maxTokens: 1_500)
+            return reply.message.content ?? ""
         }
     }
 
@@ -795,8 +795,10 @@ public actor ConversationEngine {
             await markUsedBrowser(in: ref)
             let workspace = self.workspace
             let see = call.function.name == "browser_screenshot" ? await screenshotViewer(for: coordinator) : nil
-            let step = await BrowserTools.run(call: call, link: link, see: see) { name, data in
-                await workspace.writeData(conversationID: conversationID, name: name, data: data)
+            let step = await BrowserTools.run(call: call, link: link, see: see, readFile: { name in
+                await workspace.readData(conversationID: conversationID, name: name, limit: BrowserTools.maxFileBytes)
+            }) { name, data in
+                await workspace.writeData(conversationID: conversationID, name: name, data: data, limit: 4_000_000)
             }
             switch step {
             case .done(let result):
