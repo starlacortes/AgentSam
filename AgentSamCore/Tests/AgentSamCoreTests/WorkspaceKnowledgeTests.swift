@@ -134,6 +134,19 @@ final class WorkspaceKnowledgeTests: XCTestCase {
         XCTAssertFalse(member.contains("workstation_run"))
     }
 
+    func testAPersonWithAWorkstationIsToldAboutTheirOwnBrowser() async throws {
+        let ssh = SSHTarget(destination: "ada@kokofast.example")
+        let workstation = WorkstationConfig(enabled: true, home: directory, ssh: ssh)
+        let browser = BrowserConfig.fromEnvironment(["AGENTSAM_BROWSER": "1"], workstation: workstation)
+        let machines = WorkspaceMachines(workstation: workstation, browser: browser, browserDrivable: true, mayUse: { $0 == "admin" }, personalAccount: { $0 == "person" ? "adau0123456789ab" : nil })
+        let knowledge = knowledgeStore(machines: machines)
+        let text = try await capabilities(knowledge, owner: "person")
+        XCTAssertTrue(text.contains("`adau0123456789ab@kokofast.example`"))
+        XCTAssertTrue(text.contains("`ada-browser@adau0123456789ab.service`"))
+        XCTAssertTrue(text.contains("nobody else's Ada can see or use it"))
+        XCTAssertFalse(text.contains("for admins for now"))
+    }
+
     func testCapabilitiesSayAdaCannotDriveTheBrowserWithoutItsPassword() async throws {
         let workstation = WorkstationConfig(enabled: true, home: directory, ssh: SSHTarget(destination: "ada@kokofast.example"))
         let browser = BrowserConfig.fromEnvironment(["AGENTSAM_BROWSER": "1"], workstation: workstation)

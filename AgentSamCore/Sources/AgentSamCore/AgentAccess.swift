@@ -341,12 +341,17 @@ public struct ConversationAccess: Sendable {
     public let sharedAccountsOwner: @Sendable (String) async -> Bool
     /// MCP servers an admin connected; their tools are offered to owners who may use shared accounts.
     public let mcp: MCPRegistry?
-    /// Ada's browser on the workstation; the same owners as the workstation may use it.
+    /// The operator's browser on the workstation, for admins and the server token.
     public let browser: BrowserLink?
+    /// The browser this owner's Ada drives: the operator's for admins, their own (running as their
+    /// own workstation account, with their own sign-ins) for a person an admin gave a workstation,
+    /// nil for anyone else. Defaults to the operator's browser for owners `workstationOwner` allows.
+    public let browserFor: @Sendable (String) async -> BrowserLink?
 
-    public init(root: URL, workstation: Workstation? = nil, workstationOwner: @escaping @Sendable (String) async -> Bool = { _ in false }, sharedAccountsOwner: @escaping @Sendable (String) async -> Bool = { _ in true }, workstationFor: (@Sendable (String) async -> Workstation?)? = nil, mcp: MCPRegistry? = nil, browser: BrowserLink? = nil) {
+    public init(root: URL, workstation: Workstation? = nil, workstationOwner: @escaping @Sendable (String) async -> Bool = { _ in false }, sharedAccountsOwner: @escaping @Sendable (String) async -> Bool = { _ in true }, workstationFor: (@Sendable (String) async -> Workstation?)? = nil, mcp: MCPRegistry? = nil, browser: BrowserLink? = nil, browserFor: (@Sendable (String) async -> BrowserLink?)? = nil) {
         self.mcp = mcp
         self.browser = browser
+        self.browserFor = browserFor ?? { owner in await workstationOwner(owner) ? browser : nil }
         self.workstation = workstation
         self.workstationOwner = workstationOwner
         self.workstationFor = workstationFor ?? { owner in await workstationOwner(owner) ? workstation : nil }

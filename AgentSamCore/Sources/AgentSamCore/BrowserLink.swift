@@ -123,6 +123,8 @@ public actor BrowserLink {
     private let token: String
     /// How long to wait for the agent after starting the service.
     private let startWait: TimeInterval
+    /// Asked before starting the service; a reason refuses the start (for example, too many open browsers).
+    private let startCheck: @Sendable () async -> String?
     private var viewers = 0
     private var idleTask: Task<Void, Never>?
 
@@ -130,30 +132,41 @@ public actor BrowserLink {
     static let offMarker = "__ADA_BROWSER_OFF"
 
     /// `run` executes a shell script on the workstation; `relay` gives the command that reaches the picture.
-    public init(config: BrowserConfig, run: @escaping Runner, relay: @escaping @Sendable () async -> BrowserRelayCommand? = { nil }, agent: @escaping AgentTransport = { _ in nil }, token: String = "", startWait: TimeInterval = 12) {
+    public init(config: BrowserConfig, run: @escaping Runner, relay: @escaping @Sendable () async -> BrowserRelayCommand? = { nil }, agent: @escaping AgentTransport = { _ in nil }, token: String = "", startWait: TimeInterval = 12, startCheck: @escaping @Sendable () async -> String? = { nil }) {
         self.config = config
         self.run = run
         self.relay = relay
         self.agent = agent
         self.token = token
         self.startWait = startWait
+        self.startCheck = startCheck
     }
 
     /// The browser on Ada's SSH workstation. `token` is the browser's VNC password.
     public init(config: BrowserConfig, workstation: Workstation, token: String = "") {
+        self.init(config: config, control: workstation, viewer: workstation, token: token)
+    }
+
+    /// A browser whose service is started and stopped through `control` (the operator account, which
+    /// may run systemctl) and reached through `viewer` (the account the picture and agent are relayed as).
+    public init(config: BrowserConfig, control: Workstation, viewer: Workstation, token: String, startCheck: @escaping @Sendable () async -> String? = { nil }) {
         let port = config.vncPort
         let agentPort = config.agentPort
         self.init(
             config: config,
-            run: { script in await workstation.run(command: script, directory: nil, timeout: 45) },
-            relay: { await workstation.loopbackCommand(port: port) },
+            run: { script in await control.run(command: script, directory: nil, timeout: 45) },
+            relay: { await viewer.loopbackCommand(port: port) },
             agent: { request in
-                guard let command = await workstation.loopbackCommand(port: agentPort) else { return nil }
+                guard let command = await viewer.loopbackCommand(port: agentPort) else { return nil }
                 return await BrowserAgentExchange.send(request, command: command, timeout: 75)
             },
-            token: token
+            token: token,
+            startCheck: startCheck
         )
     }
+
+    /// The VNC password of this browser's display, which the live window needs to connect.
+    public nonisolated var password: String { token }
 
     /// Whether Ada can drive the browser: it is on and the server knows the agent's secret.
     public nonisolated var drivable: Bool { config.enabled && !token.isEmpty }
@@ -200,6 +213,7 @@ public actor BrowserLink {
     /// Starts the browser and waits until it is up. Starting an already running browser changes nothing.
     public func start() async -> ToolOutcome {
         guard config.enabled else { return .failure("Ada's browser is off on this server.") }
+        if let problem = await startCheck() { return .failure(problem) }
         let unit = Self.quoted(config.service)
         let outcome = await run("sudo systemctl start \(unit) && echo \(Self.onMarker)")
         guard outcome.resultText.contains(Self.onMarker) else {

@@ -948,7 +948,7 @@ public actor ConversationEngine {
     /// The workstation, when the server turned it on and this owner may use it.
     /// Ada's browser, when the server has one she can drive and this owner may use it (admins only).
     private func browser(ownerID: String?) async -> BrowserLink? {
-        guard let ownerID, let access, let browser = access.browser, browser.drivable, await access.workstationOwner(ownerID) else { return nil }
+        guard let ownerID, let access, let browser = await access.browserFor(ownerID), browser.drivable else { return nil }
         return browser
     }
 

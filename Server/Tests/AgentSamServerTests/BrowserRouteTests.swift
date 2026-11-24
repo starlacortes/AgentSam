@@ -51,14 +51,15 @@ final class BrowserRouteTests: XCTestCase {
         }
     }
 
-    func testOnlyAnAdminSessionFromAdasOwnPagesMayWatch() {
+    func testOnlyASignedInSessionFromAdasOwnPagesMayWatch() {
         let session = Principal.Source.session(token: "cookie")
         let admin = Principal(userID: UUID(), name: "Star", email: nil, role: .admin, source: session)
         XCTAssertNil(browserViewerProblem(principal: admin, origin: "https://ada.example.com", host: "ada.example.com"))
         XCTAssertNil(browserViewerProblem(principal: admin, origin: "http://localhost:5173", host: "localhost:8080"), "the port is not part of the check, as for other requests")
 
+        // Members pass this check too; the route then gives them their own browser, or none.
         let member = Principal(userID: UUID(), name: "Maloon", email: nil, role: .member, source: session)
-        XCTAssertNotNil(browserViewerProblem(principal: member, origin: "https://ada.example.com", host: "ada.example.com"))
+        XCTAssertNil(browserViewerProblem(principal: member, origin: "https://ada.example.com", host: "ada.example.com"))
 
         let serverToken = Principal(userID: nil, name: "Server token", email: nil, role: .admin, source: .serverToken)
         XCTAssertNotNil(browserViewerProblem(principal: serverToken, origin: "https://ada.example.com", host: "ada.example.com"))

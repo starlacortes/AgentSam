@@ -1,0 +1,28 @@
+[Unit]
+Description=A person's own Ada browser, running as their workstation account %i
+After=network-online.target
+
+[Service]
+Type=simple
+User=%i
+Group=%i
+# Everything the browser keeps (profile, sign-ins, VNC password, caches) is in this one folder,
+# which only the account can read. The display and ports come from the account's numeric ID.
+Environment=HOME=/home/%i/.ada-browser
+Environment=ADA_BROWSER_HOME=/home/%i/.ada-browser
+Environment=ADA_BROWSER_PORTS=uid
+Environment=ADA_BROWSER_AGENT=/usr/local/lib/ada-browser/browser-agent.mjs
+ExecStart=/usr/local/lib/ada-browser/run-browser.sh
+KillMode=control-group
+TimeoutStopSec=10
+Restart=no
+# The browser sees its own folder and nothing else of anybody's home, and gets its own /tmp.
+ProtectSystem=strict
+ProtectHome=tmpfs
+BindPaths=/home/%i/.ada-browser
+PrivateTmp=yes
+MemoryMax=1536M
+TasksMax=512
+
+# No [Install] section on purpose: Ada's server starts a person's browser when they (or their Ada)
+# use it, and stops it after 15 minutes unused. It never starts at boot.

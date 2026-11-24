@@ -26,8 +26,8 @@ struct BrowserControlBody: Content {
 /// The answer to starting the browser: its state, and what the viewer needs to connect.
 struct BrowserSessionView: Content {
     var state: String
-    /// The VNC password of the browser's display. The display is only reachable through this
-    /// server's relay, which is limited to signed-in admins.
+    /// The VNC password of the caller's browser display. The display is only reachable through this
+    /// server's relay, which is limited to the browser's own person (or admins, for Ada's own browser).
     var password: String
     /// Whether Ada can drive this browser; the window then shows who is in control.
     var drivable: Bool? = nil
@@ -35,11 +35,11 @@ struct BrowserSessionView: Content {
     var control: String? = nil
 }
 
-/// Who may watch and use the live window: an admin signed in with a browser session, from this
-/// site's own pages. Server and app tokens are refused, because a token in a web address ends up
-/// in logs, and whoever holds the stream sees everything in the window.
+/// How the live window may be opened: signed in with a browser session, from this site's own pages.
+/// Server and app tokens are refused, because a token in a web address ends up in logs, and whoever
+/// holds the stream sees everything in the window. Which browser the person gets (if any) is
+/// decided separately: admins get Ada's own, people with a workstation their own.
 func browserViewerProblem(principal: Principal, origin: String?, host: String?) -> String? {
-    guard principal.isAdmin else { return "Only admins can open Ada's browser." }
     guard case .session = principal.source else { return "Sign in to Ada in a browser to open the live window. Tokens cannot open it." }
     guard let origin, let originHost = URL(string: origin)?.host?.lowercased(),
           let requestHost = host?.split(separator: ":").first.map({ $0.lowercased() }),
@@ -50,20 +50,18 @@ func browserViewerProblem(principal: Principal, origin: String?, host: String?) 
 }
 
 func browserRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
-    @Sendable func admin(_ req: Request) throws -> Principal {
-        let principal = try req.requirePrincipal()
-        guard principal.isAdmin else { throw Abort(.forbidden, reason: "Only admins can use Ada's browser.") }
-        return principal
-    }
-
-    @Sendable func browser() throws -> BrowserLink {
-        guard let browser = ctx.browser else { throw Abort(.notFound, reason: "Ada's browser is off on this server.") }
+    /// The caller's own browser: Ada's for admins, their own for a person with a workstation.
+    @Sendable func ownBrowser(for principal: Principal) async throws -> BrowserLink {
+        guard ctx.browser != nil else { throw Abort(.notFound, reason: "Ada's browser is off on this server.") }
+        guard let browser = await ctx.access.browserFor(principal.conversationOwnerID) else {
+            throw Abort(.forbidden, reason: "Ask an admin to give you a workstation to use a browser with Ada.")
+        }
         return browser
     }
 
     api.get("browser") { req async throws -> Response in
         let principal = try req.requirePrincipal()
-        guard principal.isAdmin, let browser = ctx.browser else {
+        guard ctx.browser != nil, let browser = await ctx.access.browserFor(principal.conversationOwnerID) else {
             return try req.json(BrowserView(available: false, state: nil, idleMinutes: nil, drivable: nil))
         }
         let state = await browser.state()
@@ -71,8 +69,8 @@ func browserRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
     }
 
     api.post("browser", "start") { req async throws -> Response in
-        let principal = try admin(req)
-        let browser = try browser()
+        let principal = try req.requirePrincipal()
+        let browser = try await ownBrowser(for: principal)
         let outcome = await browser.start()
         await ctx.access.audit.record(ownerID: principal.conversationOwnerID, action: "browser.start", detail: outcome.succeeded ? "ok" : "failed")
         guard outcome.succeeded else { throw Abort(.badGateway, reason: outcome.resultText) }
@@ -81,12 +79,12 @@ func browserRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
             let status = await browser.call("status")
             control = status.ok ? status.control : nil
         }
-        return try req.json(BrowserSessionView(state: BrowserState.running.rawValue, password: ctx.browserPassword, drivable: browser.drivable && control != nil, control: control))
+        return try req.json(BrowserSessionView(state: BrowserState.running.rawValue, password: browser.password, drivable: browser.drivable && control != nil, control: control))
     }
 
     api.post("browser", "stop") { req async throws -> Response in
-        let principal = try admin(req)
-        let browser = try browser()
+        let principal = try req.requirePrincipal()
+        let browser = try await ownBrowser(for: principal)
         let outcome = await browser.stop()
         await ctx.access.audit.record(ownerID: principal.conversationOwnerID, action: "browser.stop", detail: outcome.succeeded ? "ok" : "failed")
         guard outcome.succeeded else { throw Abort(.badGateway, reason: outcome.resultText) }
@@ -96,16 +94,15 @@ func browserRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
     // Who drives: Ada, nobody (paused), or the person watching. The agent on the workstation
     // enforces it, so Ada's tools are refused while the person is in control.
     api.get("browser", "control") { req async throws -> Response in
-        _ = try admin(req)
-        let browser = try browser()
+        let browser = try await ownBrowser(for: try req.requirePrincipal())
         let reply = await browser.call("status", startIfNeeded: false)
         guard reply.ok, let control = reply.control else { throw Abort(.serviceUnavailable, reason: reply.message.isEmpty ? "The browser is not running." : reply.message) }
         return try req.json(BrowserControlView(control: control))
     }
 
     api.post("browser", "control") { req async throws -> Response in
-        let principal = try admin(req)
-        let browser = try browser()
+        let principal = try req.requirePrincipal()
+        let browser = try await ownBrowser(for: principal)
         let body = try req.decodeJSON(BrowserControlBody.self)
         guard ["ada", "paused", "person"].contains(body.control) else { throw Abort(.badRequest, reason: "Unknown control state.") }
         let reply = await browser.call("control", ["state": .string(body.control)], startIfNeeded: false)
@@ -116,8 +113,8 @@ func browserRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
 
     // Signs out of every site by erasing the browser's profile, then opens a fresh window.
     api.post("browser", "erase") { req async throws -> Response in
-        let principal = try admin(req)
-        let browser = try browser()
+        let principal = try req.requirePrincipal()
+        let browser = try await ownBrowser(for: principal)
         let reply = await browser.call("erase", startIfNeeded: false)
         await ctx.access.audit.record(ownerID: principal.conversationOwnerID, action: "browser.erase", detail: reply.ok ? "ok" : "failed")
         guard reply.ok else { throw Abort(.badGateway, reason: reply.message.isEmpty ? "The browser did not answer." : reply.message) }
@@ -134,10 +131,10 @@ func browserRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
         ) {
             throw Abort(.forbidden, reason: problem)
         }
-        guard ctx.browser != nil else { throw Abort(.notFound, reason: "Ada's browser is off on this server.") }
+        _ = try await ownBrowser(for: principal)
         return [:]
     }, onUpgrade: { req, ws async in
-        guard let browser = ctx.browser, let principal = req.principal, let command = await browser.relayCommand() else {
+        guard let principal = req.principal, let browser = await ctx.access.browserFor(principal.conversationOwnerID), let command = await browser.relayCommand() else {
             try? await ws.close(code: .unexpectedServerError)
             return
         }

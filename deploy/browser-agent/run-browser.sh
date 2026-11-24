@@ -14,7 +14,19 @@ SIZE="${ADA_BROWSER_SIZE:-1280x800}"
 PASSWORD_FILE="$HOME_DIR/vnc.passwd"
 PROFILE="$HOME_DIR/profiles/main"
 AGENT_PORT="${ADA_BROWSER_AGENT_PORT:-5978}"
+AGENT="${ADA_BROWSER_AGENT:-$HOME_DIR/bin/browser-agent.mjs}"
 
+# A person's own browser (ada-browser@<account>.service) takes its display and ports from the
+# account's numeric ID, so every person's browser has its own. Ada's server computes the same
+# (BrowserPool.ports): VNC on 30000 + 2n, the agent on the port after it, n = uid mod 10000.
+if [ "${ADA_BROWSER_PORTS:-}" = uid ]; then
+    slot=$(( $(id -u) % 10000 ))
+    DISPLAY_NUMBER=$(( 1000 + slot ))
+    VNC_PORT=$(( 30000 + 2 * slot ))
+    AGENT_PORT=$(( VNC_PORT + 1 ))
+fi
+
+# Ada's server creates a person's password files the first time they use their browser.
 [ -s "$PASSWORD_FILE" ] || { echo "Missing $PASSWORD_FILE. Run install.sh first." >&2; exit 1; }
 
 [ -s "$HOME_DIR/vnc-password.txt" ] || { echo "Missing $HOME_DIR/vnc-password.txt. Run install.sh first." >&2; exit 1; }
@@ -51,7 +63,7 @@ done
 # The agent starts Chromium itself and talks to it over a pipe, so no debugging port is open.
 DISPLAY=":$DISPLAY_NUMBER" ADA_BROWSER_HOME="$HOME_DIR" ADA_BROWSER_PROFILE="$PROFILE" \
     ADA_BROWSER_SIZE="$SIZE" ADA_BROWSER_AGENT_PORT="$AGENT_PORT" \
-    node "$HOME_DIR/bin/browser-agent.mjs" &
+    node "$AGENT" &
 AGENT_PID=$!
 
 # The service lives as long as both parts do.

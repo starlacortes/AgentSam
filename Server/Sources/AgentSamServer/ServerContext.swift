@@ -82,6 +82,8 @@ struct ServerContext: Sendable {
         let browserPassword = (Environment.get("AGENTSAM_BROWSER_VNC_PASSWORD") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         // The agent that drives the browser accepts the same password as its display.
         let browser = browserConfig.enabled ? workstation.map { BrowserLink(config: browserConfig, workstation: $0, token: browserPassword) } : nil
+        // People an admin gave a workstation get a browser of their own, running as their own account.
+        let browserPool = browserConfig.enabled && pool != nil ? workstation.map { BrowserPool(config: browserConfig, operatorMachine: $0) } : nil
         let access = ConversationAccess(
             root: store.root,
             workstation: workstation,
@@ -113,13 +115,32 @@ struct ServerContext: Sendable {
                 }
             },
             mcp: MCPRegistry(root: store.root, keyRing: keyRing),
-            browser: browser
+            browser: browser,
+            browserFor: { owner in
+                guard let browser else { return nil }
+                if owner == "shared-server-token" { return browser }
+                guard let id = UUID(uuidString: owner), let user = await accounts.user(id: id), !user.disabled else { return nil }
+                if user.role == .admin { return browser }
+                guard user.mayUseWorkstation, let pool, let browserPool, let account = WorkstationPool.unixName(ownerID: owner) else { return nil }
+                switch await pool.machine(ownerID: owner) {
+                case .failure(let problem):
+                    print("Browser for \(owner): \(problem.message)")
+                    return nil
+                case .success(let machine):
+                    switch await browserPool.link(account: account, machine: machine) {
+                    case .success(let link): return link
+                    case .failure(let problem):
+                        print("Browser for \(owner): \(problem.message)")
+                        return nil
+                    }
+                }
+            }
         )
         if let problem = workstationConfig.problem { print(problem) }
         if let problem = browserConfig.problem { print(problem) }
         let googleAdsMCPConfig = GoogleAdsMCPConfig.fromEnvironment()
         let googleAdsMCP = googleAdsMCPConfig.enabled ? access.mcp.map { GoogleAdsMCPRunner(config: googleAdsMCPConfig, keyRing: keyRing, oauth: google, registry: $0) } : nil
-        if browser != nil { print("Ada's browser is on: admins can open a live window on \(workstationConfig.ssh?.destination ?? "the workstation").") }
+        if browser != nil { print("Ada's browser is on: admins can open a live window on \(workstationConfig.ssh?.destination ?? "the workstation")\(browserPool == nil ? "" : ", and people with a workstation get a browser of their own").") }
         if let ssh = workstationConfig.ssh, workstationConfig.enabled {
             print("Workstation access is on: Ada can run approved commands on \(ssh.destination) over SSH.")
         } else if workstationConfig.enabled {
