@@ -21,37 +21,75 @@ final class HelperStoreTests: XCTestCase {
         let store = HelperStore(root: directory)
         XCTAssertEqual(HelperTools.key(for: "Price check"), "pricecheck")
         XCTAssertEqual(HelperTools.key(for: "researchAda"), "research")
-        let first = try await store.save(function: "price check", role: "Compare three vendors and cite each price.", groups: [.files], reason: "Kept asking for this")
+        let first = try await store.save(function: "price check", role: "Compare three vendors and cite each price.", groups: [.files], reason: "Kept asking for this", ownerID: "alice")
         XCTAssertEqual(first.name, "priceCheckAda")
         XCTAssertEqual(first.version, 1)
         XCTAssertEqual(Set(first.groups), [.read, .files], "reading is always included")
-        let second = try await store.save(function: "priceCheck", role: "Compare five vendors, cite each price, flag shipping.", groups: [], reason: "Missed shipping")
+        let second = try await store.save(function: "priceCheck", role: "Compare five vendors, cite each price, flag shipping.", groups: [], reason: "Missed shipping", ownerID: "alice")
         XCTAssertEqual(second.version, 2)
         XCTAssertEqual(second.history.map(\.version), [1])
         // A second store on the same folder sees the change (the approval route uses its own).
-        let again = await HelperStore(root: directory).helper(for: "Price Check")
+        let again = await HelperStore(root: directory).helper(for: "Price Check", ownerID: "alice")
         XCTAssertEqual(again?.role, "Compare five vendors, cite each price, flag shipping.")
 
-        let undone = try await store.undo(function: "price check")
+        let undone = try await store.undo(function: "price check", ownerID: "alice")
         XCTAssertEqual(undone?.role, "Compare three vendors and cite each price.")
         XCTAssertEqual(undone?.version, 3, "an undo is a new version, so the audit trail only grows")
         XCTAssertEqual(undone?.history.count, 0)
-        let removed = try await store.undo(function: "price check")
+        let removed = try await store.undo(function: "price check", ownerID: "alice")
         XCTAssertNil(removed)
-        let empty = await store.all()
+        let empty = await store.all(ownerID: "alice")
         XCTAssertTrue(empty.isEmpty)
         do {
-            _ = try await store.undo(function: "price check")
+            _ = try await store.undo(function: "price check", ownerID: "alice")
             XCTFail("nothing left to undo")
         } catch {}
 
-        for index in 0..<HelperStore.maxHelpers { _ = try await store.save(function: "f\(index)", role: "Role text that is long enough.", groups: [], reason: "r") }
+        for index in 0..<HelperStore.maxHelpers { _ = try await store.save(function: "f\(index)", role: "Role text that is long enough.", groups: [], reason: "r", ownerID: "alice") }
         do {
-            _ = try await store.save(function: "one more", role: "Role text that is long enough.", groups: [], reason: "r")
+            _ = try await store.save(function: "one more", role: "Role text that is long enough.", groups: [], reason: "r", ownerID: "alice")
             XCTFail("the number of saved helpers is capped")
         } catch let error as HelperStoreError {
             XCTAssertTrue(error.message.contains("already \(HelperStore.maxHelpers)"))
         }
+    }
+
+    func testRolesArePrivateToEachPersonAndOldRolesStayGeneral() async throws {
+        // A role saved before roles were private lives in helpers.json and stays general.
+        let general = HelperStore(root: directory)
+        _ = try await general.save(function: "judge", role: "Check every figure against its source.", groups: [], reason: "old", ownerID: "shared-server-token")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: directory.appendingPathComponent("helpers.json").path))
+
+        let store = HelperStore(root: directory)
+        _ = try await store.save(function: "price check", role: "Compare three vendors and cite each price.", groups: [], reason: "Alice asked", ownerID: "alice")
+        let alice = await store.all(ownerID: "alice").map(\.name)
+        XCTAssertEqual(alice, ["judgeAda", "priceCheckAda"])
+        let bob = await store.all(ownerID: "bob").map(\.name)
+        XCTAssertEqual(bob, ["judgeAda"], "Bob never sees Alice's role")
+        let bobPriceCheck = await store.helper(for: "price check", ownerID: "bob")
+        XCTAssertNil(bobPriceCheck)
+        let noOwner = await store.all(ownerID: nil).map(\.name)
+        XCTAssertEqual(noOwner, ["judgeAda"])
+
+        // Bob's own version of a general role replaces it for him only.
+        let bobJudge = try await store.save(function: "judge", role: "Check figures and dates against sources.", groups: [], reason: "Bob asked", ownerID: "bob")
+        XCTAssertEqual(bobJudge.version, 1)
+        let bobSees = await store.helper(for: "judge", ownerID: "bob")
+        XCTAssertEqual(bobSees?.role, "Check figures and dates against sources.")
+        let aliceSees = await store.helper(for: "judge", ownerID: "alice")
+        XCTAssertEqual(aliceSees?.role, "Check every figure against its source.")
+
+        // Alice cannot undo the general role, and Bob's undo only removes his own.
+        do {
+            _ = try await store.undo(function: "judge", ownerID: "alice")
+            XCTFail("a general role is not undone from one person's chat")
+        } catch let error as HelperStoreError {
+            XCTAssertTrue(error.message.contains("shared with everyone"), error.message)
+        }
+        let removed = try await store.undo(function: "judge", ownerID: "bob")
+        XCTAssertNil(removed)
+        let bobAfter = await store.helper(for: "judge", ownerID: "bob")
+        XCTAssertEqual(bobAfter?.role, "Check every figure against its source.")
     }
 
     func testSaveRequestsAreCheckedAndShownPlainly() throws {

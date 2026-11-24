@@ -49,7 +49,7 @@ final class SkillsTests: XCTestCase {
         let again = await skills.migrate(teams: [custom, starter], skipping: [])
         XCTAssertTrue(again.isEmpty)
         let reloaded = SkillStore(root: directory)
-        let ids = await reloaded.all().map(\.id)
+        let ids = await reloaded.all(for: nil).map(\.id)
         XCTAssertEqual(ids, Skill.builtIns.map(\.id) + ["ad-ops"])
         let third = await reloaded.migrate(teams: [custom], skipping: [])
         XCTAssertTrue(third.isEmpty)
@@ -75,35 +75,101 @@ final class SkillsTests: XCTestCase {
         func call(_ json: String) -> APIToolCall {
             APIToolCall(id: "1", function: .init(name: "skill_save", arguments: json))
         }
-        let saved = await SkillTools.run(call: call(#"{"name":"Weekly ads report","when_to_use":"Weekly Google Ads summaries.","procedure":["Pull last week's campaigns","Summarize changes"],"specialists":["Plot","Judge","Nobody"]}"#), skills: skills)
+        let saved = await SkillTools.run(call: call(#"{"name":"Weekly ads report","when_to_use":"Weekly Google Ads summaries.","procedure":["Pull last week's campaigns","Summarize changes"],"specialists":["Plot","Judge","Nobody"]}"#), skills: skills, ownerID: "alice")
         XCTAssertTrue(saved.succeeded, saved.resultText)
-        let skill = await skills.skill(id: "weekly-ads-report")
+        let skill = await skills.skill(id: "weekly-ads-report", for: "alice")
         XCTAssertEqual(skill?.specialists, ["Plot", "Judge"])
         XCTAssertEqual(skill?.origin, .ada)
 
-        let onlyVerifier = await SkillTools.run(call: call(#"{"name":"Checks","when_to_use":"x","procedure":["a"],"specialists":["Judge"]}"#), skills: skills)
+        let onlyVerifier = await SkillTools.run(call: call(#"{"name":"Checks","when_to_use":"x","procedure":["a"],"specialists":["Judge"]}"#), skills: skills, ownerID: "alice")
         XCTAssertFalse(onlyVerifier.succeeded)
-        let builtIn = await SkillTools.run(call: call(#"{"name":"Research","when_to_use":"x","procedure":["a"],"specialists":["Scout"]}"#), skills: skills)
+        let builtIn = await SkillTools.run(call: call(#"{"name":"Research","when_to_use":"x","procedure":["a"],"specialists":["Scout"]}"#), skills: skills, ownerID: "alice")
         XCTAssertFalse(builtIn.succeeded)
-        let noSteps = await SkillTools.run(call: call(#"{"name":"Empty","when_to_use":"x","procedure":[],"specialists":["Scout"]}"#), skills: skills)
+        let noSteps = await SkillTools.run(call: call(#"{"name":"Empty","when_to_use":"x","procedure":[],"specialists":["Scout"]}"#), skills: skills, ownerID: "alice")
         XCTAssertFalse(noSteps.succeeded)
 
         // A skill is procedure text: specialists are optional, and helpers follow its steps.
-        let textOnly = await SkillTools.run(call: call(#"{"name":"Invoice check","when_to_use":"Checking supplier invoices.","procedure":["Match each line to the order","Flag differences"]}"#), skills: skills)
+        let textOnly = await SkillTools.run(call: call(#"{"name":"Invoice check","when_to_use":"Checking supplier invoices.","procedure":["Match each line to the order","Flag differences"]}"#), skills: skills, ownerID: "alice")
         XCTAssertTrue(textOnly.succeeded, textOnly.resultText)
-        let invoice = await skills.skill(id: "invoice-check")
+        let invoice = await skills.skill(id: "invoice-check", for: "alice")
         XCTAssertEqual(invoice?.specialists, [])
         let steps = invoice.map(SkillTeams.procedureBlock) ?? ""
         XCTAssertTrue(steps.contains("Match each line to the order"), steps)
 
         // Updating keeps the skill's team, so its mission history stays linked.
         let firstTeam = skill?.teamID
-        _ = await SkillTools.run(call: call(#"{"name":"Weekly ads report","when_to_use":"Weekly summaries.","procedure":["One step"],"specialists":["Plot"],"enabled":false}"#), skills: skills)
-        let updated = await skills.skill(id: "weekly-ads-report")
+        _ = await SkillTools.run(call: call(#"{"name":"Weekly ads report","when_to_use":"Weekly summaries.","procedure":["One step"],"specialists":["Plot"],"enabled":false}"#), skills: skills, ownerID: "alice")
+        let updated = await skills.skill(id: "weekly-ads-report", for: "alice")
         XCTAssertEqual(updated?.teamID, firstTeam)
         XCTAssertEqual(updated?.enabled, false)
-        let enabledIDs = await skills.enabled().map(\.id)
+        let enabledIDs = await skills.enabled(for: "alice").map(\.id)
         XCTAssertFalse(enabledIDs.contains("weekly-ads-report"))
+    }
+
+    func testSavedSkillsArePrivateUntilAnAdminSharesThem() async throws {
+        let skills = SkillStore(root: directory)
+        func call(_ json: String) -> APIToolCall {
+            APIToolCall(id: "1", function: .init(name: "skill_save", arguments: json))
+        }
+        let saved = await SkillTools.run(call: call(#"{"name":"Invoice check","when_to_use":"Checking supplier invoices.","procedure":["Match each line to the order"]}"#), skills: skills, ownerID: "alice")
+        XCTAssertTrue(saved.succeeded, saved.resultText)
+        let aliceIDs = await skills.all(for: "alice").map(\.id)
+        XCTAssertTrue(aliceIDs.contains("invoice-check"))
+        let bobIDs = await skills.all(for: "bob").map(\.id)
+        XCTAssertFalse(bobIDs.contains("invoice-check"), "Bob's Ada never sees Alice's skill")
+        let bobLookup = await skills.skill(id: "invoice-check", for: "bob")
+        XCTAssertNil(bobLookup)
+        let noOwner = await SkillTools.run(call: call(#"{"name":"Loose","when_to_use":"x","procedure":["a"]}"#), skills: skills, ownerID: nil)
+        XCTAssertFalse(noOwner.succeeded, "a skill always belongs to someone")
+
+        // Bob can save a skill with the same name; each person keeps their own.
+        _ = await SkillTools.run(call: call(#"{"name":"Invoice check","when_to_use":"Bob's invoices.","procedure":["Bob's step"]}"#), skills: skills, ownerID: "bob")
+        let bobOwn = await skills.skill(id: "invoice-check", for: "bob")
+        XCTAssertEqual(bobOwn?.whenToUse, "Bob's invoices.")
+        let aliceOwn = await skills.skill(id: "invoice-check", for: "alice")
+        XCTAssertEqual(aliceOwn?.whenToUse, "Checking supplier invoices.")
+
+        // Sharing copies Alice's skill as a general one; her own stays, and others see the copy.
+        let shared = try await skills.share(id: "invoice-check", from: "alice")
+        XCTAssertTrue(shared.general)
+        let carolSees = await SkillStore(root: directory).skill(id: "invoice-check", for: "carol")
+        XCTAssertEqual(carolSees?.whenToUse, "Checking supplier invoices.")
+        XCTAssertTrue(carolSees?.general == true)
+        let bobStillOwn = await skills.skill(id: "invoice-check", for: "bob")
+        XCTAssertEqual(bobStillOwn?.whenToUse, "Bob's invoices.", "a person's own skill wins over a general one")
+        let aliceStillOwn = await skills.skill(id: "invoice-check", for: "alice")
+        XCTAssertEqual(aliceStillOwn?.ownerID, "alice")
+        let generalIDs = await skills.generalIDs()
+        XCTAssertEqual(generalIDs, ["invoice-check"])
+        do {
+            _ = try await skills.share(id: "invoice-check", from: "carol")
+            XCTFail("only one's own skills can be shared")
+        } catch {}
+
+        // Unsharing removes the copy, since Alice still has her own.
+        try await skills.unshare(id: "invoice-check", to: "alice")
+        let carolAfter = await skills.skill(id: "invoice-check", for: "carol")
+        XCTAssertNil(carolAfter)
+        do {
+            try await skills.unshare(id: "research", to: "alice")
+            XCTFail("built-ins stay shared")
+        } catch {}
+    }
+
+    func testSkillsSavedBeforeSkillsWerePrivateStayGeneral() async throws {
+        let legacy = """
+        {"migratedTeamIDs":[],"skills":[{"createdAt":"2026-11-01T00:00:00Z","enabled":true,"id":"old-report","name":"Old report","origin":"ada","procedure":["One"],"specialists":[],"teamID":"5C111A00-0000-4000-8000-0000000000AA","updatedAt":"2026-11-01T00:00:00Z","whenToUse":"Old reports."}]}
+        """
+        try Data(legacy.utf8).write(to: directory.appendingPathComponent("skills.json"))
+        let skills = SkillStore(root: directory)
+        let anyone = await skills.skill(id: "old-report", for: "bob")
+        XCTAssertTrue(anyone?.general == true)
+        // An admin who stops sharing it takes it over, so it is not lost.
+        try await skills.unshare(id: "old-report", to: "admin")
+        let bobAfter = await skills.skill(id: "old-report", for: "bob")
+        XCTAssertNil(bobAfter)
+        let adminAfter = await skills.skill(id: "old-report", for: "admin")
+        XCTAssertEqual(adminAfter?.ownerID, "admin")
     }
 
     func testUseSkillRunsTheSkillAsAHelperTaskWithoutAnyTeam() async throws {

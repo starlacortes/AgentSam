@@ -20,6 +20,7 @@ import { MCPServersPanel } from '../components/MCPServersPanel'
 import { WorkstationCard } from '../components/WorkstationCard'
 import { RememberedPanel } from '../components/RememberedPanel'
 import { HelpersPanel } from '../components/HelpersPanel'
+import { SkillsPanel } from '../components/SkillsPanel'
 
 export type SettingsSection = 'connections' | 'permissions' | 'memory' | 'preferences' | 'account' | 'providers' | 'people' | 'folders'
 
@@ -122,6 +123,7 @@ function MemorySettings() {
       <RememberedPanel memory={memory} onChange={setMemory} />
       <MemoryPanel memory={memory} onChange={setMemory} />
       <KnowledgePanel knowledge={knowledge} onChange={setKnowledge} />
+      <SkillsPanel />
       <HelpersPanel />
     </SectionHead>
   )

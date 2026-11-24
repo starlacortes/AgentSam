@@ -933,3 +933,6 @@
 .helpers-list summary { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; cursor: pointer; }
 .helpers-list summary span { color: var(--mut); }
 .helpers-role { white-space: pre-wrap; margin: 6px 0; line-height: 1.45; }
+.helpers-list ol.helpers-role { white-space: normal; padding-left: 18px; }
+.skill-share-review { display: grid; gap: 6px; margin-top: 6px; }
+.skill-share-review label.row { gap: 8px; align-items: center; }

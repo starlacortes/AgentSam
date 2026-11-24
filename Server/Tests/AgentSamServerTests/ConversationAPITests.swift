@@ -426,7 +426,7 @@ final class ConversationAPITests: XCTestCase {
         }
         let denied = try await decide(await propose(#"{"function":"research","role":"Never cite anything at all.","reason":"test"}"#), approve: false)
         XCTAssertEqual(denied?.status, .denied)
-        var saved = await HelperStore(root: directory).all()
+        var saved = await HelperStore(root: directory).all(ownerID: conversation.ownerID)
         XCTAssertTrue(saved.isEmpty, "a denied proposal changes nothing")
 
         let approved = try await decide(await propose(#"{"function":"research","role":"Cite a primary source for every claim.","reason":"Reports lacked sources"}"#), approve: true)
@@ -437,7 +437,7 @@ final class ConversationAPITests: XCTestCase {
         })
         let undone = try await decide(await propose(#"{"function":"research","reason":"Undo","undo":true}"#), approve: true)
         XCTAssertEqual(undone?.status, .completed)
-        saved = await HelperStore(root: directory).all()
+        saved = await HelperStore(root: directory).all(ownerID: conversation.ownerID)
         XCTAssertTrue(saved.isEmpty)
         let audit = await access.audit.entries(ownerID: conversation.ownerID).map(\.action)
         XCTAssertTrue(audit.contains("helper.saved"))

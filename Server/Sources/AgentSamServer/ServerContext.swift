@@ -347,7 +347,7 @@ struct ServerContext: Sendable {
             var skill = skillID?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             if skill?.isEmpty != false { skill = nil }
             if skill == nil, let teamID {
-                skill = await skills.enabled().first(where: { $0.teamID == teamID })?.id
+                skill = await skills.enabled(for: ownerID).first(where: { $0.teamID == teamID })?.id
             }
             return try await conversationEngine.launchTask(ownerID: ownerID, launchedBy: launcher, objective: objective, skillID: skill, language: lang)
         } catch let error as ConversationError {

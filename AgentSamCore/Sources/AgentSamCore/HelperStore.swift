@@ -30,46 +30,72 @@ public struct SavedHelper: Codable, Hashable, Sendable, Identifiable {
     }
 }
 
-/// Saved helpers in `helpers.json`. It reads the file on every call, so several instances
+/// Saved helpers, one file per person. It reads the files on every call, so several instances
 /// (the engine and the approval route) always agree.
+///
+/// `helpers.json` holds the roles saved before roles were private. They were shared already, so
+/// they stay general: every person's helpers use them, read-only, unless the person saved their own
+/// role for the same function. The server token keeps writing `helpers.json`, as it is the admin
+/// account that existed when those roles were made.
 public actor HelperStore {
     public nonisolated let root: URL
     public static let maxHelpers = 20
     public static let maxHistory = 5
+    static let serverTokenOwner = "shared-server-token"
 
     private struct File: Codable { var helpers: [SavedHelper] = [] }
 
     public init(root: URL) { self.root = root }
 
-    private nonisolated var url: URL { root.appendingPathComponent("helpers.json") }
+    private nonisolated var generalURL: URL { root.appendingPathComponent("helpers.json") }
 
-    private func read() -> File {
+    /// The file a person's roles live in. Base64url of the owner ID, like the other owner-scoped stores.
+    private nonisolated func fileURL(ownerID: String) -> URL {
+        if ownerID == Self.serverTokenOwner { return generalURL }
+        let key = Data(ownerID.utf8).base64EncodedString()
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "=", with: "")
+        return root.appendingPathComponent("helpers-\(key).json")
+    }
+
+    private func read(_ url: URL) -> File {
         guard let data = try? Data(contentsOf: url) else { return File() }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         return (try? decoder.decode(File.self, from: data)) ?? File()
     }
 
-    private func write(_ file: File) {
+    private func write(_ file: File, to url: URL) {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys, .prettyPrinted]
         if let data = try? encoder.encode(file) { try? data.write(to: url, options: .atomic) }
     }
 
-    public func all() -> [SavedHelper] { read().helpers.sorted { $0.name < $1.name } }
+    /// The roles one person's helpers use: their own, plus general ones they have not replaced.
+    /// With no owner, only the general ones.
+    public func all(ownerID: String?) -> [SavedHelper] {
+        let general = read(generalURL).helpers
+        guard let ownerID, fileURL(ownerID: ownerID) != generalURL else { return general.sorted { $0.name < $1.name } }
+        let own = read(fileURL(ownerID: ownerID)).helpers
+        let ownIDs = Set(own.map(\.id))
+        return (own + general.filter { !ownIDs.contains($0.id) }).sorted { $0.name < $1.name }
+    }
 
-    public func helper(for function: String) -> SavedHelper? {
+    public func helper(for function: String, ownerID: String?) -> SavedHelper? {
         let key = HelperTools.key(for: function)
-        return read().helpers.first { $0.id == key }
+        return all(ownerID: ownerID).first { $0.id == key }
     }
 
     /// Saves a new version of a helper, keeping the one it replaces in its history.
     @discardableResult
-    public func save(function: String, role: String, groups: Set<HelperTools.Group>, reason: String, now: Date = Date()) throws -> SavedHelper {
+    /// A person's first change to a general role starts their own copy, so the general one stays as it is.
+    public func save(function: String, role: String, groups: Set<HelperTools.Group>, reason: String, ownerID: String, now: Date = Date()) throws -> SavedHelper {
         guard let name = HelperTools.name(for: function) else { throw HelperStoreError.invalid("The function needs one to three short words.") }
         let key = HelperTools.key(for: function)
-        var file = read()
+        let url = fileURL(ownerID: ownerID)
+        var file = read(url)
         let sortedGroups = groups.union([.read]).sorted { $0.rawValue < $1.rawValue }
         if let index = file.helpers.firstIndex(where: { $0.id == key }) {
             var helper = file.helpers[index]
@@ -81,7 +107,7 @@ public actor HelperStore {
             helper.reason = reason
             helper.updatedAt = now
             file.helpers[index] = helper
-            write(file)
+            write(file, to: url)
             return helper
         }
         guard file.helpers.count < Self.maxHelpers else {
@@ -89,22 +115,28 @@ public actor HelperStore {
         }
         let helper = SavedHelper(id: key, function: function, name: name, role: role, groups: sortedGroups, version: 1, reason: reason, createdAt: now, updatedAt: now, history: [])
         file.helpers.append(helper)
-        write(file)
+        write(file, to: url)
         return helper
     }
 
     /// Puts back the version before the current one. With no earlier version the saved helper is
-    /// removed, so the built-in role (if any) applies again. Returns what is in effect afterwards.
-    public func undo(function: String, now: Date = Date()) throws -> SavedHelper? {
+    /// removed, so the general or built-in role (if any) applies again. Returns what is in effect afterwards.
+    /// Only the person's own roles can be undone; a general role is left as it is. When the
+    /// person's own role is removed, the general one (if any) applies to them again.
+    public func undo(function: String, ownerID: String, now: Date = Date()) throws -> SavedHelper? {
         let key = HelperTools.key(for: function)
-        var file = read()
+        let url = fileURL(ownerID: ownerID)
+        var file = read(url)
         guard let index = file.helpers.firstIndex(where: { $0.id == key }) else {
+            if read(generalURL).helpers.contains(where: { $0.id == key }) {
+                throw HelperStoreError.invalid("The role for “\(function)” is shared with everyone and cannot be undone from here. Save a new role to use your own.")
+            }
             throw HelperStoreError.invalid("There is no saved helper for “\(function)”.")
         }
         var helper = file.helpers[index]
         guard let previous = helper.history.first else {
             file.helpers.remove(at: index)
-            write(file)
+            write(file, to: url)
             return nil
         }
         helper.history.removeFirst()
@@ -114,7 +146,7 @@ public actor HelperStore {
         helper.reason = "Undid version \(helper.version - 1), back to version \(previous.version)."
         helper.updatedAt = now
         file.helpers[index] = helper
-        write(file)
+        write(file, to: url)
         return helper
     }
 }

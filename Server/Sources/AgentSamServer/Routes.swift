@@ -117,15 +117,39 @@ func routes(_ app: Application, ctx: ServerContext) {
 
     // MARK: Skills
 
-    /// Ada's skills, read-only. People do not manage them; Ada saves her own with skill_save.
+    /// The caller's skills: built-ins, general skills, and their own. People do not edit them; Ada
+    /// saves skills with skill_save, private to the person she is talking to.
     api.get("skills") { req async throws -> Response in
-        try req.json(await ctx.skills.all())
+        let principal = try req.requirePrincipal()
+        return try req.json(await skillViews(ctx, owner: principal.conversationOwnerID))
     }
 
-    /// Roles Ada saved for her helpers, read-only. Ada proposes changes with helper_save and the
-    /// user approves them on a card.
+    /// An admin shares one of their own skills with everyone (a copy; their own stays), or stops
+    /// sharing a general one. The web app asks them to check it holds no personal details first.
+    api.post("skills", ":id", "share") { req async throws -> Response in
+        let principal = try req.requirePrincipal()
+        guard principal.isAdmin else { throw Abort(.forbidden, reason: "Only admins can share skills with everyone.") }
+        guard let id = req.parameters.get("id") else { throw Abort(.badRequest) }
+        let body = try req.decodeJSON(SkillShareBody.self)
+        let owner = principal.conversationOwnerID
+        do {
+            if body.general {
+                try await ctx.skills.share(id: id, from: owner)
+            } else {
+                try await ctx.skills.unshare(id: id, to: owner)
+            }
+        } catch let error as SkillError {
+            throw Abort(.badRequest, reason: error.localizedDescription)
+        }
+        await ctx.access.audit.record(ownerID: owner, action: body.general ? "skill.shared" : "skill.unshared", detail: id)
+        return try req.json(await skillViews(ctx, owner: owner))
+    }
+
+    /// Roles Ada saved for the caller's helpers, read-only. Ada proposes changes with helper_save and
+    /// the user approves them on a card.
     api.get("helpers") { req async throws -> Response in
-        try req.json(await HelperStore(root: ctx.dataDir).all())
+        let principal = try req.requirePrincipal()
+        return try req.json(await HelperStore(root: ctx.dataDir).all(ownerID: principal.conversationOwnerID))
     }
 
     // MARK: Teams (read-only backend record: who worked on a mission)
@@ -598,4 +622,25 @@ struct PromptUpdateBody: Decodable {
 struct PromptUpdateResult: Encodable {
     var id: String
     var version: Int
+}
+
+/// A skill as the web app shows it. `general` is true for skills everyone sees; `sharedCopy` is true
+/// when one of the caller's own skills also has a copy shared with everyone.
+struct SkillView: Encodable, Sendable {
+    var id: String
+    var name: String
+    var whenToUse: String
+    var procedure: [String]
+    var origin: Skill.Origin
+    var enabled: Bool
+    var updatedAt: Date
+    var general: Bool
+    var sharedCopy: Bool
+}
+
+func skillViews(_ ctx: ServerContext, owner: String) async -> [SkillView] {
+    let shared = await ctx.skills.generalIDs()
+    return await ctx.skills.all(for: owner).map { skill in
+        SkillView(id: skill.id, name: skill.name, whenToUse: skill.whenToUse, procedure: skill.procedure, origin: skill.origin, enabled: skill.enabled, updatedAt: skill.updatedAt, general: skill.general, sharedCopy: !skill.general && shared.contains(skill.id))
+    }
 }
