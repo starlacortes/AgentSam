@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { formatShortDate } from '../components/ui'
 import { missionTabTitle } from '../pages/MissionPage'
 import { displayText, fileKind, mimeType } from './files'
 import { reconnectDelay } from './useLiveMission'
@@ -56,5 +57,19 @@ describe('tab titles', () => {
     const long = missionTabTitle({ status: 'completed', objective: 'x'.repeat(80) })
     expect(long.startsWith('✓ Done · ')).toBe(true)
     expect(long.endsWith('…')).toBe(true)
+  })
+})
+
+describe('formatShortDate', () => {
+  it('leaves the year out for this year and the time out for older dates', () => {
+    const now = new Date(2026, 10, 24, 12, 0)
+    const recent = formatShortDate(new Date(2026, 10, 3, 9, 5).toISOString(), now)
+    expect(recent).not.toContain('2026')
+    expect(recent).toMatch(/9:05/)
+    const old = formatShortDate(new Date(2024, 2, 9, 9, 5).toISOString(), now)
+    expect(old).toContain('2024')
+    expect(old).not.toMatch(/9:05/)
+    expect(formatShortDate(undefined)).toBe('—')
+    expect(formatShortDate('nonsense')).toBe('—')
   })
 })

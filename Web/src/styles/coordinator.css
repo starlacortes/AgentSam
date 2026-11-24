@@ -477,7 +477,7 @@
 .co-thinking-time { flex: none; color: var(--dim); font-family: var(--mono); font-size: 9.5px; }
 .co-thinking-toggle { display: inline-flex; align-items: center; gap: 4px; flex: none; padding: 3px 7px; border: 1px solid var(--line); border-radius: 10px; background: transparent; color: var(--dim); font-size: 9.5px; }
 .co-thinking-toggle[aria-expanded="true"] svg { transform: rotate(90deg); }
-.co-steps { list-style: none; margin: 0; padding: 0 0 0 6px; display: grid; gap: 5px; border-left: 1px solid var(--line); }
+.co-steps { list-style: none; margin: 0; padding: 0 0 0 6px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; scroll-margin-bottom: 12px; border-left: 1px solid var(--line); }
 .co-steps li { display: flex; align-items: center; gap: 8px; padding-left: 10px; color: var(--mut); font-size: 11px; animation: co-fade-in .25s ease; }
 .co-steps li.working { color: var(--ink2); }
 .co-steps li.failed { color: #efa79f; }
@@ -742,6 +742,8 @@
 .mcp-tools label { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .mcp-form { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .mcp-form input { flex: 1 1 160px; min-width: 0; }
+.mcp-form .input { width: auto; font-size: 12px; padding: 9px 11px; }
+.mcp-servers > .co-setting-row:first-child { padding-top: 0; }
 
 /* Ada's workstation */
 .workstation-card { margin-bottom: 14px; }
@@ -936,3 +938,31 @@
 .helpers-list ol.helpers-role { white-space: normal; padding-left: 18px; }
 .skill-share-review { display: grid; gap: 6px; margin-top: 6px; }
 .skill-share-review label.row { gap: 8px; align-items: center; }
+
+/* People: one row per person that fits the settings column; stacked cards on phones. */
+.people-table td { padding: 12px 8px; }
+.people-table th { padding: 8px; }
+.people-person { min-width: 0; }
+.people-person b { display: block; font-weight: 600; }
+.people-person > span { display: block; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.people-actions { white-space: nowrap; }
+@media (max-width: 700px) {
+  .people-table thead { display: none; }
+  .people-table, .people-table tbody { display: block; }
+  .people-table tr { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; padding: 14px 0; border-bottom: 1px solid var(--line); }
+  .people-table tr:last-child { border-bottom: 0; }
+  .people-table td { display: flex; flex-direction: column; align-items: flex-start; gap: 5px; padding: 0; border: 0; }
+  .people-table td[data-label]::before { content: attr(data-label); font-family: var(--mono); font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+  .people-table .people-person { grid-column: 1 / -1; }
+  .people-table .people-actions:empty { display: none; }
+  .people-table .people-actions .row { justify-content: flex-start !important; }
+}
+/* Account: the password fields stay a comfortable width inside a card as wide as its neighbours. */
+.account-password > .field, .account-password > label { max-width: 440px; }
+/* Phones: a long status ("Searching the web for …") wraps to a second line instead of being cut short. */
+@media (max-width: 700px) {
+  .co-thinking-row { flex-wrap: wrap; row-gap: 4px; }
+  .co-thinking-label { flex: 1 1 0; white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+}
+.people-table .people-person { width: 40%; }
+@media (max-width: 700px) { .people-table .people-person { width: auto; } }

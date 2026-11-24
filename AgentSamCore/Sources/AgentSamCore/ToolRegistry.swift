@@ -211,6 +211,91 @@ public enum ToolCatalog {
 
     /// The live step label for a call, or a generic one for a tool without an entry.
     public static func label(_ name: String, language: String) -> String {
-        spec(name)?.label(language: language) ?? (language == "es" ? "Usando \(name)" : "Using \(name)")
+        if let spec = spec(name) { return spec.label(language: language) }
+        // A connected MCP server's tool: "mcp_ads_list_campaigns" reads as "Using ads list campaigns".
+        let shown = name.hasPrefix(MCPRegistry.toolPrefix)
+            ? name.dropFirst(MCPRegistry.toolPrefix.count).replacingOccurrences(of: "_", with: " ")
+            : name
+        return language == "es" ? "Usando \(shown)" : "Using \(shown)"
+    }
+
+    /// The live step label for one call: what Ada is doing and, where the arguments say it, with what
+    /// ("Searching the web for “flights to Lima”", "Reading example.com"). Falls back to the plain label.
+    public static func label(for call: APIToolCall, language: String) -> String {
+        let name = call.function.name
+        let args = AgentTools.arguments(of: call)
+        let es = language == "es"
+        func text(_ key: String, limit: Int = 60) -> String? { clip(args[key]?.stringValue, limit: limit) }
+        func file(_ key: String = "path") -> String? {
+            clip(args[key]?.stringValue.map { ($0 as NSString).lastPathComponent }, limit: 48)
+        }
+        switch name {
+        case "gmail_search":
+            if let query = text("query") { return es ? "Buscando en Gmail “\(query)”" : "Searching Gmail for “\(query)”" }
+        case "web_search":
+            if let query = text("query") { return es ? "Buscando en la web “\(query)”" : "Searching the web for “\(query)”" }
+        case "github_search":
+            if let query = text("query") { return es ? "Buscando en GitHub “\(query)”" : "Searching GitHub for “\(query)”" }
+        case "github_issues":
+            if let repo = text("repo") { return es ? "Revisando incidencias de \(repo)" : "Checking issues in \(repo)" }
+        case "github_read":
+            if let path = file() { return es ? "Leyendo \(path) en GitHub" : "Reading \(path) on GitHub" }
+        case "web_fetch":
+            if let site = site(args["url"]?.stringValue) { return es ? "Leyendo \(site)" : "Reading \(site)" }
+        case "browser_open":
+            if let site = site(args["url"]?.stringValue) { return es ? "Abriendo \(site) en mi navegador" : "Opening \(site) in my browser" }
+        case "browser_look":
+            if let query = text("query", limit: 40) { return es ? "Buscando “\(query)” en la página" : "Looking for “\(query)” on the page" }
+        case "browser_key":
+            if let key = text("key", limit: 16) { return es ? "Pulsando \(key) en el navegador" : "Pressing \(key) in the browser" }
+        case "browser_scroll":
+            if args["direction"]?.stringValue == "up" { return es ? "Subiendo por la página" : "Scrolling up the page" }
+            return es ? "Bajando por la página" : "Scrolling down the page"
+        case "browser_go":
+            switch args["action"]?.stringValue {
+            case "back": return es ? "Volviendo a la página anterior" : "Going back a page"
+            case "forward": return es ? "Avanzando a la página siguiente" : "Going forward a page"
+            case "reload": return es ? "Recargando la página" : "Reloading the page"
+            default: break
+            }
+        case "chat_write_file", "project_write_file", "host_write_file", "write_file":
+            if let path = file() { return es ? "Escribiendo \(path)" : "Writing \(path)" }
+        case "chat_read_file", "project_read_file", "host_read_file", "mission_read_file", "read_file":
+            if let path = file() { return es ? "Leyendo \(path)" : "Reading \(path)" }
+        case "chat_patch_file", "project_patch_file":
+            if let path = file() { return es ? "Editando \(path)" : "Editing \(path)" }
+        case "run_terminal", "project_terminal":
+            if let command = firstLine(args["command"]?.stringValue) { return es ? "Ejecutando: \(command)" : "Running: \(command)" }
+        case "workstation_run", "workstation_start_job":
+            if let command = firstLine(args["command"]?.stringValue) { return "\(label(name, language: language)): \(command)" }
+        case "gmail_send":
+            if let to = text("to", limit: 48) { return es ? "Preparando un correo para \(to)" : "Preparing an email to \(to)" }
+        case "gmail_draft":
+            if let to = text("to", limit: 48) { return es ? "Preparando un borrador para \(to)" : "Preparing a draft for \(to)" }
+        default:
+            break
+        }
+        return label(name, language: language)
+    }
+
+    /// One line of plain text, shortened to fit a status line; nil when there is nothing to show.
+    static func clip(_ text: String?, limit: Int) -> String? {
+        guard let text else { return nil }
+        let clean = text.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { return nil }
+        return clean.count > limit ? String(clean.prefix(limit)).trimmingCharacters(in: .whitespaces) + "…" : clean
+    }
+
+    /// The first line of a command, shortened.
+    static func firstLine(_ text: String?) -> String? {
+        clip(text?.split(whereSeparator: \.isNewline).first.map(String.init), limit: 48)
+    }
+
+    /// The site of a web address without "www.": "https://www.example.com/a?b" reads as "example.com".
+    static func site(_ address: String?) -> String? {
+        guard let address = address?.trimmingCharacters(in: .whitespacesAndNewlines), !address.isEmpty else { return nil }
+        let full = address.contains("://") ? address : "https://" + address
+        guard let host = URLComponents(string: full)?.host, !host.isEmpty else { return nil }
+        return clip(host.hasPrefix("www.") ? String(host.dropFirst(4)) : host, limit: 48)
     }
 }

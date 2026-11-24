@@ -78,9 +78,7 @@ public actor ConversationEngine {
         if let timeZone { _ = try? await conversations.setTimeZone(id: conversationID, ownerID: ownerID, timeZone: timeZone) }
         let lang = language.lowercased().hasPrefix("es") ? "es" : "en"
         let userMessage = ConversationMessage(role: .user, text: text, scheduled: scheduled || trigger != nil, photos: photos, spoken: spoken, trigger: trigger)
-        let choosing = routing
-            ? (lang == "es" ? "Eligiendo la mejor forma de ayudar" : "Choosing how to help")
-            : (lang == "es" ? "Pensándolo" : "Thinking it through")
+        let choosing = routing ? StepLabel.choosing(lang) : StepLabel.thinking(lang)
         let pending = ConversationMessage(role: .assistant, text: "", status: .running, activity: [AgentActivity(agentID: UUID(), agentName: "Ada", summary: choosing, state: "working")], steps: [MessageStep(label: choosing)])
         _ = try await conversations.append(id: conversationID, ownerID: ownerID, message: userMessage)
         let result = try await conversations.append(id: conversationID, ownerID: ownerID, message: pending)
@@ -158,7 +156,7 @@ public actor ConversationEngine {
         let pending = ConversationMessage(role: .assistant, text: "", status: .running, activity: [AgentActivity(agentID: coordinator.id, agentName: "Ada", summary: planning, state: "working")], steps: [MessageStep(label: planning)])
         _ = try await conversations.append(id: conversation.id, ownerID: ownerID, message: userMessage)
         conversation = try await conversations.append(id: conversation.id, ownerID: ownerID, message: pending)
-        let ref = ResponseRef(conversationID: conversation.id, ownerID: ownerID, responseID: pending.id, launchedBy: launchedBy)
+        let ref = ResponseRef(conversationID: conversation.id, ownerID: ownerID, responseID: pending.id, launchedBy: launchedBy, language: lang)
         let history = conversation.messages.filter { $0.status != .running }
         let context = await promptContext(conversation: conversation, history: history, memory: await memory.state(ownerID: ownerID).promptText, knowledge: "", scheduled: false, personName: launchedBy)
         let mission = await prepareTask(objective: text, skill: skill, context: context, language: lang, ref: ref, sourceName: sourceName, workflowID: workflowID, inputContext: attachment?.content)
@@ -232,6 +230,28 @@ public actor ConversationEngine {
         var spoken: Bool = false
         /// Who the reply is for, recorded on missions Ada starts during it.
         var launchedBy: String = "Ada"
+        /// The person's language ("en" or "es"), for the live step labels.
+        var language: String = "en"
+    }
+
+    /// The labels of the steps between tool calls, where Ada is working something out or writing.
+    enum StepLabel {
+        static func thinking(_ language: String) -> String { language == "es" ? "Pensándolo" : "Thinking it through" }
+        static func reviewing(_ language: String) -> String { language == "es" ? "Revisando lo que encontré" : "Reviewing what I found" }
+        static func nextStep(_ language: String) -> String { language == "es" ? "Decidiendo el siguiente paso" : "Working out the next step" }
+        static func writing(_ language: String) -> String { language == "es" ? "Redactando la respuesta" : "Writing the answer" }
+        static func choosing(_ language: String) -> String { language == "es" ? "Eligiendo la mejor forma de ayudar" : "Choosing how to help" }
+
+        /// The step after a round of tools: reading what came back, or deciding what to do after a change.
+        static func afterTools(_ names: [String], language: String) -> String {
+            names.allSatisfy { ToolCatalog.spec($0)?.access == .read } ? reviewing(language) : nextStep(language)
+        }
+
+        /// True while the model is still working out what to do, so the first streamed words can
+        /// turn the step into "Writing the answer". A tool's step is never replaced this way.
+        static func isWaiting(_ label: String) -> Bool {
+            ["en", "es"].contains { label == thinking($0) || label == reviewing($0) || label == nextStep($0) || label == choosing($0) }
+        }
     }
 
     /// Marks every unfinished step as finished with the given state.
@@ -247,20 +267,29 @@ public actor ConversationEngine {
         guard let ref else { return }
         _ = try? await conversations.updateMessage(id: ref.conversationID, ownerID: ref.ownerID, messageID: ref.responseID) { message in
             guard message.status == .running else { return }
-            if message.steps.last?.label == label && message.steps.last?.state == "working" { return }
-            Self.settleSteps(&message.steps, as: "done")
-            message.steps.append(MessageStep(label: label))
-            if let index = message.activity.firstIndex(where: { $0.agentName == "Ada" }) {
-                message.activity[index].summary = label
-                message.activity[index].state = "working"
-                message.activity[index].updatedAt = Date()
-            }
+            Self.advanceStep(&message, to: label)
+        }
+    }
+
+    /// Finishes the working step and starts `label`; Ada's activity line mirrors it.
+    static func advanceStep(_ message: inout ConversationMessage, to label: String) {
+        if message.steps.last?.label == label && message.steps.last?.state == "working" { return }
+        // Words written just before a tool call were a lead-in, not the answer: that step gives way.
+        if let last = message.steps.last, last.state == "working", ["en", "es"].contains(where: { last.label == StepLabel.writing($0) }) {
+            message.steps.removeLast()
+        }
+        settleSteps(&message.steps, as: "done")
+        message.steps.append(MessageStep(label: label))
+        if let index = message.activity.firstIndex(where: { $0.agentName == "Ada" }) {
+            message.activity[index].summary = label
+            message.activity[index].state = "working"
+            message.activity[index].updatedAt = Date()
         }
     }
 
     private func drive(conversationID: UUID, ownerID: String, userMessage: ConversationMessage, responseID: UUID, launchedBy: String, language: String) async {
         defer { running[conversationID] = nil }
-        let ref = ResponseRef(conversationID: conversationID, ownerID: ownerID, responseID: responseID, spoken: userMessage.spoken, launchedBy: launchedBy)
+        let ref = ResponseRef(conversationID: conversationID, ownerID: ownerID, responseID: responseID, spoken: userMessage.spoken, launchedBy: launchedBy, language: language == "es" ? "es" : "en")
         let es = language == "es"
         let writing = es ? "Redactando la respuesta" : "Writing the answer"
         do {
@@ -329,7 +358,7 @@ public actor ConversationEngine {
                 // as helper tasks, exactly like start_task: planned steps, a helper per step, judgeAda's check.
                 let chosen: [Skill?] = decision?.action == .solo ? [nil] : routedSkills(for: decision, skills: skillList)
                 if chosen.isEmpty {
-                    await beginStep(writing, in: ref)
+                    await beginStep(StepLabel.thinking(language), in: ref)
                     responseText = try await directAnswer(userText: directText, photos: photoInput, coordinator: replyCoordinator, context: context, history: history, language: language, ref: ref, conversationID: conversationID, writtenFiles: &writtenFiles, toolLog: &toolLog)
                 } else {
                     activity[0].summary = shortSummary(decision?.rationale ?? decision?.message, fallback: es ? "Trabajando con mis ayudantes" : "Working with my helpers")
@@ -360,7 +389,7 @@ public actor ConversationEngine {
             case .direct, .proposeTeam, nil:
                 // Teams are no longer proposed to people; an older stored prompt that still asks to
                 // propose one gets a direct answer instead.
-                await beginStep(writing, in: ref)
+                await beginStep(StepLabel.thinking(language), in: ref)
                 responseText = try await directAnswer(userText: directText, photos: photoInput, coordinator: replyCoordinator, context: context, history: history, language: language, ref: ref, conversationID: conversationID, writtenFiles: &writtenFiles, toolLog: &toolLog)
             }
 
@@ -574,9 +603,11 @@ public actor ConversationEngine {
             let calls = reply.message.tool_calls ?? []
             if calls.isEmpty { return reply.message.content ?? "" }
             // Text before a tool call is a preamble, not the answer; drop it so the next turn starts clean.
+            // Closing the stream keeps a late flush from bringing the preamble back over a tool's step.
+            stream?.close()
             if stream != nil { await publishPartial("", in: ref) }
             for call in calls {
-                await beginStep(ConversationPrompts.toolStepLabel(call.function.name, language: language), in: ref)
+                await beginStep(ToolCatalog.label(for: call, language: language), in: ref)
                 let outcome = await executeTool(call: call, offeredTools: offeredTools, state: state, context: context, language: language, ref: ref, conversationID: conversationID, coordinator: coordinator, workstation: workstation)
                 writtenFiles.append(contentsOf: state.writtenFiles)
                 state.writtenFiles = []
@@ -594,7 +625,7 @@ public actor ConversationEngine {
             if left > 0, left <= 2, let last = messages.indices.last, messages[last].role == "tool" {
                 messages[last].content = (messages[last].content ?? "") + "\n\n[\(left) tool round\(left == 1 ? "" : "s") left in this reply; finish or say what is still missing.]"
             }
-            await beginStep(language == "es" ? "Redactando la respuesta" : "Writing the answer", in: ref)
+            await beginStep(StepLabel.afterTools(calls.map(\.function.name), language: language), in: ref)
         }
         // The tool budget is spent. Say so, or some models keep "calling" tools by writing the calls as text.
         if overCap {
@@ -893,6 +924,8 @@ public actor ConversationEngine {
                     break
                 }
                 for inner in calls {
+                    // The helper's own tool calls show as steps too: "researchAda: Searching the web for …".
+                    await beginStep("\(request.name): \(ToolCatalog.label(for: inner, language: language))", in: ref)
                     let outcome = await executeTool(call: inner, offeredTools: offeredTools, state: helperState, context: context, language: language, ref: ref, conversationID: conversationID, coordinator: coordinator, workstation: workstation)
                     messages.append(.tool(id: inner.id, content: String(outcome.resultText.prefix(32_000)), isError: !outcome.succeeded))
                     if toolLog.count < Self.maxToolLogEntries { toolLog.append(Self.toolLogLine(call: inner, outcome: outcome)) }
@@ -1052,6 +1085,11 @@ public actor ConversationEngine {
             guard message.status == .running else { return }
             message.text = visible
             message.speech = nil
+            // "Writing the answer" starts when words actually arrive, not while Ada is still thinking.
+            if !visible.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               let last = message.steps.last, last.state == "working", StepLabel.isWaiting(last.label) {
+                Self.advanceStep(&message, to: StepLabel.writing(ref.language))
+            }
         }
     }
 
@@ -1514,6 +1552,7 @@ final class PartialTextStream: @unchecked Sendable {
     private var text = ""
     private var lastFlush = Date.distantPast
     private var flushing = false
+    private var closed = false
 
     init(interval: TimeInterval = 0.15, sink: @escaping @Sendable (String) async -> Void) {
         self.interval = interval
@@ -1529,6 +1568,7 @@ final class PartialTextStream: @unchecked Sendable {
         Task {
             if wait > 0 { try? await Task.sleep(nanoseconds: UInt64(wait * 1_000_000_000)) }
             let snapshot = takeSnapshot()
+            guard !isClosed else { return }
             await sink(snapshot)
             if finishFlush(sent: snapshot) { push("") }
         }
@@ -1543,6 +1583,13 @@ final class PartialTextStream: @unchecked Sendable {
             return max(0, interval - Date().timeIntervalSince(lastFlush))
         }
     }
+
+    /// Stops any further text from reaching the sink.
+    func close() {
+        lock.withLock { closed = true }
+    }
+
+    private var isClosed: Bool { lock.withLock { closed } }
 
     private func takeSnapshot() -> String {
         lock.withLock {

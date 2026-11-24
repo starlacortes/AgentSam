@@ -252,6 +252,8 @@ export const es: Record<string, string> = {
     'Envíales este enlace. Funciona una vez y caduca en 7 días. No se mostrará de nuevo.',
   Members: 'Miembros',
   'Last sign-in': 'Último acceso',
+  'Last sign-in {date}': 'Último acceso: {date}',
+  'Has not signed in yet': 'Aún no ha iniciado sesión',
   you: 'tú',
   disabled: 'desactivado',
   'Role for {name}': 'Rol de {name}',

@@ -36,6 +36,17 @@ export function Spinner({ label }: { label?: string }) {
   return <span className="spin" role="status" aria-label={label ?? t('Loading')} />
 }
 
+/** A date short enough for a table cell: "Nov 24, 6:09 AM", with the year only when it is not this one. */
+export function formatShortDate(iso?: string, now = new Date()): string {
+  if (!iso) return '—'
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return '—'
+  const sameYear = date.getFullYear() === now.getFullYear()
+  return date.toLocaleString(dateLocale(), sameYear
+    ? { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }
+    : { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
 export function formatDate(iso?: string): string {
   if (!iso) return '—'
   const date = new Date(iso)
