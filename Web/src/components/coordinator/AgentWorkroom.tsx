@@ -11,6 +11,11 @@ const stateWords: Record<WorkHelper['state'], string> = {
   waiting: 'Waiting',
 }
 
+/** True on phone-width screens, where the bar stays one line unless the person opens it. */
+function isNarrow(): boolean {
+  return typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 760px)').matches
+}
+
 /**
  * A slim line above the chat that says, in plain words, who is working on the reply: Ada, and any
  * helpers she brought in (researchAda, judgeAda). It is hidden when nothing is running and the
@@ -25,7 +30,8 @@ export function AgentWorkroom({ conversation }: { conversation: Conversation | n
   useEffect(() => setOpen(null), [latestID])
   if (!work.running && work.helpers.length === 0) return null
 
-  const expanded = work.helpers.length > 0 && (open ?? work.running)
+  // On a phone the open details took a quarter of the screen, so there they stay folded until tapped.
+  const expanded = work.helpers.length > 0 && (open ?? (work.running && !isNarrow()))
   const names = work.helpers.map((helper) => helper.name)
   const shown = names.length > 3 ? `${names.slice(0, 3).join(', ')} +${names.length - 3}` : names.join(', ')
   const title = work.running ? t('Ada is working') : t('Last reply')
