@@ -129,7 +129,7 @@ final class WorkspaceKnowledgeTests: XCTestCase {
         XCTAssertTrue(summary.contains("Ada drives it herself"))
 
         let member = try await capabilities(knowledge, owner: "member")
-        XCTAssertTrue(member.contains("only admins can use them"))
+        XCTAssertTrue(member.contains("only admins and people an admin gave a workstation can use them"))
         XCTAssertFalse(member.contains("kokofast"))
         XCTAssertFalse(member.contains("workstation_run"))
     }

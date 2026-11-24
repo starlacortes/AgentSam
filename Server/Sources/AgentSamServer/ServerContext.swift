@@ -91,6 +91,13 @@ struct ServerContext: Sendable {
                 guard let id = UUID(uuidString: owner), let user = await accounts.user(id: id) else { return false }
                 return user.role == .admin && !user.disabled
             },
+            sharedAccountsOwner: { owner in
+                // Gmail, Ads, GitHub, Cloudflare, Maloon and MCP use one set of server credentials: admins
+                // (and the shared server token) always may; a member only when an admin allowed it.
+                if owner == "shared-server-token" { return true }
+                guard let id = UUID(uuidString: owner), let user = await accounts.user(id: id), !user.disabled else { return false }
+                return user.mayUseSharedAccounts
+            },
             workstationFor: { owner in
                 guard let workstation else { return nil }
                 // Admins and the shared server token work as the operator account, as before.
@@ -104,13 +111,6 @@ struct ServerContext: Sendable {
                     print("Workstation for \(owner): \(problem.message)")
                     return nil
                 }
-            },
-            sharedAccountsOwner: { owner in
-                // Gmail, Ads, GitHub, Cloudflare, Maloon and MCP use one set of server credentials: admins
-                // (and the shared server token) always may; a member only when an admin allowed it.
-                if owner == "shared-server-token" { return true }
-                guard let id = UUID(uuidString: owner), let user = await accounts.user(id: id), !user.disabled else { return false }
-                return user.mayUseSharedAccounts
             },
             mcp: MCPRegistry(root: store.root, keyRing: keyRing),
             browser: browser
