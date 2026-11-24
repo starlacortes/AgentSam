@@ -529,8 +529,17 @@ public enum BrowserTools {
     }
 
     static func failure(_ reply: BrowserReply) -> ToolOutcome {
-        .failure(reply.message.isEmpty ? "The browser did not answer." : reply.message)
+        if reply.message.hasPrefix("Unknown browser operation") { return .failure(outdatedAgentMessage) }
+        return .failure(reply.message.isEmpty ? "The browser did not answer." : reply.message)
     }
+
+    /// What Ada hears when the workstation still runs a browser agent from before this tool existed.
+    static let outdatedAgentMessage = """
+    The browser program on the workstation is older than Ada's server and does not know this action yet, \
+    so nothing was done. Tell the person an admin needs to update it on the workstation: copy the repository's \
+    deploy/browser-agent folder there, run `sudo ./install.sh` in it, then `sudo systemctl restart ada-browser.service`. \
+    Until then, use the numbered tools (browser_click, browser_type, browser_key).
+    """
 
     /// The page as Ada sees it, marked as untrusted content.
     static func format(_ reply: BrowserReply) -> ToolOutcome {
