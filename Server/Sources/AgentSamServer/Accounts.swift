@@ -22,8 +22,12 @@ struct UserRecord: Codable, Sendable, Identifiable {
     /// A member may use the server's shared accounts (Gmail, Google Ads, GitHub, Cloudflare, Maloon, MCP)
     /// only when an admin turned this on. Admins always may.
     var sharedAccounts: Bool? = nil
+    /// A member gets a workstation account of their own (and later their own browser) only when an
+    /// admin turned this on. Admins use the operator workstation.
+    var workstation: Bool? = nil
 
     var mayUseSharedAccounts: Bool { role == .admin || sharedAccounts == true }
+    var mayUseWorkstation: Bool { role == .admin || workstation == true }
 }
 
 /// What the API returns for a user. Never includes the password hash.
@@ -36,9 +40,11 @@ struct PublicUser: Codable, Sendable {
     var createdAt: Date
     var lastLoginAt: Date?
     var sharedAccounts: Bool
+    var workstation: Bool
 
     init(_ record: UserRecord) {
         sharedAccounts = record.mayUseSharedAccounts
+        workstation = record.mayUseWorkstation
         id = record.id
         email = record.email
         name = record.name
@@ -251,7 +257,7 @@ actor AccountStore {
         return record
     }
 
-    func update(id: UUID, role: UserRole?, disabled: Bool?, name: String?, sharedAccounts: Bool? = nil) throws -> UserRecord {
+    func update(id: UUID, role: UserRole?, disabled: Bool?, name: String?, sharedAccounts: Bool? = nil, workstation: Bool? = nil) throws -> UserRecord {
         guard let index = file.users.firstIndex(where: { $0.id == id }) else { throw AccountError.notFound }
         var record = file.users[index]
         let losesAdmin = record.role == .admin && !record.disabled
@@ -260,6 +266,7 @@ actor AccountStore {
         if let role { record.role = role }
         if let disabled { record.disabled = disabled }
         if let sharedAccounts { record.sharedAccounts = sharedAccounts }
+        if let workstation { record.workstation = workstation }
         if let name, !name.trimmingCharacters(in: .whitespaces).isEmpty {
             record.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         }

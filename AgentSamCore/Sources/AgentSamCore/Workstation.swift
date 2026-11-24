@@ -48,12 +48,16 @@ public struct WorkstationConfig: Sendable {
     public var ssh: SSHTarget?
     /// Why the workstation stayed off although it was asked for, for the startup log.
     public var problem: String?
+    /// A person's own account on the machine: everything it creates (in /tmp too) is readable by that
+    /// account only, so other people on the same machine cannot read it.
+    public var privateUser: Bool
 
-    public init(enabled: Bool, home: URL, ssh: SSHTarget? = nil, problem: String? = nil) {
+    public init(enabled: Bool, home: URL, ssh: SSHTarget? = nil, problem: String? = nil, privateUser: Bool = false) {
         self.enabled = enabled
         self.home = home
         self.ssh = ssh
         self.problem = problem
+        self.privateUser = privateUser
     }
 
     public static func fromEnvironment(_ env: [String: String] = ProcessInfo.processInfo.environment) -> WorkstationConfig {
@@ -204,7 +208,8 @@ public actor Workstation {
     }
 
     /// Runs a shell script where the workstation is: here, or on the SSH machine.
-    private func execute(script: String, directory requested: String?, timeout: TimeInterval) async -> ToolOutcome {
+    private func execute(script requestedScript: String, directory requested: String?, timeout: TimeInterval) async -> ToolOutcome {
+        let script = (config.privateUser ? "umask 077\n" : "") + requestedScript
         let env = environment()
         let plan: CodeRunner.Plan
         let localDirectory: URL
@@ -271,6 +276,18 @@ public actor Workstation {
         if sudo -n true 2>/dev/null; then echo "== sudo: available without a password"; else echo "== sudo: not available without a password"; fi
         """
         return await run(command: script, directory: nil, timeout: 30)
+    }
+
+    // MARK: Personal accounts
+
+    /// Creates (or repairs) a person's own account on this machine and authorizes their key. Runs as
+    /// the operator account through one narrow sudo rule; the script on the machine checks both values.
+    public func addPersonalAccount(user: String, publicKey: String, command: String) async -> ToolOutcome {
+        guard config.enabled, config.ssh != nil else { return .failure("Personal workstation accounts need an SSH workstation.") }
+        guard WorkstationPool.validUnixName(user), WorkstationPool.validPublicKey(publicKey) else {
+            return .failure("The account name or key is not valid. Nothing was changed.")
+        }
+        return await execute(script: "\(command) \(Self.quoted(user)) \(Self.quoted(publicKey))", directory: nil, timeout: 60)
     }
 
     // MARK: Background jobs
@@ -466,6 +483,7 @@ public actor Workstation {
     public func job(id: UUID, tailCharacters: Int = 6_000) async -> ToolOutcome { .failure("Workstation access is not supported on this device.") }
     public func listJobs() -> [WorkstationJob] { [] }
     public func stopJob(id: UUID) async -> ToolOutcome { .failure("Workstation access is not supported on this device.") }
+    public func addPersonalAccount(user: String, publicKey: String, command: String) async -> ToolOutcome { .failure("Workstation access is not supported on this device.") }
     static func describe(_ job: WorkstationJob) -> String { job.label }
 }
 #endif

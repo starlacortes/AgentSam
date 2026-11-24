@@ -121,6 +121,7 @@ export function PeoplePage() {
                   <th>{t('Email')}</th>
                   <th>{t('Role')}</th>
                   <th>{t('Shared accounts')}</th>
+                  <th>{t('Workstation')}</th>
                   <th>{t('Last sign-in')}</th>
                   <th />
                 </tr>
@@ -157,6 +158,19 @@ export function PeoplePage() {
                             title={t('Lets Ada use the shared Gmail, Google Ads, GitHub, Cloudflare and connected tools for this person.')}
                             aria-label={t('Shared accounts for {name}', { name: user.name })}
                             onChange={(e) => void run(() => api(`users/${user.id}`, { method: 'PATCH', body: { sharedAccounts: e.target.checked } }))}
+                          />
+                        )}
+                      </td>
+                      <td>
+                        {user.role === 'admin' ? (
+                          <span className="dim">{t('Always')}</span>
+                        ) : (
+                          <input
+                            type="checkbox"
+                            checked={user.workstation === true}
+                            title={t('Gives this person a workstation account of their own. Nobody else can see their files or jobs there.')}
+                            aria-label={t('Workstation for {name}', { name: user.name })}
+                            onChange={(e) => void run(() => api(`users/${user.id}`, { method: 'PATCH', body: { workstation: e.target.checked } }))}
                           />
                         )}
                       </td>

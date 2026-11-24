@@ -237,6 +237,10 @@ export const es: Record<string, string> = {
   'Everyone shares the same projects and missions. Admins also manage people and provider keys.':
     'Todos comparten los mismos proyectos y misiones. Los administradores también gestionan personas y claves de proveedor.',
   'Shared accounts': 'Cuentas compartidas',
+  Workstation: 'Estación de trabajo',
+  'Gives this person a workstation account of their own. Nobody else can see their files or jobs there.':
+    'Da a esta persona su propia cuenta en la estación de trabajo. Nadie más puede ver sus archivos ni sus tareas allí.',
+  'Workstation for {name}': 'Estación de trabajo para {name}',
   Always: 'Siempre',
   'Lets Ada use the shared Gmail, Google Ads, GitHub, Cloudflare and connected tools for this person.':
     'Permite que Ada use el Gmail, Google Ads, GitHub, Cloudflare y las herramientas conectadas compartidos para esta persona.',

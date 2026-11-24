@@ -68,13 +68,16 @@ public struct WorkspaceMachines: Sendable {
     public var mayUse: @Sendable (String) async -> Bool
     /// Standing permissions, to say which commands run without a card.
     public var permissions: PermissionStore?
+    /// The person's own workstation account (`adau…`), for people an admin gave a workstation of their own.
+    public var personalAccount: @Sendable (String) async -> String?
 
-    public init(workstation: WorkstationConfig, browser: BrowserConfig, browserDrivable: Bool = false, mayUse: @escaping @Sendable (String) async -> Bool, permissions: PermissionStore? = nil) {
+    public init(workstation: WorkstationConfig, browser: BrowserConfig, browserDrivable: Bool = false, mayUse: @escaping @Sendable (String) async -> Bool, permissions: PermissionStore? = nil, personalAccount: @escaping @Sendable (String) async -> String? = { _ in nil }) {
         self.workstation = workstation
         self.browser = browser
         self.browserDrivable = browserDrivable
         self.mayUse = mayUse
         self.permissions = permissions
+        self.personalAccount = personalAccount
     }
 }
 
@@ -279,7 +282,14 @@ public actor WorkspaceKnowledgeStore {
             return lines
         }
         guard await machines.mayUse(ownerID) else {
-            lines.append("- The server has a workstation and may have a live browser, but only admins can use them, so they are not available in this person's chats.")
+            if let account = await machines.personalAccount(ownerID), let ssh = workstation.ssh {
+                lines.append("- On: this person has a workstation account of their own, `\(Self.inline(account))@\(Self.inline(ssh.host))`, reached over SSH from the server. Other people's files and jobs on that machine are not visible from it, and theirs are not visible to others.")
+                lines.append("- Commands start in that account's home folder. There is no sudo: installing system packages or managing services needs an admin. Files Ada creates there (in /tmp too) are private to the account.")
+                lines.append("- Tools: `workstation_status`, `workstation_jobs` and `workstation_job` only look; `workstation_stop_job` stops a job she started; `workstation_run` and `workstation_start_job` change the machine and ask on an approval card unless a standing permission allows them.")
+                lines += ["", "## Browser", "- Ada's live browser is for admins for now, so it is not available in this person's chats; web_search and web_fetch read public pages."]
+            } else {
+                lines.append("- The server has a workstation and may have a live browser, but only admins and people an admin gave a workstation can use them, so they are not available in this person's chats.")
+            }
             return lines
         }
         if let ssh = workstation.ssh {

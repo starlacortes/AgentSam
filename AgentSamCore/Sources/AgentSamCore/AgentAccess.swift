@@ -329,8 +329,12 @@ public struct ConversationAccess: Sendable {
     public let spend: SpendLedger
     /// Ada's own machine, when the server operator turned it on.
     public let workstation: Workstation?
-    /// Whether this conversation owner may use the workstation (admins and the server token).
+    /// Whether this conversation owner may use the operator workstation and Ada's browser (admins and the server token).
     public let workstationOwner: @Sendable (String) async -> Bool
+    /// The machine this owner's Ada works on: the operator workstation for admins, their own account
+    /// for a person an admin allowed, nil for anyone else. Defaults to the operator machine for owners
+    /// `workstationOwner` allows.
+    public let workstationFor: @Sendable (String) async -> Workstation?
     /// Whether this conversation owner may use the server's shared accounts: Gmail, Google Ads, GitHub,
     /// Cloudflare, Maloon and the MCP servers an admin connected. They hold one set of credentials, so
     /// an admin grants each member that use. Without it those tools are not offered and do not run.
@@ -340,11 +344,12 @@ public struct ConversationAccess: Sendable {
     /// Ada's browser on the workstation; the same owners as the workstation may use it.
     public let browser: BrowserLink?
 
-    public init(root: URL, workstation: Workstation? = nil, workstationOwner: @escaping @Sendable (String) async -> Bool = { _ in false }, sharedAccountsOwner: @escaping @Sendable (String) async -> Bool = { _ in true }, mcp: MCPRegistry? = nil, browser: BrowserLink? = nil) {
+    public init(root: URL, workstation: Workstation? = nil, workstationOwner: @escaping @Sendable (String) async -> Bool = { _ in false }, sharedAccountsOwner: @escaping @Sendable (String) async -> Bool = { _ in true }, workstationFor: (@Sendable (String) async -> Workstation?)? = nil, mcp: MCPRegistry? = nil, browser: BrowserLink? = nil) {
         self.mcp = mcp
         self.browser = browser
         self.workstation = workstation
         self.workstationOwner = workstationOwner
+        self.workstationFor = workstationFor ?? { owner in await workstationOwner(owner) ? workstation : nil }
         self.sharedAccountsOwner = sharedAccountsOwner
         spend = SpendLedger(root: root)
         let audit = AccessAuditLog(root: root)

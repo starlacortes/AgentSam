@@ -90,4 +90,23 @@ final class SharedAccountsTests: XCTestCase {
         let disabled = await allowed(member.id.uuidString)
         XCTAssertFalse(disabled)
     }
+
+    func testWorkstationGrantIsAdminSetAndNeedsAWorkstation() async throws {
+        let ctx = try XCTUnwrap(app.storage[ServerContextKey.self])
+        let hash = try await Passwords.hash("member test password")
+        let member = try await ctx.accounts.createUser(email: "member2@example.com", name: "Member", role: .member, passwordHash: hash)
+        XCTAssertFalse(PublicUser(member).workstation, "members start without a workstation")
+        try await app.test(.PATCH, "api/users/\(member.id.uuidString)", beforeRequest: { req in
+            req.headers.bearerAuthorization = BearerAuthorization(token: self.token)
+            try req.content.encode(["workstation": true], as: .json)
+        }, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok, res.body.string)
+            XCTAssertTrue(try res.content.decode(PublicUser.self).workstation)
+        })
+        // This test server has no workstation, so even a granted person gets none, and nobody shares one.
+        let granted = await ctx.access.workstationFor(member.id.uuidString)
+        XCTAssertNil(granted)
+        let stranger = await ctx.access.workstationFor(UUID().uuidString)
+        XCTAssertNil(stranger)
+    }
 }
