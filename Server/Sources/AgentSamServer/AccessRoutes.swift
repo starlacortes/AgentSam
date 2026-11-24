@@ -125,7 +125,7 @@ func accessRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
 
     @Sendable func permissionsView(owner: String, canEdit: Bool) async -> PermissionsView {
         var workstation = false
-        if let machine = ctx.access.workstation, await machine.enabled { workstation = await ctx.access.workstationOwner(owner) }
+        if let machine = await ctx.access.workstationFor(owner), await machine.enabled { workstation = true }
         return PermissionsView(
             policy: await ctx.access.permissions.policy(ownerID: owner),
             usageToday: await ctx.access.permissions.usageToday(ownerID: owner),
@@ -204,7 +204,8 @@ func accessRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
                 let outcome = await ctx.connectors.run(call: call, scope: action.toolScope, approved: true)
                 await ctx.access.actions.finish(ownerID: conversation.ownerID, id: id, result: outcome.resultText, succeeded: outcome.succeeded)
             case .workstation:
-                guard let machine = ctx.access.workstation, await ctx.access.workstationOwner(conversation.ownerID) else {
+                // The approved command runs on this owner's own machine, never someone else's.
+                guard let machine = await ctx.access.workstationFor(conversation.ownerID) else {
                     await ctx.access.actions.finish(ownerID: conversation.ownerID, id: id, result: "Workstation access is off on this server. Nothing ran.", succeeded: false)
                     break
                 }

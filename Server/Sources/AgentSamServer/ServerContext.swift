@@ -76,6 +76,8 @@ struct ServerContext: Sendable {
         let accounts = AccountStore(dataDir: store.root)
         let workstationConfig = WorkstationConfig.fromEnvironment()
         let workstation = workstationConfig.enabled ? Workstation(config: workstationConfig, dataDir: store.root) : nil
+        // People an admin gave a workstation get an account of their own on the SSH machine.
+        let pool = workstationConfig.ssh == nil ? nil : workstation.map { WorkstationPool(operatorMachine: $0, dataDir: store.root) }
         let browserConfig = BrowserConfig.fromEnvironment(workstation: workstationConfig)
         let browserPassword = (Environment.get("AGENTSAM_BROWSER_VNC_PASSWORD") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         // The agent that drives the browser accepts the same password as its display.
@@ -88,6 +90,20 @@ struct ServerContext: Sendable {
                 if owner == "shared-server-token" { return true }
                 guard let id = UUID(uuidString: owner), let user = await accounts.user(id: id) else { return false }
                 return user.role == .admin && !user.disabled
+            },
+            workstationFor: { owner in
+                guard let workstation else { return nil }
+                // Admins and the shared server token work as the operator account, as before.
+                if owner == "shared-server-token" { return workstation }
+                guard let id = UUID(uuidString: owner), let user = await accounts.user(id: id), !user.disabled else { return nil }
+                if user.role == .admin { return workstation }
+                guard user.mayUseWorkstation, let pool else { return nil }
+                switch await pool.machine(ownerID: owner) {
+                case .success(let machine): return machine
+                case .failure(let problem):
+                    print("Workstation for \(owner): \(problem.message)")
+                    return nil
+                }
             },
             sharedAccountsOwner: { owner in
                 // Gmail, Ads, GitHub, Cloudflare, Maloon and MCP use one set of server credentials: admins
@@ -117,7 +133,12 @@ struct ServerContext: Sendable {
         let memory = WorkspaceMemoryStore(root: store.root)
         let skills = SkillStore(root: store.root)
         let knowledge = WorkspaceKnowledgeStore(store: store, conversations: conversations, connectors: connectors, keyRing: keyRing, includeExtendedTools: true, skills: skills,
-            machines: WorkspaceMachines(workstation: workstationConfig, browser: browserConfig, browserDrivable: browser?.drivable ?? false, mayUse: access.workstationOwner, permissions: access.permissions)
+            machines: WorkspaceMachines(workstation: workstationConfig, browser: browserConfig, browserDrivable: browser?.drivable ?? false, mayUse: access.workstationOwner, permissions: access.permissions,
+                personalAccount: { owner in
+                    guard workstationConfig.ssh != nil, let id = UUID(uuidString: owner), let user = await accounts.user(id: id),
+                          !user.disabled, user.role != .admin, user.mayUseWorkstation else { return nil }
+                    return WorkstationPool.unixName(ownerID: owner)
+                })
         )
         let chatWorkspace = ChatWorkspaceStore(root: store.root)
         let conversationEngine = ConversationEngine(

@@ -959,7 +959,7 @@ public actor ConversationEngine {
     }
 
     private func workstation(ownerID: String?) async -> Workstation? {
-        guard let ownerID, let access, let workstation = access.workstation, await workstation.enabled, await access.workstationOwner(ownerID) else { return nil }
+        guard let ownerID, let access, let workstation = await access.workstationFor(ownerID), await workstation.enabled else { return nil }
         return workstation
     }
 

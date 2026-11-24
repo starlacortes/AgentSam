@@ -12,6 +12,8 @@ export interface PublicUser {
   lastLoginAt?: string
   /** May use the server's shared Gmail, Ads, GitHub, Cloudflare, Maloon and MCP accounts. Always true for admins. */
   sharedAccounts?: boolean
+  /** Has a workstation account of their own. Admins use the operator workstation, so always true for them. */
+  workstation?: boolean
 }
 
 export interface Me {

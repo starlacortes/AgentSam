@@ -195,6 +195,67 @@ final class WorkstationTests: XCTestCase {
         #endif
     }
 
+    // MARK: One account per person
+
+    func testPeopleGetTheirOwnAccountKeyAndJobs() async throws {
+        #if os(Linux) || os(macOS)
+        let operatorMachine = try sshMachine()
+        let data = directory.appendingPathComponent("data")
+        let alice = "1A2B3C4D-5E6F-4000-8000-000000000001"
+        let bob = "9F8E7D6C-5B4A-4000-8000-000000000002"
+        let aliceName = try XCTUnwrap(WorkstationPool.unixName(ownerID: alice))
+        let bobName = try XCTUnwrap(WorkstationPool.unixName(ownerID: bob))
+        XCTAssertEqual(aliceName, "adau1a2b3c4d5e6f")
+        XCTAssertNil(WorkstationPool.unixName(ownerID: "shared-server-token"))
+        XCTAssertTrue(WorkstationPool.validUnixName(aliceName))
+        XCTAssertFalse(WorkstationPool.validUnixName("root"))
+        XCTAssertFalse(WorkstationPool.validPublicKey("ssh-ed25519 AAAA ada@x; rm -rf /"))
+        // Each person has their own key; ssh-keygen may be missing where tests run, so they are made here.
+        for name in [aliceName, bobName] {
+            let keys = data.appendingPathComponent("workstation/people/\(name)/workstation/ssh")
+            try FileManager.default.createDirectory(at: keys, withIntermediateDirectories: true)
+            try "fake key".write(to: keys.appendingPathComponent("id_ed25519"), atomically: true, encoding: .utf8)
+            try "ssh-ed25519 AAAA\(name) ada@agentsam".write(to: keys.appendingPathComponent("id_ed25519.pub"), atomically: true, encoding: .utf8)
+        }
+        let log = directory.appendingPathComponent("provisioned.log")
+        let pool = WorkstationPool(operatorMachine: operatorMachine, dataDir: data, provisionCommand: "echo >> \(Workstation.quoted(log.path))")
+
+        guard case .success(let aliceMachine) = await pool.machine(ownerID: alice) else { return XCTFail("alice has no machine") }
+        guard case .success(let again) = await pool.machine(ownerID: alice) else { return XCTFail("alice lost her machine") }
+        XCTAssertTrue(aliceMachine === again)
+        guard case .success(let bobMachine) = await pool.machine(ownerID: bob) else { return XCTFail("bob has no machine") }
+        XCTAssertFalse(aliceMachine === bobMachine)
+
+        // Set up once per person, as their own account with their own key.
+        let lines = try String(contentsOf: log, encoding: .utf8).split(separator: "\n")
+        XCTAssertEqual(lines, ["\(aliceName) ssh-ed25519 AAAA\(aliceName) ada@agentsam", "\(bobName) ssh-ed25519 AAAA\(bobName) ada@agentsam"])
+        let arguments = await aliceMachine.sshArguments(try XCTUnwrap(aliceMachine.config.ssh), script: "true")
+        XCTAssertTrue(arguments.contains("\(aliceName)@kokoro.example.com"), arguments.description)
+        XCTAssertTrue(arguments.contains(where: { $0.hasSuffix("people/\(aliceName)/workstation/ssh/id_ed25519") }), arguments.description)
+
+        // Everything a person's account creates is private to it.
+        let umask = await aliceMachine.run(command: "umask", directory: nil, timeout: 10)
+        XCTAssertTrue(umask.resultText.contains("0077") || umask.resultText.contains("077"), umask.resultText)
+
+        // One person's jobs are not in another's list, and cannot be stopped from there.
+        let started = await aliceMachine.startJob(command: "sleep 30", directory: nil, label: "alice-job")
+        XCTAssertTrue(started.succeeded, started.resultText)
+        let aliceJobs = await aliceMachine.listJobs()
+        let job = try XCTUnwrap(aliceJobs.first)
+        let bobJobs = await bobMachine.listJobs()
+        XCTAssertTrue(bobJobs.isEmpty)
+        let operatorJobs = await operatorMachine.listJobs()
+        XCTAssertTrue(operatorJobs.isEmpty)
+        let refused = await bobMachine.stopJob(id: job.id)
+        XCTAssertFalse(refused.succeeded)
+        _ = await aliceMachine.stopJob(id: job.id)
+
+        // When the account cannot be set up, the person gets no machine.
+        let failing = WorkstationPool(operatorMachine: operatorMachine, dataDir: data, provisionCommand: "false")
+        guard case .failure = await failing.machine(ownerID: alice) else { return XCTFail("a failed setup must not hand out a machine") }
+        #endif
+    }
+
     // MARK: Through the conversation engine
 
     private let provider = ProviderConfig(id: "test", name: "Test", kind: .openAICompatible, baseURL: "http://localhost/v1", models: ["stub"], defaultModel: "stub")
