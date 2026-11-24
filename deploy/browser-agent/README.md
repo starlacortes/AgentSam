@@ -80,7 +80,11 @@ scroll, go, tabs, wait, screenshot, click_at, drag, hover), and admins watch eve
   clicking an upload button opens. `paste` with a picture puts it on the clipboard as PNG and
   presses Ctrl+V, or offers it to the editor as a paste event. Files come from Ada's server (the
   chat's files) or are downloaded by the agent from a public http or https address, at most 15 MB,
-  into a private temporary folder of the browser's own. Signing in, submitting a form,
+  into a private temporary folder of the browser's own. While Ada has control, file choosers in
+  every tab and frame are caught instead of opening the system's window (which she cannot use, and
+  which blocks later choosers until closed by hand); a click that opens one says so, and `upload`
+  without ref or x/y answers it within two minutes. Choosers open normally when the person takes
+  over. Signing in, submitting a form,
 paying, sending, deleting and security settings create an approval card on Ada's server; the
 approved action runs once, and the agent refuses it if the page or element changed meanwhile.
 To sign in to a site, the person presses **Take over** in the live window, signs in, and presses

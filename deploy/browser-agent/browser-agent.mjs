@@ -434,6 +434,9 @@ export function pointProblem(x, y, viewport) {
 
 export const CONTROL_STATES = ['ada', 'paused', 'person']
 
+/** Operations whose click or key press may open a file chooser. */
+export const CHOOSER_OPS = new Set(['click', 'mouse', 'key'])
+
 /** Operations that only read the page, and so also run while Ada is paused. */
 export const READ_OPS = new Set(['look', 'describe', 'describe_point', 'tabs', 'screenshot', 'wait', 'status'])
 
@@ -539,6 +542,10 @@ class Chromium {
     this.current = null
     this.order = [] // targetIds in the order they opened, so tab numbers follow the tab strip
     this.listeners = new Set() // short-lived waiters for DevTools events
+    // While Ada drives, file choosers are caught instead of opening the system's own window, which
+    // she cannot use and which blocks every later chooser until someone closes it by hand.
+    this.intercept = false
+    this.chooser = null // the last chooser a click opened: { sessionId, backendNodeId, mode, at }
     this.onExit = () => {}
   }
 
@@ -586,6 +593,8 @@ class Chromium {
         for (const [target, session] of this.sessions) if (session === gone) this.sessions.delete(target)
         this.children.delete(gone)
         for (const key of [...this.contexts.keys()]) if (key.startsWith(gone + '|')) this.contexts.delete(key)
+      } else if (message.method === 'Page.fileChooserOpened') {
+        this.chooser = { sessionId: message.sessionId, backendNodeId: message.params.backendNodeId, mode: message.params.mode, at: Date.now() }
       } else if (message.method === 'Target.attachedToTarget') {
         const { sessionId, targetInfo } = message.params
         if (message.sessionId && targetInfo?.type === 'iframe') {
@@ -655,7 +664,24 @@ class Chromium {
   async prepare(sessionId) {
     await this.send('Page.enable', {}, sessionId).catch(() => {})
     await this.send('Runtime.enable', {}, sessionId).catch(() => {})
+    if (this.intercept) await this.send('Page.setInterceptFileChooserDialog', { enabled: true }, sessionId).catch(() => {})
     await this.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }, sessionId).catch(() => {})
+  }
+
+  /** Catches file choosers in every tab and frame (on), or lets them open normally again (off). */
+  async interceptChoosers(on) {
+    if (this.intercept === on) return
+    this.intercept = on
+    if (!on) this.chooser = null
+    const sessions = new Set([...this.sessions.values(), ...this.children.keys()])
+    await Promise.all([...sessions].map((s) => this.send('Page.setInterceptFileChooserDialog', { enabled: on }, s, 5000).catch(() => {})))
+  }
+
+  /** The chooser a click opened in the last two minutes, if any. */
+  openChooser(since = 0) {
+    const chooser = this.chooser
+    if (!chooser || chooser.at < since || Date.now() - chooser.at > 120000) return null
+    return chooser
   }
 
   /** Every frame of a page: its main frame first, then the frames inside it, near and far. */
@@ -803,7 +829,14 @@ export class BrowserAgent {
     const problem = request.override ? null : controlProblem(this.control, op)
     if (problem) return { ok: false, refused: true, control: this.control, message: problem }
     try {
+      const acting = !READ_OPS.has(op) && op !== 'control' && op !== 'erase' && this.control === 'ada'
+      if (acting && this.chromium) await this.chromium.interceptChoosers(true)
+      const started = Date.now()
       const result = await this.dispatch(op, request)
+      if (CHOOSER_OPS.has(op) && this.chromium?.openChooser(started)) {
+        const note = 'That opened a file chooser. Give it the file now with browser_upload_file, without ref or x and y; it waits two minutes.'
+        result.message = result.message ? `${result.message} ${note}` : note
+      }
       return { ok: true, control: this.control, ...result }
     } catch (error) {
       return { ok: false, control: this.control, message: String(error?.message || error) }
@@ -862,6 +895,7 @@ export class BrowserAgent {
         const state = String(request.state || '')
         if (!CONTROL_STATES.includes(state)) throw new Error('Unknown control state.')
         this.control = state
+        await c.interceptChoosers(state === 'ada')
         return {}
       }
       case 'open': {
@@ -1005,10 +1039,13 @@ export class BrowserAgent {
             return { message: `Gave ${names} to the file field.`, page: await this.outline(session, request.maxChars) }
           }
         }
-        // A button or drop area: catch the file chooser its click opens, in whichever frame it is.
-        const sessions = [...new Set(this.chromium.frames(session).map((f) => f.session).concat(session))]
-        for (const s of sessions) await c.send('Page.setInterceptFileChooserDialog', { enabled: true }, s).catch(() => {})
-        try {
+        // A chooser that Ada's last click already opened, or the one that clicking the button opens now.
+        const pointed = request.ref || (request.x !== undefined && request.y !== undefined)
+        let chooser = pointed ? null : c.openChooser()
+        if (!pointed && !chooser) throw new Error('No file chooser is open. Name the upload button or file field by ref, or by x and y, and it will be clicked.')
+        if (pointed) {
+          await c.interceptChoosers(true)
+          const started = Date.now()
           const opened = this.waitFor((m) => m.method === 'Page.fileChooserOpened', 5000)
           if (request.ref) {
             const { frame, ref } = await this.resolve(session, request.ref)
@@ -1021,13 +1058,13 @@ export class BrowserAgent {
             if (problem) throw new Error(problem)
             await this.clickAt(session, x, y)
           }
-          const event = await opened
-          if (!event) throw new Error('Clicking there did not open a file chooser. Find the upload button or file field (browser_look, or a screenshot) and try that.')
-          if (event.params.mode === 'selectSingle' && paths.length > 1) paths.length = 1
-          await c.send('DOM.setFileInputFiles', { files: paths, backendNodeId: event.params.backendNodeId }, event.sessionId)
-        } finally {
-          for (const s of sessions) await c.send('Page.setInterceptFileChooserDialog', { enabled: false }, s).catch(() => {})
+          await opened
+          chooser = c.openChooser(started)
+          if (!chooser) throw new Error('Clicking there did not open a file chooser. In editors whose "Image from file" sits in a menu, open the menu first, then point at that menu item. Or click the item with browser_click_at and then call browser_upload_file without ref or x and y.')
         }
+        c.chooser = null
+        if (chooser.mode === 'selectSingle' && paths.length > 1) paths.length = 1
+        await c.send('DOM.setFileInputFiles', { files: paths, backendNodeId: chooser.backendNodeId }, chooser.sessionId)
         await c.settle(session, 4000)
         return { message: `Gave ${names} to the file chooser.`, page: await this.outline(session, request.maxChars) }
       }
@@ -1286,7 +1323,7 @@ export class BrowserAgent {
       if (wrote.exceptionDetails || wrote.result?.value !== true) throw new Error(wrote.exceptionDetails?.exception?.description || 'clipboard refused')
       await this.press(session, { key: 'v', code: 'KeyV', keyCode: 86, modifiers: 2, commands: ['paste'] })
       await sleep(800)
-      return `Pasted the picture ${file.name} with Ctrl+V. Take a screenshot to check that it landed.`
+      return `Pasted the picture ${file.name} with Ctrl+V. Take a screenshot to check that it landed. If it shows as an empty frame (OnlyOffice editors such as CryptPad documents do this), undo with Control+Z and insert it through the editor's own image menu and browser_upload_file instead.`
     } catch (error) {
       if (process.env.ADA_BROWSER_DEBUG) console.error('image paste fallback:', error?.message)
     }

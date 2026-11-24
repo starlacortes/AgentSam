@@ -76,7 +76,9 @@ public enum BrowserTools {
             tool("browser_upload_file", """
             Give a file to a page, as a person picks one in the file chooser: to attach a document, or insert a \
             picture through an editor's upload or "insert image" button. Name the file field or the button that \
-            opens the chooser by ref, or by x and y. The file comes from url (a public web address) or file \
+            opens the chooser by ref, or by x and y. When a click already opened a file chooser (the result says \
+            so, as with an "Image from file" menu item), call this without ref or x and y to answer that chooser. \
+            The file comes from url (a public web address) or file \
             (this chat's files), at most 15 MB. The file goes to that site, so upload only what the person would \
             want there.
             """, [
@@ -380,9 +382,8 @@ public enum BrowserTools {
             } else if let at = point(args, "x", "y") {
                 request["x"] = .number(at.x)
                 request["y"] = .number(at.y)
-            } else {
-                return .done(.failure("Name the file field or upload button by ref, or by x and y."))
             }
+            // Neither: the agent answers the file chooser Ada's last click opened, or says none is open.
             switch await fileSource(url: args["url"]?.stringValue, file: args["file"]?.stringValue, readFile: readFile) {
             case .none: return .done(.failure("Give the file by url (a public web address) or file (a name from this chat's files)."))
             case .failure(let message): return .done(.failure(message))

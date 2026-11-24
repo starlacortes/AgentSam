@@ -89,7 +89,11 @@ const PAGES = {
     <input type="file" id="hidden" style="display:none" onchange="document.getElementById('b').textContent='hidden got '+this.files[0].name">
     <button onclick="document.getElementById('hidden').click()">Insert image</button>
     <button>Does nothing</button>
-    <p id="a"></p><p id="b"></p>`,
+    <p id="a"></p><p id="b"></p>
+    <iframe src="OTHER/picker" title="Picker" style="width:500px;height:120px"></iframe>`,
+  '/picker': `<!doctype html><title>Picker</title>
+    <button onclick="const i=document.createElement('input');i.type='file';i.onchange=()=>{document.getElementById('c').textContent='detached got '+i.files[0].name};i.click()">Image from file</button>
+    <p id="c"></p>`,
   '/inner': '<!doctype html><title>Toolbar</title><button onclick="document.body.dataset.n=(+document.body.dataset.n||0)+1;this.textContent=\'Bold \'+document.body.dataset.n">Bold</button>',
   '/pad': `<!doctype html><title>Pad</title><style>body{margin:0}#ed{position:absolute;left:20px;top:20px;width:500px;height:150px;border:1px solid}#pad{position:absolute;left:20px;top:200px;width:300px;height:100px;background:#eee}</style>
     <div id="ed" contenteditable="true" aria-label="Pad text" onpaste="const f=event.clipboardData.files;if(f.length){event.preventDefault();document.getElementById('pasted').textContent='pasted file '+f[0].type+' '+f[0].size}"></div>
@@ -275,6 +279,23 @@ test('the agent reads, clicks, types and refuses password fields in a real Chrom
     assert.match(none.message, /did not open a file chooser/)
     const local = await call({ op: 'upload', ref: uref(/button "Insert image"/), url: 'file:///etc/passwd' })
     assert.match(local.message, /only be downloaded from http/)
+
+    // Like OnlyOffice: a menu item in another site's frame clicks an input that is not on the page.
+    // A plain click opens no system window; the chooser waits for browser_upload_file.
+    const nothingOpen = await call({ op: 'upload', url: base + '/pic.png' })
+    assert.match(nothingOpen.message, /No file chooser is open/)
+    const framed = await call({ op: 'look' })
+    const pickRef = framed.page.text.split('\n').find((l) => /button "Image from file"/.test(l)).match(/^\[(\d+\.\d+)\]/)[1]
+    const first = await call({ op: 'click', ref: pickRef })
+    assert.equal(first.ok, true, first.message)
+    assert.match(first.message, /opened a file chooser/)
+    const second = await call({ op: 'click', ref: pickRef })
+    assert.match(second.message, /opened a file chooser/, 'an unanswered chooser must not block the next one')
+    const given = await call({ op: 'upload', url: base + '/pic.png' })
+    assert.equal(given.ok, true, given.message)
+    assert.match(given.page.text, /detached got pic\.png/)
+    const viaPoint = await call({ op: 'upload', ref: pickRef, url: base + '/pic.png' })
+    assert.equal(viaPoint.ok, true, viaPoint.message)
     await call({ op: 'open', url: base + '/editor' })
 
     const gridShot = await call({ op: 'screenshot', grid: true })
