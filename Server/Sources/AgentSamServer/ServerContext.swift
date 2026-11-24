@@ -88,10 +88,11 @@ struct ServerContext: Sendable {
             root: store.root,
             workstation: workstation,
             workstationOwner: { owner in
-                // Ada's machine is the server itself, so only admins (and the shared server token) may use it.
+                // Ada's shared operator account: the shared server token, and admins who did not choose a
+                // workspace of their own.
                 if owner == "shared-server-token" { return true }
                 guard let id = UUID(uuidString: owner), let user = await accounts.user(id: id) else { return false }
-                return user.role == .admin && !user.disabled
+                return user.usesOperatorWorkstation && !user.disabled
             },
             sharedAccountsOwner: { owner in
                 // Gmail, Ads, GitHub, Cloudflare, Maloon and MCP use one set of server credentials: admins
@@ -102,10 +103,11 @@ struct ServerContext: Sendable {
             },
             workstationFor: { owner in
                 guard let workstation else { return nil }
-                // Admins and the shared server token work as the operator account, as before.
+                // The shared server token, and admins who did not choose a workspace of their own, work as
+                // the operator account, as before.
                 if owner == "shared-server-token" { return workstation }
                 guard let id = UUID(uuidString: owner), let user = await accounts.user(id: id), !user.disabled else { return nil }
-                if user.role == .admin { return workstation }
+                if user.usesOperatorWorkstation { return workstation }
                 guard user.mayUseWorkstation, let pool else { return nil }
                 switch await pool.machine(ownerID: owner) {
                 case .success(let machine): return machine
@@ -120,7 +122,7 @@ struct ServerContext: Sendable {
                 guard let browser else { return nil }
                 if owner == "shared-server-token" { return browser }
                 guard let id = UUID(uuidString: owner), let user = await accounts.user(id: id), !user.disabled else { return nil }
-                if user.role == .admin { return browser }
+                if user.usesOperatorWorkstation { return browser }
                 guard user.mayUseWorkstation, let pool, let browserPool, let account = WorkstationPool.unixName(ownerID: owner) else { return nil }
                 switch await pool.machine(ownerID: owner) {
                 case .failure(let problem):
@@ -157,7 +159,7 @@ struct ServerContext: Sendable {
             machines: WorkspaceMachines(workstation: workstationConfig, browser: browserConfig, browserDrivable: browser?.drivable ?? false, mayUse: access.workstationOwner, permissions: access.permissions,
                 personalAccount: { owner in
                     guard workstationConfig.ssh != nil, let id = UUID(uuidString: owner), let user = await accounts.user(id: id),
-                          !user.disabled, user.role != .admin, user.mayUseWorkstation else { return nil }
+                          !user.disabled, !user.usesOperatorWorkstation, user.mayUseWorkstation else { return nil }
                     return WorkstationPool.unixName(ownerID: owner)
                 })
         )

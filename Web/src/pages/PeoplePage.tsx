@@ -163,7 +163,15 @@ export function PeoplePage() {
                       </td>
                       <td>
                         {user.role === 'admin' ? (
-                          <span className="dim">{t('Always')}</span>
+                          <label className="row" style={{ gap: 6 }} title={t('Off: this admin’s Ada works in the shared ada account and its browser. On: an account and browser of their own, which nobody else can see.')}>
+                            <input
+                              type="checkbox"
+                              checked={user.ownWorkspace === true}
+                              aria-label={t('Own workspace for {name}', { name: user.name })}
+                              onChange={(e) => void run(() => api(`users/${user.id}`, { method: 'PATCH', body: { ownWorkspace: e.target.checked } }))}
+                            />
+                            <span className="dim">{t('Own workspace')}</span>
+                          </label>
                         ) : (
                           <input
                             type="checkbox"

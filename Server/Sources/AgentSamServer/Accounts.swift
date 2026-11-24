@@ -25,9 +25,14 @@ struct UserRecord: Codable, Sendable, Identifiable {
     /// A member gets a workstation account of their own (and later their own browser) only when an
     /// admin turned this on. Admins use the operator workstation.
     var workstation: Bool? = nil
+    /// An admin who turned this on works in an account of their own on the workstation, with their
+    /// own browser, like members do, instead of Ada's shared operator account. Off by default.
+    var ownWorkspace: Bool? = nil
 
     var mayUseSharedAccounts: Bool { role == .admin || sharedAccounts == true }
     var mayUseWorkstation: Bool { role == .admin || workstation == true }
+    /// True when this person's Ada works as the shared operator account (`ada`) and its browser.
+    var usesOperatorWorkstation: Bool { role == .admin && ownWorkspace != true }
 }
 
 /// What the API returns for a user. Never includes the password hash.
@@ -41,10 +46,13 @@ struct PublicUser: Codable, Sendable {
     var lastLoginAt: Date?
     var sharedAccounts: Bool
     var workstation: Bool
+    /// For admins: whether they work in an account of their own instead of the shared one.
+    var ownWorkspace: Bool
 
     init(_ record: UserRecord) {
         sharedAccounts = record.mayUseSharedAccounts
         workstation = record.mayUseWorkstation
+        ownWorkspace = record.ownWorkspace == true
         id = record.id
         email = record.email
         name = record.name
@@ -257,7 +265,7 @@ actor AccountStore {
         return record
     }
 
-    func update(id: UUID, role: UserRole?, disabled: Bool?, name: String?, sharedAccounts: Bool? = nil, workstation: Bool? = nil) throws -> UserRecord {
+    func update(id: UUID, role: UserRole?, disabled: Bool?, name: String?, sharedAccounts: Bool? = nil, workstation: Bool? = nil, ownWorkspace: Bool? = nil) throws -> UserRecord {
         guard let index = file.users.firstIndex(where: { $0.id == id }) else { throw AccountError.notFound }
         var record = file.users[index]
         let losesAdmin = record.role == .admin && !record.disabled
@@ -267,6 +275,7 @@ actor AccountStore {
         if let disabled { record.disabled = disabled }
         if let sharedAccounts { record.sharedAccounts = sharedAccounts }
         if let workstation { record.workstation = workstation }
+        if let ownWorkspace { record.ownWorkspace = ownWorkspace }
         if let name, !name.trimmingCharacters(in: .whitespaces).isEmpty {
             record.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         }
