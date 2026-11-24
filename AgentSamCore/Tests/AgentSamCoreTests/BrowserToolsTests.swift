@@ -354,6 +354,13 @@ final class BrowserToolsTests: XCTestCase {
         XCTAssertTrue(blind.resultText.contains("No vision model"))
     }
 
+    func testAnOutdatedBrowserAgentIsNamedAsTheProblem() {
+        let outcome = BrowserTools.failure(BrowserReply(ok: false, message: "Unknown browser operation: describe_point"))
+        XCTAssertFalse(outcome.succeeded)
+        XCTAssertTrue(outcome.resultText.contains("older than Ada's server"))
+        XCTAssertTrue(outcome.resultText.contains("install.sh"))
+    }
+
     func testAuditLineNeverHoldsTypedText() {
         XCTAssertEqual(BrowserTools.auditLine(call: call("browser_click_at", #"{"x":10,"y":20}"#)), "browser_click_at at (10, 20)")
         XCTAssertFalse(BrowserTools.auditLine(call: call("browser_paste", #"{"text":"my secret note"}"#)).contains("secret"))
