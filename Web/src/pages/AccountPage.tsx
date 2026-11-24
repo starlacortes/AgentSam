@@ -52,7 +52,7 @@ export function AccountPage() {
       </div>
 
       {me?.via === 'session' ? (
-        <form className="card stack" style={{ maxWidth: 480 }} onSubmit={changePassword}>
+        <form className="card stack account-password" style={{ maxWidth: 720 }} onSubmit={changePassword}>
           <h2>{t('Change password')}</h2>
           <ErrorBanner message={error} />
           {notice ? <div className="notice">{notice}</div> : null}

@@ -4,7 +4,7 @@ import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { api, errorMessage } from '../api/client'
 import type { InviteCreated, PublicInvite, PublicUser, UserRole } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
-import { ErrorBanner, formatDate, Spinner } from '../components/ui'
+import { ErrorBanner, formatDate, formatShortDate, Spinner } from '../components/ui'
 import { useI18n } from '../i18n'
 
 export function PeoplePage() {
@@ -114,15 +114,13 @@ export function PeoplePage() {
           <Spinner />
         ) : (
           <div className="table-wrap">
-            <table className="table">
+            <table className="table people-table">
               <thead>
                 <tr>
                   <th>{t('Name')}</th>
-                  <th>{t('Email')}</th>
                   <th>{t('Role')}</th>
                   <th>{t('Shared accounts')}</th>
                   <th>{t('Workstation')}</th>
-                  <th>{t('Last sign-in')}</th>
                   <th />
                 </tr>
               </thead>
@@ -131,15 +129,18 @@ export function PeoplePage() {
                   const isMe = user.id === me?.user?.id
                   return (
                     <tr key={user.id}>
-                      <td>
-                        {user.name} {isMe ? <span className="chip">{t('you')}</span> : null}{' '}
-                        {user.disabled ? <span className="chip danger">{t('disabled')}</span> : null}
+                      <td className="people-person">
+                        <b>
+                          {user.name} {isMe ? <span className="chip">{t('you')}</span> : null}{' '}
+                          {user.disabled ? <span className="chip danger">{t('disabled')}</span> : null}
+                        </b>
+                        <span className="muted">{user.email}</span>
+                        <span className="dim">{user.lastLoginAt ? t('Last sign-in {date}', { date: formatShortDate(user.lastLoginAt) }) : t('Has not signed in yet')}</span>
                       </td>
-                      <td className="muted">{user.email}</td>
-                      <td>
+                      <td data-label={t('Role')}>
                         <select
                           className="select"
-                          style={{ width: 120, padding: '6px 10px' }}
+                          style={{ width: 138, padding: '6px 10px' }}
                           value={user.role}
                           aria-label={t('Role for {name}', { name: user.name })}
                           onChange={(e) => void run(() => api(`users/${user.id}`, { method: 'PATCH', body: { role: e.target.value } }))}
@@ -148,7 +149,7 @@ export function PeoplePage() {
                           <option value="admin">{t('Admin')}</option>
                         </select>
                       </td>
-                      <td>
+                      <td data-label={t('Shared accounts')}>
                         {user.role === 'admin' ? (
                           <span className="dim">{t('Always')}</span>
                         ) : (
@@ -161,9 +162,9 @@ export function PeoplePage() {
                           />
                         )}
                       </td>
-                      <td>
+                      <td data-label={t('Workstation')}>
                         {user.role === 'admin' ? (
-                          <label className="row" style={{ gap: 6 }} title={t('Off: this admin’s Ada works in the shared ada account and its browser. On: an account and browser of their own, which nobody else can see.')}>
+                          <label className="row" style={{ gap: 6, flexWrap: 'nowrap' }} title={t('Off: this admin’s Ada works in the shared ada account and its browser. On: an account and browser of their own, which nobody else can see.')}>
                             <input
                               type="checkbox"
                               checked={user.ownWorkspace === true}
@@ -182,10 +183,9 @@ export function PeoplePage() {
                           />
                         )}
                       </td>
-                      <td className="dim">{formatDate(user.lastLoginAt)}</td>
-                      <td>
+                      <td className="people-actions">
                         {isMe ? null : (
-                          <div className="row" style={{ justifyContent: 'flex-end' }}>
+                          <div className="row" style={{ justifyContent: 'flex-end', flexWrap: 'nowrap', gap: 6 }}>
                             <button
                               className="btn small ghost"
                               onClick={() => void run(() => api(`users/${user.id}`, { method: 'PATCH', body: { disabled: !user.disabled } }))}

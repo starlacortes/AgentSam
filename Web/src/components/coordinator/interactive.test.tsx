@@ -6,7 +6,7 @@ import { I18nProvider } from '../../i18n'
 import { attachmentBlock } from '../../pages/CoordinatorPage'
 import { ConversationMessages, type MessageHandlers } from './ConversationMessages'
 import { consoleRows } from './SidePanel'
-import { formatElapsed, ThinkingIndicator } from './ThinkingIndicator'
+import { formatElapsed, ThinkingIndicator, WorkSummary } from './ThinkingIndicator'
 
 vi.mock('../../api/client', async (importOriginal) => ({ ...await importOriginal<typeof import('../../api/client')>(), api: vi.fn().mockResolvedValue({ deliverables: [] }) }))
 vi.mock('../../auth/AuthContext', () => ({ useAuth: () => ({ me: { name: 'Owner' }, isAdmin: false, signOut: vi.fn() }) }))
@@ -112,6 +112,15 @@ describe('interactive chat', () => {
     expect(screen.getByText('12s')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: /2 steps/ }))
     expect(screen.getByText('Choosing how to help')).toBeTruthy()
+  })
+
+  it('counts a single step in the singular after a reply', () => {
+    const now = Date.now()
+    const message = assistant({ createdAt: new Date(now - 4000).toISOString(), completedAt: new Date(now).toISOString(), steps: [
+      { id: 's1', label: 'Thinking it through', state: 'done', startedAt: new Date(now - 4000).toISOString(), finishedAt: new Date(now).toISOString() },
+    ] })
+    renderUI(<WorkSummary message={message} />)
+    expect(screen.getByText(/1 step$/)).toBeTruthy()
   })
 
   it('formats elapsed time', () => {

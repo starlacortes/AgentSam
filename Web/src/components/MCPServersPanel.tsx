@@ -98,9 +98,9 @@ export function MCPServersPanel() {
       {failed.length ? <p className="danger">{t('These did not answer and were skipped: {names}', { names: failed.join(', ') })}</p> : null}
     </div> : null}
     <form className="mcp-form" onSubmit={(event) => { event.preventDefault(); if (url.trim()) void add() }}>
-      <input type="text" value={name} maxLength={60} placeholder={t('Name')} aria-label={t('Name')} onChange={(event) => setName(event.target.value)} />
-      <input type="url" value={url} placeholder="https://example.com/mcp" aria-label={t('Server URL')} onChange={(event) => setURL(event.target.value)} />
-      <input type="password" value={token} autoComplete="off" placeholder={t('Bearer token (optional)')} aria-label={t('Bearer token (optional)')} onChange={(event) => setToken(event.target.value)} />
+      <input className="input" type="text" value={name} maxLength={60} placeholder={t('Name')} aria-label={t('Name')} onChange={(event) => setName(event.target.value)} />
+      <input className="input" type="url" value={url} placeholder="https://example.com/mcp" aria-label={t('Server URL')} onChange={(event) => setURL(event.target.value)} />
+      <input className="input" type="password" value={token} autoComplete="off" placeholder={t('Bearer token (optional)')} aria-label={t('Bearer token (optional)')} onChange={(event) => setToken(event.target.value)} />
       <button className="co-secondary-button" disabled={busy || !url.trim()} type="submit"><Icon name="plus" size={14} />{t('Connect')}</button>
     </form>
     <ErrorBanner message={error} />
