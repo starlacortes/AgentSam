@@ -677,7 +677,8 @@ final class ConversationTests: XCTestCase {
         let answer = try XCTUnwrap(result.messages.last)
         XCTAssertEqual(answer.text, "A page.")
         XCTAssertEqual(answer.quickReplies, ["Add a contact form"])
-        XCTAssertEqual(answer.steps.map(\.label), ["Choosing how to help", "Writing the answer"])
+        // The stub does not stream, so no words arrive early and "Writing the answer" is never claimed.
+        XCTAssertEqual(answer.steps.map(\.label), ["Choosing how to help", "Thinking it through"])
         await engine.shutdown()
     }
 
@@ -941,7 +942,7 @@ final class ConversationTests: XCTestCase {
         _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Research the market and write a report", launchedBy: "Owner", language: "en")
         let result = try await finishedConversation(conversations, id: conversation.id)
         XCTAssertEqual(result.messages.last?.text, "Straight answer.")
-        XCTAssertEqual(result.messages.last?.steps.map(\.label), ["Thinking it through", "Writing the answer"])
+        XCTAssertEqual(result.messages.last?.steps.map(\.label), ["Thinking it through"])
         await engine.shutdown()
     }
 
@@ -1233,6 +1234,43 @@ final class ConversationTests: XCTestCase {
                 XCTAssertFalse(label.contains(name), "\(name) has no \(language) step label")
             }
         }
+    }
+
+    func testStepLabelsSayWhatTheCallIsDoing() {
+        func call(_ name: String, _ arguments: String) -> APIToolCall {
+            APIToolCall(id: "1", function: .init(name: name, arguments: arguments))
+        }
+        XCTAssertEqual(ToolCatalog.label(for: call("web_search", #"{"query":"flights to  Lima\nin May"}"#), language: "en"), "Searching the web for “flights to Lima in May”")
+        XCTAssertEqual(ToolCatalog.label(for: call("gmail_search", #"{"query":"from:ana factura"}"#), language: "es"), "Buscando en Gmail “from:ana factura”")
+        XCTAssertEqual(ToolCatalog.label(for: call("web_fetch", #"{"url":"https://www.example.com/a/b?c=1"}"#), language: "en"), "Reading example.com")
+        XCTAssertEqual(ToolCatalog.label(for: call("browser_open", #"{"url":"ads.google.com/home"}"#), language: "es"), "Abriendo ads.google.com en mi navegador")
+        XCTAssertEqual(ToolCatalog.label(for: call("chat_write_file", #"{"path":"reports/q3.md","content":"x"}"#), language: "en"), "Writing q3.md")
+        XCTAssertEqual(ToolCatalog.label(for: call("run_terminal", #"{"command":"npm test\nnpm run build"}"#), language: "en"), "Running: npm test")
+        XCTAssertEqual(ToolCatalog.label(for: call("browser_go", #"{"action":"reload"}"#), language: "es"), "Recargando la página")
+        XCTAssertEqual(ToolCatalog.label(for: call("gmail_send", #"{"to":"ana@example.com","subject":"Hi","body":"x"}"#), language: "en"), "Preparing an email to ana@example.com")
+        // Long details are cut, and missing or broken arguments fall back to the plain label.
+        let long = ToolCatalog.label(for: call("web_search", "{\"query\":\"\(String(repeating: "a", count: 200))\"}"), language: "en")
+        XCTAssertLessThan(long.count, 100)
+        XCTAssertTrue(long.hasSuffix("…”"))
+        XCTAssertEqual(ToolCatalog.label(for: call("web_search", "not json"), language: "en"), "Searching the web")
+        XCTAssertEqual(ToolCatalog.label(for: call("web_fetch", #"{"url":""}"#), language: "es"), "Leyendo una página web")
+        XCTAssertEqual(ToolCatalog.label(for: call("mcp_ads_list_campaigns", "{}"), language: "en"), "Using ads list campaigns")
+    }
+
+    func testStepsBetweenToolsSayWhatAdaIsDoing() {
+        typealias Label = ConversationEngine.StepLabel
+        XCTAssertEqual(Label.afterTools(["web_search", "gmail_read"], language: "en"), "Reviewing what I found")
+        XCTAssertEqual(Label.afterTools(["web_search", "chat_write_file"], language: "es"), "Decidiendo el siguiente paso")
+        // The first words of a reply turn a waiting step into "Writing the answer"; a tool's step stays.
+        var message = ConversationMessage(role: .assistant, text: "", status: .running, steps: [MessageStep(label: Label.thinking("en"))])
+        XCTAssertTrue(Label.isWaiting(message.steps[0].label))
+        ConversationEngine.advanceStep(&message, to: Label.writing("en"))
+        XCTAssertEqual(message.steps.map(\.label), ["Thinking it through", "Writing the answer"])
+        XCTAssertEqual(message.steps.map(\.state), ["done", "working"])
+        // Words before a tool call were only a lead-in, so that step gives way to the tool's.
+        ConversationEngine.advanceStep(&message, to: "Searching the web")
+        XCTAssertEqual(message.steps.map(\.label), ["Thinking it through", "Searching the web"])
+        XCTAssertFalse(Label.isWaiting("Searching the web"))
     }
 
     func testEveryToolHasOneCatalogEntryWithTheRightAccess() {
