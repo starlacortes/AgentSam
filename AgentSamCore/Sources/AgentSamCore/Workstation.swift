@@ -256,9 +256,57 @@ public actor Workstation {
         let command = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !command.isEmpty, command.utf8.count <= 20_000 else { return .failure("A command of at most 20,000 bytes is required.") }
         let timeout = min(max(requestedTimeout ?? Self.defaultRunSeconds, 1), Self.maxRunSeconds)
-        // sudo must never wait for a password nobody can type.
-        let outcome = await execute(script: Self.nonInteractive(command), directory: requested, timeout: timeout)
-        return ToolOutcome(resultText: outcome.resultText + "\nRan on \(location).", succeeded: outcome.succeeded)
+        // The machine stops the command itself at the limit, so its output so far still comes back;
+        // the server's own limit, a little later, only catches a connection that hangs.
+        let seconds = Int(timeout.rounded())
+        let outcome = await execute(script: Self.foregroundScript(command, seconds: seconds), directory: requested, timeout: timeout + Self.serverGraceSeconds)
+        return Self.reported(outcome, seconds: seconds, location: location)
+    }
+
+    /// Extra seconds the server waits beyond a command's own limit.
+    static let serverGraceSeconds: TimeInterval = 10
+    static let timeoutMarker = "[ada: time limit reached]"
+
+    /// A foreground command, run so that what it leaves behind cannot hold the call open:
+    /// - Its output goes to a file that is printed when it ends. A program it starts in the
+    ///   background (a server, `nohup`, `&`) keeps that file open, not the SSH connection, so the call
+    ///   returns as soon as the command itself is done. Before, such a call waited out the whole time
+    ///   limit and was reported as failed although the command had worked.
+    /// - The machine stops it at the limit (`timeout`, where installed), so the output so far is kept.
+    /// - sudo never waits for a password nobody can type.
+    static func foregroundScript(_ command: String, seconds: Int) -> String {
+        let inner = quoted(nonInteractive(command))
+        return """
+        __ada_out=$(mktemp 2>/dev/null) || __ada_out="${TMPDIR:-/tmp}/ada-run-$$.log"
+        if command -v timeout >/dev/null 2>&1; then
+          timeout -k 5 \(max(seconds, 1)) sh -c \(inner) </dev/null >"$__ada_out" 2>&1
+        else
+          sh -c \(inner) </dev/null >"$__ada_out" 2>&1
+        fi
+        __ada_status=$?
+        cat "$__ada_out" 2>/dev/null; rm -f "$__ada_out"
+        if [ "$__ada_status" -eq 124 ]; then echo; echo '\(timeoutMarker)'; fi
+        exit $__ada_status
+        """
+    }
+
+    /// The result Ada sees. A command stopped at its time limit may still have done its work (a web
+    /// request that already had its answer), so she checks before running it again.
+    static func reported(_ outcome: ToolOutcome, seconds: Int, location: String) -> ToolOutcome {
+        var text = outcome.resultText
+        let timedOut = text.contains(timeoutMarker) || text.hasPrefix("Timed out after")
+        if timedOut {
+            text = text.replacingOccurrences(of: "\n" + timeoutMarker, with: "").replacingOccurrences(of: timeoutMarker, with: "")
+            if let range = text.range(of: "Output:\n") ?? text.range(of: "Partial output:\n") { text = String(text[range.upperBound...]) }
+            text = """
+            Timed out: the command was still running after \(seconds)s and was stopped. It may already have done \
+            part or all of its work (for example, a web request that got its answer just before), so check whether it \
+            took effect (open the page, list the files, query the service) before running it again, so nothing \
+            happens twice. For anything that takes long, use workstation_start_job. Output so far:
+            \(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "(no output)" : text)
+            """
+        }
+        return ToolOutcome(resultText: text + "\nRan on \(location).", succeeded: outcome.succeeded && !timedOut)
     }
 
     /// A snapshot of the machine, safe to run without approval.

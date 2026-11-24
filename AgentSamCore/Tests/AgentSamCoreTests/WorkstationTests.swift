@@ -195,6 +195,37 @@ final class WorkstationTests: XCTestCase {
         #endif
     }
 
+    /// A command that leaves a program running (a server, `nohup … &`) used to hold the SSH connection
+    /// open until the time limit, so a command that had worked was reported as timed out and failed.
+    func testCommandsThatLeaveAProgramRunningStillReturnAtOnce() async throws {
+        #if os(Linux) || os(macOS)
+        let ws = try sshMachine()
+        let started = Date()
+        let run = await ws.run(command: "sleep 30 & echo published-200", directory: nil, timeout: 20)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 8, "the call ends when the command does")
+        XCTAssertTrue(run.succeeded, run.resultText)
+        XCTAssertTrue(run.resultText.contains("published-200"), run.resultText)
+        let failed = await ws.run(command: "echo partial; exit 4", directory: nil, timeout: 10)
+        XCTAssertFalse(failed.succeeded)
+        XCTAssertTrue(failed.resultText.contains("exit code 4"), failed.resultText)
+        XCTAssertTrue(failed.resultText.contains("partial"), failed.resultText)
+        #endif
+    }
+
+    func testATimedOutCommandKeepsItsOutputAndSaysItMayHaveWorked() async throws {
+        #if os(Linux) || os(macOS)
+        let ws = try sshMachine()
+        let started = Date()
+        let run = await ws.run(command: "echo got-200; sleep 30", directory: nil, timeout: 2)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 15)
+        XCTAssertFalse(run.succeeded)
+        XCTAssertTrue(run.resultText.hasPrefix("Timed out"), run.resultText)
+        XCTAssertTrue(run.resultText.contains("got-200"), "output from before the limit is kept: \(run.resultText)")
+        XCTAssertTrue(run.resultText.contains("may already have done"), run.resultText)
+        XCTAssertFalse(run.resultText.contains(Workstation.timeoutMarker))
+        #endif
+    }
+
     // MARK: One account per person
 
     func testPeopleGetTheirOwnAccountKeyAndJobs() async throws {

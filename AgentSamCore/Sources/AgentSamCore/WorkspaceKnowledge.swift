@@ -269,6 +269,14 @@ public actor WorkspaceKnowledgeStore {
         ]
     }
 
+    /// How Ada works the browser: outline and numbers first, the screen and the mouse when they are not enough.
+    static let browserHowTo = [
+        "- How to work: browser_open a page and read the outline (text plus numbered elements like `[12] button \"Search\"`), then act with browser_click, browser_type, browser_select, browser_key and browser_scroll using those numbers. Elements inside frames (embedded editors and widgets) are listed after the page under \"Frame N\" and numbered like `[2.5]`. Each action returns the page after it; browser_look with a query reads just the lines you need on long pages.",
+        "- Seeing: browser_screenshot shows the window to the vision model and returns what it sees, with positions in page pixels (grid: true makes positions more exact; a question gets a precise answer). The picture is also saved in the chat's files for the person. With no vision model set (Settings, Providers, \"Vision model\") and a model of her own that cannot see, Ada cannot see it.",
+        "- Mouse: when the outline has no number for something (canvas apps, maps, editors that draw their own text), take a screenshot, then use browser_click_at, browser_drag or browser_hover at page pixels, and check the result. Clicking by position something that signs in, pays, sends or deletes asks for approval like a numbered click.",
+        "- Writing: browser_type puts text in in one step; without ref it writes where the focus is, so click into the editor first. browser_paste pastes like Ctrl+V and suits long or multi-line text in rich editors (Google Docs, CryptPad). Shortcuts work with browser_key (Control+A, Control+B, Control+Z, Shift+Tab). Ada cannot press Ctrl+V herself, because the clipboard may hold what the person copied, and Control+Enter asks for approval because it sends messages.",
+    ]
+
     /// What Ada can do on her workstation and in her browser, for this owner. Written before the long
     /// lists so the prompt's per-document cut never drops it.
     private func machinesSection(ownerID: String) async -> [String] {
@@ -291,6 +299,7 @@ public actor WorkspaceKnowledgeStore {
                               "- On: this person has a Chromium window of their own, running as their workstation account (`\(Self.inline(BrowserPool.service(account: account)))`). Its sign-ins, history and VNC password are theirs alone; nobody else's Ada can see or use it, and it never sees anyone else's.",
                               "- Ada drives it with the browser_* tools, and the person watches and takes over live in the web app. It starts when she opens a page and stops after \(Int(browser.idleSeconds / 60)) minutes unused. A few people's browsers can run at once; if the workstation says too many are open, try again later.",
                               "- Sites the person signed in to stay signed in between starts. Signing in, submitting forms, paying, sending, deleting and security changes ask on an approval card. Use web_search and web_fetch for quick public lookups."]
+                    lines += Self.browserHowTo
                 } else {
                     lines += ["", "## Browser", "- Off on this server. Ada has no browser window; web_search and web_fetch read public pages."]
                 }
@@ -335,7 +344,7 @@ public actor WorkspaceKnowledgeStore {
             }
             lines.append("- Ada drives it herself with the browser_* tools, and the person sees every step live. It starts by itself when she opens a page, and stops after \(Int(browser.idleSeconds / 60)) minutes with nobody watching or using it.")
             lines.append("- Signed in: the browser keeps its sign-ins between starts, so sites the person signed in to (Gmail, Google Ads, shops) stay signed in. Use it for pages that need their account or that web_fetch cannot read; use web_search and web_fetch for quick public lookups, which are cheaper.")
-            lines.append("- How to work: browser_open a page, read the outline (text plus numbered elements like `[12] button \"Search\"`), then act with browser_click, browser_type, browser_select, browser_key and browser_scroll, using those numbers. Each action returns the page after it. browser_look with a query reads just the lines you need on long pages. browser_screenshot saves a picture into the chat's files for the person; Ada cannot see it.")
+            lines += Self.browserHowTo
             lines.append("- What asks first: ordinary clicks, typing and searching run at once. Signing in, submitting a form, paying or ordering, sending or publishing, deleting or cancelling, and security settings create an approval card. The card runs the action once, only if the page and button are unchanged; afterwards look at the page again.")
             lines.append("- Passwords: Ada never types into password or one-time-code fields, and the page outline never shows what they hold. When a site needs a sign-in, she asks the person to open Ada’s browser, press Take over, sign in, and press Hand back.")
             lines.append("- Who is in control: when the person presses Take over, every browser tool answers that they have control; Ada stops and says she will continue when it is handed back. When paused she can read but not act. After a hand-back the page may have changed, so she looks again first.")
