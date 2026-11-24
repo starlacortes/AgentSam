@@ -14,6 +14,8 @@ export interface PublicUser {
   sharedAccounts?: boolean
   /** Has a workstation account of their own. Admins use the operator workstation, so always true for them. */
   workstation?: boolean
+  /** Admins only: works in an account of their own on the workstation, with their own browser, instead of Ada's shared one. */
+  ownWorkspace?: boolean
 }
 
 export interface Me {

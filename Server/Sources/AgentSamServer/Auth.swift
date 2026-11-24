@@ -200,6 +200,7 @@ struct UserPatchBody: Codable, Sendable {
     var name: String?
     var sharedAccounts: Bool?
     var workstation: Bool?
+    var ownWorkspace: Bool?
 }
 
 struct TokenBody: Codable, Sendable {
@@ -457,7 +458,7 @@ func authRoutes(_ app: Application, ctx: ServerContext, authed: RoutesBuilder) {
         }
         let body = try req.content.decode(UserPatchBody.self)
         let name = try body.name.map(AccountValidation.name)
-        let user = try await ctx.accounts.update(id: id, role: body.role, disabled: body.disabled, name: name, sharedAccounts: body.sharedAccounts, workstation: body.workstation)
+        let user = try await ctx.accounts.update(id: id, role: body.role, disabled: body.disabled, name: name, sharedAccounts: body.sharedAccounts, workstation: body.workstation, ownWorkspace: body.ownWorkspace)
         if user.disabled { await ctx.sessions.revokeAll(userID: id) }
         return try req.json(PublicUser(user))
     }

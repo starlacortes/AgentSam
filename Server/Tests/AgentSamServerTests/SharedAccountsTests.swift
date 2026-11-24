@@ -109,4 +109,37 @@ final class SharedAccountsTests: XCTestCase {
         let stranger = await ctx.access.workstationFor(UUID().uuidString)
         XCTAssertNil(stranger)
     }
+
+    func testAnAdminCanChooseAWorkspaceOfTheirOwn() async throws {
+        let ctx = try XCTUnwrap(app.storage[ServerContextKey.self])
+        let hash = try await Passwords.hash("admin test password")
+        let admin = try await ctx.accounts.createUser(email: "admin2@example.com", name: "Admin", role: .admin, passwordHash: hash)
+        XCTAssertFalse(PublicUser(admin).ownWorkspace, "admins start in the shared operator account")
+        let shared = await ctx.access.workstationOwner(admin.id.uuidString)
+        XCTAssertTrue(shared)
+
+        try await app.test(.PATCH, "api/users/\(admin.id.uuidString)", beforeRequest: { req in
+            req.headers.bearerAuthorization = BearerAuthorization(token: self.token)
+            try req.content.encode(["ownWorkspace": true], as: .json)
+        }, afterResponse: { res async throws in
+            XCTAssertEqual(res.status, .ok, res.body.string)
+            XCTAssertTrue(try res.content.decode(PublicUser.self).ownWorkspace)
+        })
+        let own = await ctx.access.workstationOwner(admin.id.uuidString)
+        XCTAssertFalse(own, "with a workspace of their own, the admin no longer works as the shared account")
+        let tokenStillShared = await ctx.access.workstationOwner("shared-server-token")
+        XCTAssertTrue(tokenStillShared)
+        let fetched = await ctx.accounts.user(id: admin.id)
+        let record = try XCTUnwrap(fetched)
+        XCTAssertFalse(record.usesOperatorWorkstation)
+        XCTAssertTrue(record.mayUseWorkstation)
+
+        // Turning it off puts them back in the shared account.
+        try await app.test(.PATCH, "api/users/\(admin.id.uuidString)", beforeRequest: { req in
+            req.headers.bearerAuthorization = BearerAuthorization(token: self.token)
+            try req.content.encode(["ownWorkspace": false], as: .json)
+        }, afterResponse: { res async in XCTAssertEqual(res.status, .ok, res.body.string) })
+        let back = await ctx.access.workstationOwner(admin.id.uuidString)
+        XCTAssertTrue(back)
+    }
 }
