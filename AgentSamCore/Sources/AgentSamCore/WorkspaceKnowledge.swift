@@ -286,7 +286,14 @@ public actor WorkspaceKnowledgeStore {
                 lines.append("- On: this person has a workstation account of their own, `\(Self.inline(account))@\(Self.inline(ssh.host))`, reached over SSH from the server. Other people's files and jobs on that machine are not visible from it, and theirs are not visible to others.")
                 lines.append("- Commands start in that account's home folder. There is no sudo: installing system packages or managing services needs an admin. Files Ada creates there (in /tmp too) are private to the account.")
                 lines.append("- Tools: `workstation_status`, `workstation_jobs` and `workstation_job` only look; `workstation_stop_job` stops a job she started; `workstation_run` and `workstation_start_job` change the machine and ask on an approval card unless a standing permission allows them.")
-                lines += ["", "## Browser", "- Ada's live browser is for admins for now, so it is not available in this person's chats; web_search and web_fetch read public pages."]
+                if browser.enabled {
+                    lines += ["", "## Browser",
+                              "- On: this person has a Chromium window of their own, running as their workstation account (`\(Self.inline(BrowserPool.service(account: account)))`). Its sign-ins, history and VNC password are theirs alone; nobody else's Ada can see or use it, and it never sees anyone else's.",
+                              "- Ada drives it with the browser_* tools, and the person watches and takes over live in the web app. It starts when she opens a page and stops after \(Int(browser.idleSeconds / 60)) minutes unused. A few people's browsers can run at once; if the workstation says too many are open, try again later.",
+                              "- Sites the person signed in to stay signed in between starts. Signing in, submitting forms, paying, sending, deleting and security changes ask on an approval card. Use web_search and web_fetch for quick public lookups."]
+                } else {
+                    lines += ["", "## Browser", "- Off on this server. Ada has no browser window; web_search and web_fetch read public pages."]
+                }
             } else {
                 lines.append("- The server has a workstation and may have a live browser, but only admins and people an admin gave a workstation can use them, so they are not available in this person's chats.")
             }

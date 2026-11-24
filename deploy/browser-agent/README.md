@@ -21,11 +21,31 @@ Ada's server cannot run a browser itself, so the browser lives on her SSH workst
   signed in. "Erase sign-ins" in the live window deletes it and opens a fresh window.
 - `chromium-policy.json` turns off Chromium's password manager, autofill, sync and browser sign-in.
 
+## People's own browsers
+
+Admins use the browser above. A person an admin gave a workstation (People page, "Workstation")
+gets a browser of their own, `ada-browser@<account>.service`, running as their own workstation
+account (`adau…`, see `deploy/workstation`):
+
+- Everything it keeps is in `~/.ada-browser` in that account's home (mode 700): the profile with
+  their sign-ins, their own VNC password (made by Ada's server on first use, as the account), and
+  caches. The unit hides every home folder except that one and gives the browser its own `/tmp`.
+- Its display and ports come from the account's numeric ID n = uid mod 10000: display `:1000+n`,
+  VNC on `127.0.0.1:30000+2n`, the agent on the port after it. The VNC password guards both, so
+  another account on the machine that reaches the port still cannot see or drive the window.
+- Ada's server starts and stops it as the operator account (`sudo systemctl start|stop
+  ada-browser@<account>.service`), and relays the picture and Ada's requests as the person's own
+  account. At most three people's browsers run at once (each may use up to 1.5 GB of memory), and
+  each stops after 15 minutes unused. They never start at boot.
+- Nothing new is needed on Ada's server; `install.sh` installs the template unit and a copy of the
+  scripts in `/usr/local/lib/ada-browser`.
+
 ## How the picture reaches the web app
 
 Nothing here listens on a public address. Ada's server opens `ssh -W 127.0.0.1:5977` to the
 workstation with the same key and pinned host key it uses for workstation commands, and relays
-the VNC stream over a WebSocket (`/api/browser/live`) to admins signed in to the web app.
+the VNC stream over a WebSocket (`/api/browser/live`) to the person signed in to the web app: admins
+see Ada's browser, everyone else with a workstation sees only their own.
 
 ## Setting it up
 
@@ -54,7 +74,7 @@ Run the agent's tests with `node --test deploy/browser-agent/browser-agent.test.
 
 ## Not done yet
 
-One profile for every site (not one per account), no per-site grants or daily limits, Ada's
+One profile per person (not one per site account), no per-site grants or daily limits, Ada's
 cursor is not drawn on the picture, and iframes (some embedded sign-in and payment widgets) are
 not readable. The profile sits on the workstation, where Ada's own `sudo pacman` could reach it:
 keep `workstation_run` on approval until the browser has a machine of its own.

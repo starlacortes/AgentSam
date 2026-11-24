@@ -229,7 +229,7 @@ func accessRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
             case .browser:
                 // A browser action that signs in, submits, pays, sends, deletes or changes security.
                 // The agent runs it only if the page and element still match what was approved.
-                guard let link = ctx.access.browser, await ctx.access.workstationOwner(conversation.ownerID) else {
+                guard let link = await ctx.access.browserFor(conversation.ownerID) else {
                     await ctx.access.actions.finish(ownerID: conversation.ownerID, id: id, result: "Ada's browser is off on this server. Nothing was done.", succeeded: false)
                     break
                 }

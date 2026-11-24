@@ -31,7 +31,13 @@ if [ ! -s "$HOME_DIR/vnc.passwd" ]; then
     chmod 600 "$HOME_DIR/vnc-password.txt" "$HOME_DIR/vnc.passwd"
 fi
 
+# The same scripts, readable by everyone, for people's own browsers (ada-browser@<account>.service).
+install -d -m 0755 /usr/local/lib/ada-browser
+install -m 0755 "$HERE/run-browser.sh" /usr/local/lib/ada-browser/run-browser.sh
+install -m 0644 "$HERE/browser-agent.mjs" /usr/local/lib/ada-browser/browser-agent.mjs
+
 install -m 0644 "$HERE/ada-browser.service" /etc/systemd/system/ada-browser.service
+install -m 0644 "$HERE/ada-browser@.service" /etc/systemd/system/ada-browser@.service
 systemctl daemon-reload
 
 echo "Ada's browser is installed. It is not running and will not start at boot."
