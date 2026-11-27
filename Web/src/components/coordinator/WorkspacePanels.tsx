@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useDialogs } from '../ConfirmDialog'
 import { api, errorMessage } from '../../api/client'
 import type { AccessAuditEntry, ConnectorPermissions, ConnectorStatus, HostFolderGrant, WorkspaceKnowledge, WorkspaceKnowledgeDocumentID, WorkspaceMemory } from '../../api/types'
 import { useAuth } from '../../auth/AuthContext'
@@ -12,6 +13,7 @@ export function Switch({ checked, label, onChange, disabled = false }: { checked
 
 export function ConnectorCard({ connector, onChange }: { connector: ConnectorStatus; onChange: (connector: ConnectorStatus) => void }) {
   const { t } = useI18n()
+  const dialogs = useDialogs()
   const { isAdmin } = useAuth()
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -63,8 +65,8 @@ export function ConnectorCard({ connector, onChange }: { connector: ConnectorSta
     {isAdmin && google && !connector.oauthAvailable ? <p className="co-field-hint">{t('Google OAuth needs to be configured on the server.')}</p> : null}
     {isAdmin && (connector.id === 'cloudflare' || connector.id === 'github') ? <form className="co-credential-form" onSubmit={(event) => { event.preventDefault(); void saveCredentials() }}><label className="field"><span>{connector.id === 'github' ? t('GitHub token') : t('Cloudflare API token')}</span><input className="input" type="password" autoComplete="off" value={secret} onChange={(event) => setSecret(event.target.value)} placeholder={connector.configured ? t('Replace saved token') : t('Paste API token')} required /></label><button className="co-secondary-button" disabled={busy || !secret.trim()}>{t('Save token')}</button></form> : null}
     {isAdmin && connector.id === 'googleads' ? <form className="co-credential-form" onSubmit={(event) => { event.preventDefault(); void saveCredentials() }}><label className="field"><span>{t('Developer token')}</span><input className="input" type="password" autoComplete="off" value={secret} onChange={(event) => setSecret(event.target.value)} placeholder={t('Optional if already saved')} /></label><label className="field"><span>{t('Customer ID')}</span><input className="input" value={customerID} onChange={(event) => setCustomerID(event.target.value)} placeholder="1234567890" /></label><button className="co-secondary-button" disabled={busy || (!secret.trim() && !customerID.trim())}>{t('Save credentials')}</button></form> : null}
-    {isAdmin ? <div className="co-connector-actions"><button className="co-text-button" disabled={busy || !connector.configured} onClick={() => void test()}>{busy ? t('Testing…') : t('Test connection')}</button>{connector.configured ? <button className="co-text-button danger" disabled={busy} onClick={() => {
-      if (!window.confirm(t('Disconnect {name}? Ada will lose access.', { name: connector.name }))) return
+    {isAdmin ? <div className="co-connector-actions"><button className="co-text-button" disabled={busy || !connector.configured} onClick={() => void test()}>{busy ? t('Testing…') : t('Test connection')}</button>{connector.configured ? <button className="co-text-button danger" disabled={busy} onClick={async () => {
+      if (!(await dialogs.confirm({ title: t('Disconnect {name}?', { name: connector.name }), detail: t('Ada will lose access.'), confirm: t('Disconnect'), danger: true }))) return
       setBusy(true)
       void api(`connectors/${connector.id}/disconnect`, { method: 'POST' }).then(async () => onChange(await api<ConnectorStatus>(`connectors/${connector.id}`))).catch((err) => setError(errorMessage(err))).finally(() => setBusy(false))
     }}>{t('Disconnect')}</button> : null}</div> : null}
@@ -103,6 +105,7 @@ export function MemoryPanel({ memory, onChange }: { memory: WorkspaceMemory | nu
 
 export function HostAccessPanel() {
   const { t } = useI18n()
+  const dialogs = useDialogs()
   const { isAdmin } = useAuth()
   const [grants, setGrants] = useState<HostFolderGrant[]>([])
   const [audit, setAudit] = useState<AccessAuditEntry[]>([])
@@ -126,7 +129,7 @@ export function HostAccessPanel() {
     } catch (err) { setError(errorMessage(err)) } finally { setBusy(false) }
   }
   const revoke = async (id: string) => {
-    if (!window.confirm(t('Revoke Ada’s access to this folder? Existing files are unchanged.'))) return
+    if (!(await dialogs.confirm({ title: t('Revoke Ada’s access to this folder?'), detail: t('Existing files are unchanged.'), confirm: t('Revoke access'), danger: true }))) return
     setBusy(true)
     try { await api(`access/host-grants/${id}`, { method: 'DELETE' }); await refresh() } catch (err) { setError(errorMessage(err)) } finally { setBusy(false) }
   }

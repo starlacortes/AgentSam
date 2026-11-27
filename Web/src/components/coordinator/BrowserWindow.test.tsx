@@ -102,11 +102,12 @@ describe('Ada’s browser window', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Take over' }))
     await screen.findByText('You’re in control')
     expect(api).toHaveBeenCalledWith('browser/control', { method: 'POST', body: { control: 'person' } })
-    expect(client.viewOnly).toBe(false)
+    await waitFor(() => expect(client.viewOnly).toBe(false))
     expect(screen.getByLabelText('Text to type in the browser')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Hand back' }))
     await screen.findByText('Ada is driving')
-    expect(client.viewOnly).toBe(true)
+    // The window flips to view-only in an effect just after the words change, so wait for it.
+    await waitFor(() => expect(client.viewOnly).toBe(true))
   })
 
   it('hands the browser back when the window closes while the person is in control', async () => {

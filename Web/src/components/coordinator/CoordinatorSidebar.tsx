@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type TouchEvent } from 'react'
+import { useDialogs } from '../ConfirmDialog'
 import { Link, NavLink } from 'react-router-dom'
 import type { ConversationSummary } from '../../api/types'
 import { useAuth } from '../../auth/AuthContext'
@@ -29,6 +30,7 @@ const SWIPE_REVEAL = 36
 export function CoordinatorSidebar({ conversations, selectedID, open, onClose, onSelect, onNew, pendingProject, onArchive, onShowArchived, archivedNotice, onUndoArchive }: Props) {
   const { t } = useI18n()
   const { me } = useAuth()
+  const dialogs = useDialogs()
   const [query, setQuery] = useState('')
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase()
@@ -75,9 +77,9 @@ export function CoordinatorSidebar({ conversations, selectedID, open, onClose, o
       </div>
       <div className="co-side-scroll">
         <section className="co-side-section">
-          <div className="co-side-label">{t('Projects')}<button aria-label={t('New project')} onClick={() => {
-            const name = window.prompt(t('Project name'))
-            if (name?.trim()) { onNew(name.trim()); onClose() }
+          <div className="co-side-label">{t('Projects')}<button aria-label={t('New project')} onClick={async () => {
+            const name = await dialogs.ask({ title: t('New project'), detail: t('Chats in a project are grouped together in the list.'), label: t('Project name'), confirm: t('Create project') })
+            if (name) { onNew(name); onClose() }
           }}><Icon name="plus" size={14} /></button></div>
           {groups.map(([project, chats]) => {
             const { today, earlier } = splitByToday(chats)
