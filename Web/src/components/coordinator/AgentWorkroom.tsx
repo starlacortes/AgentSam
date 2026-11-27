@@ -17,10 +17,12 @@ function isNarrow(): boolean {
 }
 
 /**
- * A slim line above the chat that says, in plain words, who is working on the reply: Ada, and any
- * helpers she brought in (researchAda, judgeAda). It is hidden when nothing is running and the
- * last reply was Ada's alone, so an ordinary chat shows nothing extra.
+ * A slim line above the chat that names the specialists Ada brought in for a reply (researchAda,
+ * judgeAda). It only appears when there are specialists: what Ada herself is doing is already
+ * shown once, in the reply, so a reply she writes alone shows nothing extra here.
  */
+const HINT_KEY = 'agentsam.specialistHint'
+
 function specialistCount(count: number, t: (key: string, values?: Record<string, string | number>) => string): string {
   return count === 1 ? t('1 specialist') : t('{count} specialists', { count })
 }
@@ -29,10 +31,13 @@ export function AgentWorkroom({ conversation }: { conversation: Conversation | n
   const { t } = useI18n()
   const work = presentWork(conversation)
   const [open, setOpen] = useState<boolean | null>(null)
+  // The paragraph that explains specialists is read once, not under every reply.
+  const [hintSeen, setHintSeen] = useState(() => { try { return window.localStorage.getItem(HINT_KEY) === 'seen' } catch { return false } })
+  const dismissHint = () => { setHintSeen(true); try { window.localStorage.setItem(HINT_KEY, 'seen') } catch { /* private window */ } }
   // Each new piece of work starts with the default: details open while helpers work, folded after.
   const latestID = [...(conversation?.messages ?? [])].reverse().find((message) => message.role === 'assistant')?.id
   useEffect(() => setOpen(null), [latestID])
-  if (!work.running && work.helpers.length === 0) return null
+  if (work.helpers.length === 0) return null
 
   // On a phone the open details took a quarter of the screen, so there they stay folded until tapped.
   const expanded = work.helpers.length > 0 && (open ?? (work.running && !isNarrow()))
@@ -40,7 +45,7 @@ export function AgentWorkroom({ conversation }: { conversation: Conversation | n
   const shown = names.length > 3 ? `${names.slice(0, 3).join(', ')} +${names.length - 3}` : names.join(', ')
   const title = work.running ? t('Ada is working') : t('Last reply')
   const detail = work.running
-    ? (work.now ?? t('Working on your message'))
+    ? t('with {names}', { names: shown })
     : t('Ada had help from {names}', { names: shown })
 
   return <section className={`co-workbar ${work.running ? 'running' : ''}`} aria-label={t('Who is working on this')} aria-live="polite">
@@ -59,7 +64,7 @@ export function AgentWorkroom({ conversation }: { conversation: Conversation | n
           <span>{helper.summary}</span>
         </div>
       </li>)}</ul>
-      <p className="co-workbar-hint">{t('Specialists are short-lived assistants Ada brings in for one part of the job. They only use the tools she gives them, and anything that changes your accounts still asks you first.')}</p>
+      {hintSeen ? null : <p className="co-workbar-hint">{t('Specialists are short-lived assistants Ada brings in for one part of the job. They only use the tools she gives them, and anything that changes your accounts still asks you first.')} <button type="button" className="co-text-button" onClick={dismissHint}>{t('Got it')}</button></p>}
     </div> : null}
   </section>
 }

@@ -22,7 +22,7 @@ import { RememberedPanel } from '../components/RememberedPanel'
 import { HelpersPanel } from '../components/HelpersPanel'
 import { SkillsPanel } from '../components/SkillsPanel'
 
-export type SettingsSection = 'connections' | 'permissions' | 'memory' | 'preferences' | 'account' | 'providers' | 'people' | 'folders'
+export type SettingsSection = 'connections' | 'permissions' | 'memory' | 'skills' | 'preferences' | 'account' | 'providers' | 'people' | 'folders'
 
 interface SectionLink { id: SettingsSection; label: string; icon: IconName; adminOnly?: boolean }
 
@@ -35,9 +35,10 @@ export function SettingsPage() {
     { id: 'connections', label: t('Connections'), icon: 'plug' },
     { id: 'permissions', label: t('What Ada can do alone'), icon: 'shield' },
     { id: 'memory', label: t('Memory & knowledge'), icon: 'memory' },
+    { id: 'skills', label: t('Skills & specialists'), icon: 'spark' },
     { id: 'preferences', label: t('Voice & language'), icon: 'mic' },
     { id: 'account', label: t('Account'), icon: 'users' },
-    { id: 'providers', label: t('Model providers'), icon: 'spark', adminOnly: true },
+    { id: 'providers', label: t('Model providers'), icon: 'settings', adminOnly: true },
     { id: 'people', label: t('People'), icon: 'users', adminOnly: true },
     { id: 'folders', label: t('Folder access'), icon: 'folder', adminOnly: true },
   ]
@@ -73,6 +74,7 @@ export function SettingsPage() {
         {current.id === 'connections' ? <ConnectionsSettings /> : null}
         {current.id === 'permissions' ? <SectionHead title={t('What Ada can do alone')} lede={t('Choose which actions Ada may take without asking, and the limits that keep them small.')}><PushAlertsCard />{isAdmin ? <WorkstationCard /> : null}<PermissionsPanel /></SectionHead> : null}
         {current.id === 'memory' ? <MemorySettings /> : null}
+        {current.id === 'skills' ? <SectionHead title={t('Skills & specialists')} lede={t('Routines Ada has learned, and the specialists she brings in for part of a job.')}><SkillsPanel /><HelpersPanel /></SectionHead> : null}
         {current.id === 'preferences' ? <PreferenceSettings /> : null}
         {current.id === 'account' ? <AccountPage /> : null}
         {current.id === 'providers' ? <ProvidersPage /> : null}
@@ -132,8 +134,6 @@ function MemorySettings() {
       <RememberedPanel memory={memory} onChange={setMemory} />
       <MemoryPanel memory={memory} onChange={setMemory} />
       <KnowledgePanel knowledge={knowledge} onChange={setKnowledge} />
-      <SkillsPanel />
-      <HelpersPanel />
     </SectionHead>
   )
 }
