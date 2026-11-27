@@ -62,6 +62,13 @@ final class ConnectorPrimitiveTests: XCTestCase {
         XCTAssertThrowsError(try GoogleAdsConnector.recommendationOperations(customerID: "42", names: [.number(5)], operations: []).get())
         XCTAssertThrowsError(try GoogleAdsConnector.recommendationOperations(customerID: "42", names: [], operations: [.object(["campaignBudget": .object([:])])]).get())
 
+        // No matching rows comes back as {} from the REST API: an empty list, not an error.
+        XCTAssertEqual(GoogleAdsConnector.searchResults(from: [:]).results.count, 0)
+        XCTAssertEqual(GoogleAdsConnector.searchResults(from: ["results": [["a": 1]], "nextPageToken": "t"]).nextPageToken, "t")
+        XCTAssertEqual(GoogleAdsConnector.scorePercent(1), "100%")
+        XCTAssertEqual(GoogleAdsConnector.scorePercent(0.01), "1%")
+        XCTAssertEqual(GoogleAdsConnector.scorePercent(0.734), "73.4%")
+
         XCTAssertEqual(GoogleAdsConnector.recommendationFilter(types: []), "")
         XCTAssertEqual(GoogleAdsConnector.recommendationFilter(types: ["campaign_budget", "KEYWORD"]), " WHERE recommendation.type IN (CAMPAIGN_BUDGET, KEYWORD)")
         XCTAssertNil(GoogleAdsConnector.recommendationFilter(types: ["KEYWORD) OR (1=1"]))

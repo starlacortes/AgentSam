@@ -119,7 +119,7 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
 
     static let recommendationsTool = APIToolDef(
         name: "googleads_recommendations",
-        description: "Read the account's optimization score (0-100%, also per campaign) and Google's open recommendations: each one's resource name, type, campaign, suggested values and estimated impact. The score itself cannot be set; it rises when recommendations are applied (googleads_apply_recommendations) or dismissed (googleads_dismiss_recommendations), or when the account is changed the way a recommendation suggests.",
+        description: "Read the account's optimization score as a percent (also per campaign; in GAQL, customer.optimization_score is 0 to 1, so 1 means 100%) and Google's open recommendations: each one's resource name, type, campaign, suggested values and estimated impact. The score itself cannot be set; it rises when recommendations are applied (googleads_apply_recommendations) or dismissed (googleads_dismiss_recommendations), or when the account is changed the way a recommendation suggests.",
         parameters: .object([
             ("type", .string("object")),
             ("properties", .object([
@@ -578,6 +578,12 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
         return "customers/\(customerID)/recommendations/\(id)"
     }
 
+    /// An optimization score (0 to 1 in the API) as a percent, e.g. 1 -> "100%", 0.734 -> "73.4%".
+    static func scorePercent(_ value: Double) -> String {
+        let percent = value * 100
+        return percent.rounded() == percent ? "\(Int(percent))%" : String(format: "%.1f%%", percent)
+    }
+
     /// The account in a recommendation resource name, e.g. 123 from customers/123/recommendations/abc.
     static func recommendationCustomer(_ raw: String) -> String? {
         let parts = raw.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "/")
@@ -591,7 +597,7 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
         if let score = try? await searchRaw(customerID: customerID, query: "SELECT customer.optimization_score, customer.optimization_score_weight FROM customer", pageToken: nil, context: context, runtime: runtime),
            let customer = score.results.first?["customer"] as? [String: Any] {
             if let value = customer["optimizationScore"] as? Double {
-                lines.append("Account optimization score: \(String(format: "%.1f", value * 100))% (computed by Google; it rises as recommendations are applied or dismissed).")
+                lines.append("Account optimization score: \(Self.scorePercent(value)) (Google reports it from 0 to 1, so 1 means 100%; it rises as recommendations are applied or dismissed).")
             } else {
                 lines.append("Account optimization score: not available (manager accounts and some campaign types have none).")
             }
@@ -599,7 +605,7 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
         if let campaigns = try? await searchRaw(customerID: customerID, query: "SELECT campaign.id, campaign.name, campaign.optimization_score FROM campaign WHERE campaign.status = 'ENABLED'", pageToken: nil, context: context, runtime: runtime) {
             let scored = campaigns.results.compactMap { row -> String? in
                 guard let campaign = row["campaign"] as? [String: Any], let value = campaign["optimizationScore"] as? Double else { return nil }
-                return "- \(campaign["name"] as? String ?? "?") (\(campaign["id"] as? String ?? "?")): \(String(format: "%.1f", value * 100))%"
+                return "- \(campaign["name"] as? String ?? "?") (\(campaign["id"] as? String ?? "?")): \(Self.scorePercent(value))"
             }
             if !scored.isEmpty { lines.append("Campaign optimization scores:"); lines += scored }
         }
@@ -618,7 +624,7 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
             return campaigns.contains { $0.hasSuffix("/campaigns/\(campaignID)") }
         }
         lines.append("Open recommendations: \(open.count)")
-        if open.isEmpty { lines.append("None. Google refreshes recommendations daily.") }
+        if open.isEmpty { lines.append("None. This is normal when the score is at or near 100%. Google refreshes recommendations daily.") }
         for recommendation in open {
             if let data = try? JSONSerialization.data(withJSONObject: recommendation, options: [.sortedKeys]),
                let text = String(data: data, encoding: .utf8) {
@@ -678,6 +684,12 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
         var nextPageToken: String?
     }
 
+    /// The REST API leaves out "results" when no row matches, so a missing key is an empty
+    /// result, not an error (an error here made "no recommendations" look like a failure).
+    static func searchResults(from object: [String: Any]) -> SearchResults {
+        SearchResults(results: object["results"] as? [[String: Any]] ?? [], nextPageToken: object["nextPageToken"] as? String)
+    }
+
     private func searchRaw(customerID: String, query: String, pageToken: String?, context: APIContext, runtime: ConnectorRuntime) async throws -> SearchResults {
         guard let url = ConnectorHTTP.url(Self.apiBase, "/\(Self.apiVersion)/customers/\(customerID)/googleAds:search") else {
             throw ConnectorError("Bad Google Ads URL.")
@@ -689,10 +701,7 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
         }
         let data = try await ConnectorHTTP.request(runtime.session, url: url, method: "POST", headers: headers(context), jsonBody: body)
         let object = try ConnectorHTTP.jsonObject(data)
-        guard let results = object["results"] as? [[String: Any]] else {
-            throw ConnectorError("Google Ads returned no results.")
-        }
-        return SearchResults(results: results, nextPageToken: object["nextPageToken"] as? String)
+        return Self.searchResults(from: object)
     }
 }
 
