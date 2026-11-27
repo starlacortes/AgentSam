@@ -15,6 +15,8 @@ export const PERMISSION_TOOL_LABELS: Record<string, string> = {
   googleads_set_status: 'Pause or enable Google Ads campaigns and ads',
   googleads_set_budget: 'Change Google Ads budgets',
   googleads_mutate: 'Other Google Ads changes',
+  googleads_apply_recommendations: 'Apply Google Ads recommendations',
+  googleads_dismiss_recommendations: 'Dismiss Google Ads recommendations',
   cloudflare_dns_create: 'Add DNS records',
   cloudflare_dns_update: 'Change DNS records',
   cloudflare_dns_delete: 'Delete DNS records',

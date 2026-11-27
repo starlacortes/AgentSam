@@ -1366,7 +1366,7 @@ final class ConversationTests: XCTestCase {
     func testEveryDirectToolHasAFriendlyStepLabel() {
         let names = (ChatWorkspaceTools.definitions + TriggerTools.definitions + TaskTools.definitions(catalog: "") + ExtendedWorkspaceTools.definitions + ExtendedWorkspaceTools.projectAliases + ConversationMissionTools.definitions + WorkstationTools.definitions).map(\.function.name)
             + ConnectorHub.readOnlyToolNames.filter { !$0.hasPrefix("cloudflare_") }
-            + ["gmail_draft", "gmail_send", "github_write_file", "github_comment", "googleads_set_status", "googleads_set_budget", "googleads_mutate"]
+            + ["gmail_draft", "gmail_send", "github_write_file", "github_comment", "googleads_set_status", "googleads_set_budget", "googleads_mutate", "googleads_apply_recommendations", "googleads_dismiss_recommendations"]
         for name in names {
             for language in ["en", "es"] {
                 let label = ConversationPrompts.toolStepLabel(name, language: language)

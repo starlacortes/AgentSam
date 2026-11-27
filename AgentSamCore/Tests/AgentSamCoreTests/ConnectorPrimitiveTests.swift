@@ -40,9 +40,36 @@ final class ConnectorPrimitiveTests: XCTestCase {
         XCTAssertTrue(mime.hasSuffix("\r\n\r\nBody"))
     }
 
+    func testGoogleAdsRecommendationOperations() throws {
+        XCTAssertEqual(GoogleAdsConnector.recommendationResource("abc123", customerID: "42"), "customers/42/recommendations/abc123")
+        XCTAssertEqual(GoogleAdsConnector.recommendationResource(" customers/42/recommendations/x~1 ", customerID: "42"), "customers/42/recommendations/x~1")
+        XCTAssertNil(GoogleAdsConnector.recommendationResource("customers/7/recommendations/1", customerID: "42"), "another account")
+        XCTAssertNil(GoogleAdsConnector.recommendationResource("customers/42/campaigns/1", customerID: "42"))
+        XCTAssertNil(GoogleAdsConnector.recommendationResource("", customerID: "42"))
+        XCTAssertEqual(GoogleAdsConnector.recommendationCustomer("customers/123-456-7890/recommendations/9"), "1234567890")
+        XCTAssertNil(GoogleAdsConnector.recommendationCustomer("9"))
+
+        let built = try GoogleAdsConnector.recommendationOperations(
+            customerID: "42",
+            names: [.string("r1")],
+            operations: [.object(["resourceName": .string("customers/42/recommendations/r2"), "campaignBudget": .object(["newBudgetAmountMicros": .string("30000000")])])]
+        ).get()
+        XCTAssertEqual(built.count, 2)
+        XCTAssertEqual(built[0]["resourceName"] as? String, "customers/42/recommendations/r1")
+        XCTAssertEqual(built[1]["resourceName"] as? String, "customers/42/recommendations/r2")
+        XCTAssertEqual((built[1]["campaignBudget"] as? [String: Any])?["newBudgetAmountMicros"] as? String, "30000000")
+        XCTAssertThrowsError(try GoogleAdsConnector.recommendationOperations(customerID: "42", names: [], operations: []).get())
+        XCTAssertThrowsError(try GoogleAdsConnector.recommendationOperations(customerID: "42", names: [.number(5)], operations: []).get())
+        XCTAssertThrowsError(try GoogleAdsConnector.recommendationOperations(customerID: "42", names: [], operations: [.object(["campaignBudget": .object([:])])]).get())
+
+        XCTAssertEqual(GoogleAdsConnector.recommendationFilter(types: []), "")
+        XCTAssertEqual(GoogleAdsConnector.recommendationFilter(types: ["campaign_budget", "KEYWORD"]), " WHERE recommendation.type IN (CAMPAIGN_BUDGET, KEYWORD)")
+        XCTAssertNil(GoogleAdsConnector.recommendationFilter(types: ["KEYWORD) OR (1=1"]))
+    }
+
     func testGoogleAdsWriteToolsAreGatedAndBuildMutates() throws {
         let ads = GoogleAdsConnector()
-        let writeTools = ["googleads_set_status", "googleads_set_budget", "googleads_mutate", "googleads_validate"]
+        let writeTools = ["googleads_set_status", "googleads_set_budget", "googleads_mutate", "googleads_validate", "googleads_apply_recommendations", "googleads_dismiss_recommendations"]
         let readNames = ads.toolDefs(permissions: ConnectorPermissions()).map(\.function.name)
         let writeNames = ads.toolDefs(permissions: ConnectorPermissions(adsWrite: true)).map(\.function.name)
         for tool in writeTools {
@@ -54,6 +81,11 @@ final class ConnectorPrimitiveTests: XCTestCase {
         XCTAssertFalse(ConnectorHub.readOnlyToolNames.contains("googleads_set_budget"))
         XCTAssertFalse(ConnectorHub.readOnlyToolNames.contains("googleads_mutate"))
         XCTAssertTrue(ConnectorHub.readOnlyToolNames.contains("googleads_validate"))
+        // Recommendations and the optimization score can always be read; applying or dismissing needs a card.
+        XCTAssertTrue(readNames.contains("googleads_recommendations"))
+        XCTAssertTrue(ConnectorHub.readOnlyToolNames.contains("googleads_recommendations"))
+        XCTAssertFalse(ConnectorHub.readOnlyToolNames.contains("googleads_apply_recommendations"))
+        XCTAssertFalse(ConnectorHub.readOnlyToolNames.contains("googleads_dismiss_recommendations"))
         // Conversions can be changed and removed, and which ones count for bidding can be set.
         for resource in ["conversionActions", "customerConversionGoals", "campaignConversionGoals", "campaignBudgets", "biddingStrategies"] {
             XCTAssertTrue(GoogleAdsConnector.mutateResources.contains(resource), resource)
