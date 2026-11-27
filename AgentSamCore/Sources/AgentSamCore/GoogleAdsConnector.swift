@@ -26,9 +26,9 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
     // MARK: Tool definitions
 
     public func toolDefs(permissions: ConnectorPermissions) -> [APIToolDef] {
-        var defs = [Self.accountsTool, Self.campaignsTool, Self.queryTool]
+        var defs = [Self.accountsTool, Self.campaignsTool, Self.queryTool, Self.recommendationsTool]
         if permissions.adsWrite {
-            defs += [Self.setStatusTool, Self.setBudgetTool, Self.mutateTool, Self.validateTool]
+            defs += [Self.setStatusTool, Self.setBudgetTool, Self.mutateTool, Self.validateTool, Self.applyRecommendationsTool, Self.dismissRecommendationsTool]
         }
         return defs
     }
@@ -115,6 +115,53 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
         ])
     )
 
+    // MARK: Recommendations (they drive the optimization score)
+
+    static let recommendationsTool = APIToolDef(
+        name: "googleads_recommendations",
+        description: "Read the account's optimization score (0-100%, also per campaign) and Google's open recommendations: each one's resource name, type, campaign, suggested values and estimated impact. The score itself cannot be set; it rises when recommendations are applied (googleads_apply_recommendations) or dismissed (googleads_dismiss_recommendations), or when the account is changed the way a recommendation suggests.",
+        parameters: .object([
+            ("type", .string("object")),
+            ("properties", .object([
+                customerIDProperty,
+                ("types", .object([("type", .string("array")), ("items", .object([("type", .string("string"))])), ("description", .string("Only these recommendation types, e.g. [\"CAMPAIGN_BUDGET\", \"KEYWORD\", \"SITELINK_ASSET\"]. Default: all."))])),
+                ("campaign_id", .object([("type", .string("string")), ("description", .string("Only recommendations for this campaign."))])),
+            ])),
+        ])
+    )
+
+    private static func recommendationNamesProperty(_ verb: String) -> (String, JSONValue) {
+        ("recommendations", .object([("type", .string("array")), ("items", .object([("type", .string("string"))])), ("description", .string("Recommendation resource names (customers/123/recommendations/456) or bare IDs from googleads_recommendations, to \(verb)."))]))
+    }
+
+    static let applyRecommendationsTool = APIToolDef(
+        name: "googleads_apply_recommendations",
+        description: "Apply Google Ads recommendations (RecommendationService.ApplyRecommendation), which makes the change each one suggests (budgets, bids and bidding strategies, keywords, assets, ads) and raises the optimization score. Changes live ads and spend. Google offers no dry run for this, so read the recommendations first and say what each will change. The user approves each call on a card before it runs.",
+        parameters: .object([
+            ("type", .string("object")),
+            ("properties", .object([
+                customerIDProperty,
+                recommendationNamesProperty("apply as Google suggests"),
+                ("operations", .object([("type", .string("array")), ("items", .object([("type", .string("object"))])), ("description", .string("Instead of recommendations, ApplyRecommendationOperation objects in REST form, to change a suggested value, e.g. [{\"resourceName\": \"customers/123/recommendations/456\", \"campaignBudget\": {\"newBudgetAmountMicros\": \"30000000\"}}]. Money is in micros (1.00 = 1000000)."))])),
+                ("partial_failure", .object([("type", .string("boolean")), ("description", .string("Apply the ones that succeed even if others fail. Default false: all or nothing."))])),
+            ])),
+        ])
+    )
+
+    static let dismissRecommendationsTool = APIToolDef(
+        name: "googleads_dismiss_recommendations",
+        description: "Dismiss Google Ads recommendations that do not fit the business (RecommendationService.DismissRecommendation). Changes no ads or spend, and also counts toward the optimization score. The user approves each call on a card before it runs.",
+        parameters: .object([
+            ("type", .string("object")),
+            ("properties", .object([
+                customerIDProperty,
+                recommendationNamesProperty("dismiss"),
+                ("partial_failure", .object([("type", .string("boolean")), ("description", .string("Dismiss the ones that succeed even if others fail. Default false: all or nothing."))])),
+            ])),
+            ("required", .array([.string("recommendations")])),
+        ])
+    )
+
     static let accountsTool = APIToolDef(
         name: "googleads_accounts",
         description: "List the Google Ads customer accounts accessible to the connection, and sub-accounts of the configured login customer.",
@@ -178,6 +225,41 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
                 let customerID = try resolveCustomerID(args["customer_id"]?.stringValue, context: context)
                 let text = try await search(customerID: customerID, query: query, pageToken: args["page_token"]?.stringValue, context: context, runtime: runtime)
                 return ToolOutcome.success(text)
+
+            case "googleads_recommendations":
+                let customerID = try resolveCustomerID(args["customer_id"]?.stringValue, context: context)
+                var campaignID: String?
+                if let raw = args["campaign_id"]?.stringValue, !raw.isEmpty {
+                    guard let id = Self.cleanCampaignID(raw) else { return ToolOutcome(resultText: "campaign_id must be a numeric ID or resource name.") }
+                    campaignID = id
+                }
+                let types = (args["types"]?.arrayValue ?? []).compactMap(\.stringValue)
+                guard let filter = Self.recommendationFilter(types: types) else {
+                    return ToolOutcome(resultText: "types must be recommendation type names such as CAMPAIGN_BUDGET or KEYWORD.")
+                }
+                return ToolOutcome.success(try await recommendations(customerID: customerID, filter: filter, campaignID: campaignID, context: context, runtime: runtime))
+
+            case "googleads_apply_recommendations", "googleads_dismiss_recommendations":
+                guard permissions.adsWrite else { return ToolOutcome(resultText: Self.writesDisabled) }
+                let apply = name == "googleads_apply_recommendations"
+                let names = args["recommendations"]?.arrayValue ?? []
+                let objects = apply ? (args["operations"]?.arrayValue ?? []) : []
+                // Resource names carry their account, so a sub-account works without customer_id.
+                let named = (names.compactMap(\.stringValue) + objects.compactMap { $0.objectValue?["resourceName"]?.stringValue }).first.flatMap(Self.recommendationCustomer)
+                let customerID = try resolveCustomerID(args["customer_id"]?.stringValue ?? named, context: context)
+                let operations: [[String: Any]]
+                switch Self.recommendationOperations(customerID: customerID, names: names, operations: objects) {
+                case .success(let built): operations = built
+                case .failure(let error): return ToolOutcome(resultText: "\(name): \(error.message)")
+                }
+                var body: [String: Any] = ["operations": operations]
+                if args["partial_failure"]?.boolValue == true { body["partialFailure"] = true }
+                let (resources, partialError) = try await recommendationCall(customerID: customerID, method: apply ? "apply" : "dismiss", body: body, context: context, runtime: runtime)
+                var lines = ["\(apply ? "Applied" : "Dismissed") \(resources.count) of \(operations.count) recommendation(s) for customer \(customerID)."]
+                lines += resources.map { "- \($0)" }
+                if let partialError { lines.append("Some failed: \(partialError)") }
+                if apply { lines.append("Google can take a few minutes to update the optimization score; some applies (target CPA changes) finish in the background.") }
+                return ToolOutcome(resultText: AgentTools.clip(lines.joined(separator: "\n")))
 
             case "googleads_set_status", "googleads_set_campaign_status":
                 guard permissions.adsWrite else { return ToolOutcome(resultText: Self.writesDisabled) }
@@ -429,6 +511,130 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
         case .array(let items): return items.map(foundationValue)
         case .object(let pairs): return pairs.mapValues(foundationValue)
         }
+    }
+
+    // MARK: Recommendation helpers
+
+    /// Detail fields for the common types. A recommendation only fills its own type's field.
+    static let recommendationDetailFields = [
+        "recommendation.campaign_budget_recommendation", "recommendation.keyword_recommendation",
+        "recommendation.target_cpa_opt_in_recommendation", "recommendation.set_target_cpa_recommendation",
+        "recommendation.set_target_roas_recommendation", "recommendation.raise_target_cpa_bid_too_low_recommendation",
+        "recommendation.use_broad_match_keyword_recommendation", "recommendation.forecasting_campaign_budget_recommendation",
+    ]
+    static let recommendationBaseFields = [
+        "recommendation.resource_name", "recommendation.type", "recommendation.campaign", "recommendation.ad_group",
+        "recommendation.campaign_budget", "recommendation.dismissed", "recommendation.impact",
+    ]
+
+    /// GAQL WHERE clause (possibly empty), or nil when a type name is not a plain enum name.
+    static func recommendationFilter(types: [String]) -> String? {
+        var conditions: [String] = []
+        let cleaned = types.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() }.filter { !$0.isEmpty }
+        guard cleaned.allSatisfy({ name in name.allSatisfy { $0.isLetter || $0.isNumber || $0 == "_" } }) else { return nil }
+        if !cleaned.isEmpty { conditions.append("recommendation.type IN (\(cleaned.joined(separator: ", ")))") }
+        return conditions.isEmpty ? "" : " WHERE " + conditions.joined(separator: " AND ")
+    }
+
+    struct RecommendationInputError: Error { var message: String }
+
+    /// Apply or dismiss operations from resource names, bare IDs, or (apply only) REST operation objects.
+    static func recommendationOperations(customerID: String, names: [JSONValue], operations: [JSONValue]) -> Result<[[String: Any]], RecommendationInputError> {
+        var built: [[String: Any]] = []
+        for value in names {
+            guard let raw = value.stringValue, let resource = recommendationResource(raw, customerID: customerID) else {
+                return .failure(RecommendationInputError(message: "each recommendation must be a resource name like customers/\(customerID)/recommendations/456 or an ID."))
+            }
+            built.append(["resourceName": resource])
+        }
+        for value in operations {
+            guard let pairs = value.objectValue, let raw = pairs["resourceName"]?.stringValue ?? pairs["resource_name"]?.stringValue,
+                  let resource = recommendationResource(raw, customerID: customerID) else {
+                return .failure(RecommendationInputError(message: "each operation needs a resourceName like customers/\(customerID)/recommendations/456."))
+            }
+            var operation = (foundationValue(value) as? [String: Any]) ?? [:]
+            operation.removeValue(forKey: "resource_name")
+            operation["resourceName"] = resource
+            built.append(operation)
+        }
+        guard !built.isEmpty else { return .failure(RecommendationInputError(message: "list at least one recommendation.")) }
+        guard built.count <= 100 else { return .failure(RecommendationInputError(message: "at most 100 recommendations per call.")) }
+        return .success(built)
+    }
+
+    /// A recommendation resource name for this customer. IDs are opaque strings, not always numeric.
+    static func recommendationResource(_ raw: String, customerID: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let id: Substring
+        if trimmed.contains("/") {
+            let parts = trimmed.split(separator: "/")
+            guard parts.count == 4, parts[0] == "customers", parts[2] == "recommendations",
+                  parts[1].replacingOccurrences(of: "-", with: "") == customerID else { return nil }
+            id = parts[3]
+        } else {
+            id = Substring(trimmed)
+        }
+        guard !id.isEmpty, !id.contains(where: { $0.isWhitespace || $0 == "?" || $0 == "#" }) else { return nil }
+        return "customers/\(customerID)/recommendations/\(id)"
+    }
+
+    /// The account in a recommendation resource name, e.g. 123 from customers/123/recommendations/abc.
+    static func recommendationCustomer(_ raw: String) -> String? {
+        let parts = raw.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: "/")
+        guard parts.count == 4, parts[0] == "customers", parts[2] == "recommendations" else { return nil }
+        return parts[1].replacingOccurrences(of: "-", with: "")
+    }
+
+    private func recommendations(customerID: String, filter: String, campaignID: String?, context: APIContext, runtime: ConnectorRuntime) async throws -> String {
+        var lines = ["Customer: \(customerID)"]
+        // The score is null for manager accounts; a failure here should not hide the recommendations.
+        if let score = try? await searchRaw(customerID: customerID, query: "SELECT customer.optimization_score, customer.optimization_score_weight FROM customer", pageToken: nil, context: context, runtime: runtime),
+           let customer = score.results.first?["customer"] as? [String: Any] {
+            if let value = customer["optimizationScore"] as? Double {
+                lines.append("Account optimization score: \(String(format: "%.1f", value * 100))% (computed by Google; it rises as recommendations are applied or dismissed).")
+            } else {
+                lines.append("Account optimization score: not available (manager accounts and some campaign types have none).")
+            }
+        }
+        if let campaigns = try? await searchRaw(customerID: customerID, query: "SELECT campaign.id, campaign.name, campaign.optimization_score FROM campaign WHERE campaign.status = 'ENABLED'", pageToken: nil, context: context, runtime: runtime) {
+            let scored = campaigns.results.compactMap { row -> String? in
+                guard let campaign = row["campaign"] as? [String: Any], let value = campaign["optimizationScore"] as? Double else { return nil }
+                return "- \(campaign["name"] as? String ?? "?") (\(campaign["id"] as? String ?? "?")): \(String(format: "%.1f", value * 100))%"
+            }
+            if !scored.isEmpty { lines.append("Campaign optimization scores:"); lines += scored }
+        }
+        let fields = Self.recommendationBaseFields + Self.recommendationDetailFields
+        let rows: [[String: Any]]
+        do {
+            rows = try await searchRaw(customerID: customerID, query: "SELECT \(fields.joined(separator: ", ")) FROM recommendation\(filter)", pageToken: nil, context: context, runtime: runtime).results
+        } catch {
+            // A detail field this API version rejects should not hide the list: retry with the basics.
+            rows = try await searchRaw(customerID: customerID, query: "SELECT \(Self.recommendationBaseFields.joined(separator: ", ")) FROM recommendation\(filter)", pageToken: nil, context: context, runtime: runtime).results
+        }
+        let open = rows.compactMap { $0["recommendation"] as? [String: Any] }.filter { recommendation in
+            guard (recommendation["dismissed"] as? Bool) != true else { return false }
+            guard let campaignID else { return true }
+            let campaigns = ((recommendation["campaigns"] as? [String]) ?? []) + [recommendation["campaign"] as? String].compactMap { $0 }
+            return campaigns.contains { $0.hasSuffix("/campaigns/\(campaignID)") }
+        }
+        lines.append("Open recommendations: \(open.count)")
+        if open.isEmpty { lines.append("None. Google refreshes recommendations daily.") }
+        for recommendation in open {
+            if let data = try? JSONSerialization.data(withJSONObject: recommendation, options: [.sortedKeys]),
+               let text = String(data: data, encoding: .utf8) {
+                lines.append(text)
+            }
+        }
+        return AgentTools.clip(lines.joined(separator: "\n"))
+    }
+
+    private func recommendationCall(customerID: String, method: String, body: [String: Any], context: APIContext, runtime: ConnectorRuntime) async throws -> (resources: [String], partialError: String?) {
+        guard let url = ConnectorHTTP.url(Self.apiBase, "/\(Self.apiVersion)/customers/\(customerID)/recommendations:\(method)") else {
+            throw ConnectorError("Bad Google Ads URL.")
+        }
+        let data = try await ConnectorHTTP.request(runtime.session, url: url, method: "POST", headers: headers(context), jsonBody: body)
+        let object: [String: Any] = try data.isEmpty ? [:] : ConnectorHTTP.jsonObject(data)
+        return (Self.resourceNames(in: object), (object["partialFailureError"] as? [String: Any])?["message"] as? String)
     }
 
     private func campaignBudgetID(customerID: String, campaignID: String, context: APIContext, runtime: ConnectorRuntime) async throws -> String {

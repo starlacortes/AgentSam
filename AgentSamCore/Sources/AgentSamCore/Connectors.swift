@@ -38,7 +38,7 @@ public enum ConnectorID: String, Codable, CaseIterable, Hashable, Sendable {
     public var detail: String {
         switch self {
         case .gmail: "Search, read, draft, and optionally send email through your Gmail account."
-        case .googleads: "Query your Google Ads accounts with GAQL, with optional changes to campaigns, budgets, ad groups, ads and assets (each one approved by you)."
+        case .googleads: "Query your Google Ads accounts with GAQL, read the optimization score and recommendations, with optional changes to campaigns, budgets, bids, ad groups, ads, assets and conversions, and applying or dismissing recommendations (each one approved by you)."
         case .cloudflare: "Inspect Cloudflare zones and DNS, with optional write access."
         case .github: "Read repositories, code, issues, and pull requests on GitHub, with optional write access to a branch."
         case .web: "Read public web pages, and search the web with a Brave Search key."
@@ -338,7 +338,7 @@ public struct ConnectorHub: Sendable {
 
     public static let readOnlyToolNames: Set<String> = [
         "gmail_search", "gmail_read",
-        "googleads_accounts", "googleads_campaigns", "googleads_query", "googleads_validate",
+        "googleads_accounts", "googleads_campaigns", "googleads_query", "googleads_validate", "googleads_recommendations",
         "cloudflare_zones", "cloudflare_dns_list",
         "github_repos", "github_read", "github_search", "github_issues", "github_issue",
         "web_fetch", "web_search",
