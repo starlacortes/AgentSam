@@ -23,10 +23,30 @@ describe('work bar', () => {
   it('says in plain words who is working, with helper details open while they work', () => {
     render(<I18nProvider><AgentWorkroom conversation={chat('running', [line('Ada', 'working', 'Answering'), line('researchAda', 'working', 'Find battery sources', 'Helper')])} /></I18nProvider>)
     expect(screen.getByText('Ada is working')).toBeTruthy()
-    expect(screen.getByText('researchAda is working')).toBeTruthy()
+    // The step Ada is on is shown once, in the reply, not repeated in this bar.
+    expect(screen.queryByText('researchAda is working')).toBeNull()
+    expect(screen.getByText('with researchAda')).toBeTruthy()
     expect(screen.getByText('researchAda')).toBeTruthy()
     expect(screen.getByText('Find battery sources')).toBeTruthy()
     expect(screen.getByText('Working')).toBeTruthy()
+  })
+
+  it('shows nothing while Ada works alone, because the reply already says what she is doing', () => {
+    const { container } = render(<I18nProvider><AgentWorkroom conversation={chat('running', [line('Ada', 'working', 'Answering')])} /></I18nProvider>)
+    expect(container.innerHTML).toBe('')
+  })
+
+  it('explains specialists once, until the person says Got it', () => {
+    window.localStorage.removeItem('agentsam.specialistHint')
+    const running = chat('running', [line('Ada', 'working', 'Answering'), line('researchAda', 'working', 'Find battery sources', 'Helper')])
+    const first = render(<I18nProvider><AgentWorkroom conversation={running} /></I18nProvider>)
+    expect(screen.getByText(/Specialists are short-lived assistants/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Got it' }))
+    expect(screen.queryByText(/Specialists are short-lived assistants/)).toBeNull()
+    first.unmount()
+    render(<I18nProvider><AgentWorkroom conversation={running} /></I18nProvider>)
+    expect(screen.queryByText(/Specialists are short-lived assistants/)).toBeNull()
+    window.localStorage.removeItem('agentsam.specialistHint')
   })
 
   it('folds a finished reply to one line that names the helpers', () => {

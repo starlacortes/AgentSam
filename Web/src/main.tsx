@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import { AuthProvider } from './auth/AuthContext'
 import { I18nProvider } from './i18n'
 import { App } from './App'
+import { DialogProvider } from './components/ConfirmDialog'
 import { registerServiceWorker } from './lib/push'
 import './styles/theme.css'
 import './styles/coordinator.css'
@@ -20,7 +21,9 @@ createRoot(root).render(
     <BrowserRouter>
       <AuthProvider>
         <I18nProvider>
-          <App />
+          <DialogProvider>
+            <App />
+          </DialogProvider>
         </I18nProvider>
       </AuthProvider>
     </BrowserRouter>

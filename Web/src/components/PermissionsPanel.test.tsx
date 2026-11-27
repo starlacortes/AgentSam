@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import { api } from '../api/client'
 import type { PermissionsView } from '../api/types'
 import { I18nProvider } from '../i18n'
-import { PermissionsPanel } from './PermissionsPanel'
+import { groupTools, PermissionsPanel } from './PermissionsPanel'
 
 vi.mock('../api/client', async (importOriginal) => ({ ...await importOriginal<typeof import('../api/client')>(), api: vi.fn() }))
 
@@ -33,6 +33,19 @@ describe('PermissionsPanel', () => {
       body: { paused: false, approvalMinutes: 15, rules: { googleads_set_budget: { mode: 'allow', maxAmount: 20 } } },
     }))
     expect(await screen.findByText('Saved.')).toBeTruthy()
+  })
+
+  it('groups the rules by the service they act on', async () => {
+    expect(groupTools(['cloudflare_dns_create', 'gmail_send', 'my_mcp_tool', 'gmail_draft', 'workstation_run']).map((group) => [group.id, group.tools])).toEqual([
+      ['gmail', ['gmail_send', 'gmail_draft']],
+      ['cloudflare', ['cloudflare_dns_create']],
+      ['workstation', ['workstation_run']],
+      ['other', ['my_mcp_tool']],
+    ])
+    vi.mocked(api).mockResolvedValue(view(true) as never)
+    render(<I18nProvider><PermissionsPanel /></I18nProvider>)
+    expect(await screen.findByRole('heading', { name: 'Gmail' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Google Ads' })).toBeTruthy()
   })
 
   it('is read-only for members', async () => {

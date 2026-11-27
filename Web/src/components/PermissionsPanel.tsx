@@ -23,6 +23,29 @@ export const PERMISSION_TOOL_LABELS: Record<string, string> = {
   workstation_start_job: 'Start background jobs on her workstation',
 }
 
+/** The services a write tool can belong to, in the order they are listed. Tool names start with the id. */
+const PERMISSION_GROUPS: { id: string; name: string }[] = [
+  { id: 'gmail', name: 'Gmail' },
+  { id: 'googleads', name: 'Google Ads' },
+  { id: 'github', name: 'GitHub' },
+  { id: 'cloudflare', name: 'Cloudflare' },
+  { id: 'workstation', name: 'Workstation' },
+]
+
+/** Sorts write tools under the service they act on; anything unrecognised goes under "other". */
+export function groupTools(tools: string[]): { id: string; name: string; tools: string[] }[] {
+  const groups = PERMISSION_GROUPS.map((group) => ({ ...group, tools: tools.filter((tool) => tool.startsWith(`${group.id}_`)) }))
+  const known = new Set(groups.flatMap((group) => group.tools))
+  const other = tools.filter((tool) => !known.has(tool))
+  return [...groups, { id: 'other', name: 'Other tools', tools: other }].filter((group) => group.tools.length > 0)
+}
+
+/** A tool's plain name. A tool without one shows its internal name with spaces, so it still reads as words. */
+function toolLabel(tool: string, t: (key: string) => string): string {
+  const label = PERMISSION_TOOL_LABELS[tool]
+  return label ? t(label) : tool.replace(/_/g, ' ')
+}
+
 const WORKSTATION_TOOLS = new Set(['workstation_run', 'workstation_start_job'])
 
 /** A comma-separated list input that keeps what the person is typing, trailing commas included. */
@@ -107,31 +130,34 @@ export function PermissionsPanel() {
       <p className="co-panel-note">{t('At the daily limit Ada stops starting new work until midnight UTC. At the reply limit she stops using tools and answers with what she has.')}</p>
     </div>
 
-    <div className="settings-cards permission-rules">
-      {view.tools.map((tool) => {
-        const rule = policy.rules[tool] ?? { mode: 'ask' as PermissionMode }
-        const used = view.usageToday[tool] ?? 0
-        const setField = (patch: Partial<PermissionRule>) => setRule(tool, { ...rule, ...patch })
-        return <div key={tool} className="co-setting-card permission-rule">
-          <div className="co-setting-row">
-            <div><b>{t(PERMISSION_TOOL_LABELS[tool] ?? tool)}</b><p><code>{tool}</code>{used ? ` · ${t('{count} automatic today', { count: used })}` : ''}</p></div>
-            <select value={rule.mode} disabled={!editable} aria-label={t(PERMISSION_TOOL_LABELS[tool] ?? tool)} onChange={(event) => setField({ mode: event.target.value as PermissionMode })}>
-              <option value="ask">{t('Ask me each time')}</option>
-              <option value="allow">{t('Allow without asking')}</option>
-              <option value="never">{t('Never')}</option>
-            </select>
+    {groupTools(view.tools).map((group) => <div key={group.id} className="permission-group">
+      <h3>{group.id === 'other' ? t('Other tools') : group.id === 'workstation' ? t('Ada’s workstation') : group.name}</h3>
+      <div className="settings-cards permission-rules">
+        {group.tools.map((tool) => {
+          const rule = policy.rules[tool] ?? { mode: 'ask' as PermissionMode }
+          const used = view.usageToday[tool] ?? 0
+          const setField = (patch: Partial<PermissionRule>) => setRule(tool, { ...rule, ...patch })
+          return <div key={tool} className="co-setting-card permission-rule">
+            <div className="co-setting-row">
+              <div><b>{toolLabel(tool, t)}</b><p><code>{tool}</code>{used ? ` · ${t('{count} automatic today', { count: used })}` : ''}</p></div>
+              <select value={rule.mode} disabled={!editable} aria-label={toolLabel(tool, t)} onChange={(event) => setField({ mode: event.target.value as PermissionMode })}>
+                <option value="ask">{t('Ask me each time')}</option>
+                <option value="allow">{t('Allow without asking')}</option>
+                <option value="never">{t('Never')}</option>
+              </select>
+            </div>
+            {rule.mode === 'allow' ? <div className="permission-limits">
+              <label>{t('At most per day')}<input type="number" min={1} max={1000} placeholder={t('No limit')} disabled={!editable} value={rule.maxPerDay ?? ''} onChange={(event) => setField({ maxPerDay: numberOrUndefined(event.target.value) })} /></label>
+              {tool === 'googleads_set_budget' ? <label>{t('Largest daily budget')}<input type="number" min={0} step="0.01" placeholder={t('No limit')} disabled={!editable} value={rule.maxAmount ?? ''} onChange={(event) => setField({ maxAmount: numberOrUndefined(event.target.value) })} /></label> : null}
+              {tool === 'github_write_file' ? <label>{t('Only branches starting with')}<input type="text" placeholder="claude/" disabled={!editable} value={rule.branchPrefix ?? ''} onChange={(event) => setField({ branchPrefix: event.target.value || undefined })} /></label> : null}
+              {tool === 'gmail_send' ? <label>{t('Only to these addresses or @domains')}<ListInput placeholder="me@example.com, @mycompany.com" disabled={!editable} value={rule.allowedRecipients ?? []} onChange={(items) => setField({ allowedRecipients: items.length ? items : undefined })} /></label> : null}
+              {WORKSTATION_TOOLS.has(tool) ? <label>{t('Only commands starting with')}<ListInput placeholder="pacman -Q, systemctl status, journalctl" disabled={!editable} value={rule.commandPrefixes ?? []} onChange={(items) => setField({ commandPrefixes: items.length ? items : undefined })} /></label> : null}
+              {WORKSTATION_TOOLS.has(tool) && !(rule.commandPrefixes ?? []).length ? <p className="co-proposal-warning">{t('With no prefixes, Ada can run any command on her workstation without asking.')}</p> : null}
+            </div> : null}
           </div>
-          {rule.mode === 'allow' ? <div className="permission-limits">
-            <label>{t('At most per day')}<input type="number" min={1} max={1000} placeholder={t('No limit')} disabled={!editable} value={rule.maxPerDay ?? ''} onChange={(event) => setField({ maxPerDay: numberOrUndefined(event.target.value) })} /></label>
-            {tool === 'googleads_set_budget' ? <label>{t('Largest daily budget')}<input type="number" min={0} step="0.01" placeholder={t('No limit')} disabled={!editable} value={rule.maxAmount ?? ''} onChange={(event) => setField({ maxAmount: numberOrUndefined(event.target.value) })} /></label> : null}
-            {tool === 'github_write_file' ? <label>{t('Only branches starting with')}<input type="text" placeholder="claude/" disabled={!editable} value={rule.branchPrefix ?? ''} onChange={(event) => setField({ branchPrefix: event.target.value || undefined })} /></label> : null}
-            {tool === 'gmail_send' ? <label>{t('Only to these addresses or @domains')}<ListInput placeholder="me@example.com, @mycompany.com" disabled={!editable} value={rule.allowedRecipients ?? []} onChange={(items) => setField({ allowedRecipients: items.length ? items : undefined })} /></label> : null}
-            {WORKSTATION_TOOLS.has(tool) ? <label>{t('Only commands starting with')}<ListInput placeholder="pacman -Q, systemctl status, journalctl" disabled={!editable} value={rule.commandPrefixes ?? []} onChange={(items) => setField({ commandPrefixes: items.length ? items : undefined })} /></label> : null}
-            {WORKSTATION_TOOLS.has(tool) && !(rule.commandPrefixes ?? []).length ? <p className="co-proposal-warning">{t('With no prefixes, Ada can run any command on her workstation without asking.')}</p> : null}
-          </div> : null}
-        </div>
-      })}
-    </div>
+        })}
+      </div>
+    </div>)}
 
     <ErrorBanner message={error} />
     {editable ? <div className="permission-save">

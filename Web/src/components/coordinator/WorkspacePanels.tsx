@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useDialogs } from '../ConfirmDialog'
 import { api, errorMessage } from '../../api/client'
 import type { AccessAuditEntry, ConnectorPermissions, ConnectorStatus, HostFolderGrant, WorkspaceKnowledge, WorkspaceKnowledgeDocumentID, WorkspaceMemory } from '../../api/types'
 import { useAuth } from '../../auth/AuthContext'
@@ -12,6 +13,7 @@ export function Switch({ checked, label, onChange, disabled = false }: { checked
 
 export function ConnectorCard({ connector, onChange }: { connector: ConnectorStatus; onChange: (connector: ConnectorStatus) => void }) {
   const { t } = useI18n()
+  const dialogs = useDialogs()
   const { isAdmin } = useAuth()
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -63,8 +65,8 @@ export function ConnectorCard({ connector, onChange }: { connector: ConnectorSta
     {isAdmin && google && !connector.oauthAvailable ? <p className="co-field-hint">{t('Google OAuth needs to be configured on the server.')}</p> : null}
     {isAdmin && (connector.id === 'cloudflare' || connector.id === 'github') ? <form className="co-credential-form" onSubmit={(event) => { event.preventDefault(); void saveCredentials() }}><label className="field"><span>{connector.id === 'github' ? t('GitHub token') : t('Cloudflare API token')}</span><input className="input" type="password" autoComplete="off" value={secret} onChange={(event) => setSecret(event.target.value)} placeholder={connector.configured ? t('Replace saved token') : t('Paste API token')} required /></label><button className="co-secondary-button" disabled={busy || !secret.trim()}>{t('Save token')}</button></form> : null}
     {isAdmin && connector.id === 'googleads' ? <form className="co-credential-form" onSubmit={(event) => { event.preventDefault(); void saveCredentials() }}><label className="field"><span>{t('Developer token')}</span><input className="input" type="password" autoComplete="off" value={secret} onChange={(event) => setSecret(event.target.value)} placeholder={t('Optional if already saved')} /></label><label className="field"><span>{t('Customer ID')}</span><input className="input" value={customerID} onChange={(event) => setCustomerID(event.target.value)} placeholder="1234567890" /></label><button className="co-secondary-button" disabled={busy || (!secret.trim() && !customerID.trim())}>{t('Save credentials')}</button></form> : null}
-    {isAdmin ? <div className="co-connector-actions"><button className="co-text-button" disabled={busy || !connector.configured} onClick={() => void test()}>{busy ? t('Testing…') : t('Test connection')}</button>{connector.configured ? <button className="co-text-button danger" disabled={busy} onClick={() => {
-      if (!window.confirm(t('Disconnect {name}? Ada will lose access.', { name: connector.name }))) return
+    {isAdmin ? <div className="co-connector-actions"><button className="co-text-button" disabled={busy || !connector.configured} onClick={() => void test()}>{busy ? t('Testing…') : t('Test connection')}</button>{connector.configured ? <button className="co-text-button danger" disabled={busy} onClick={async () => {
+      if (!(await dialogs.confirm({ title: t('Disconnect {name}?', { name: connector.name }), detail: t('Ada will lose access.'), confirm: t('Disconnect'), danger: true }))) return
       setBusy(true)
       void api(`connectors/${connector.id}/disconnect`, { method: 'POST' }).then(async () => onChange(await api<ConnectorStatus>(`connectors/${connector.id}`))).catch((err) => setError(errorMessage(err))).finally(() => setBusy(false))
     }}>{t('Disconnect')}</button> : null}</div> : null}
@@ -85,9 +87,11 @@ export function KnowledgePanel({ knowledge, onChange }: { knowledge: WorkspaceKn
   }
   return <section><div className="co-setting-card"><div className="co-knowledge-toolbar"><div><b>{t('Workspace knowledge')}</b><div className="co-memory-meta">{knowledge?.updatedAt ? `${t('{count} refreshes', { count: knowledge.refreshCount })} · ${new Date(knowledge.updatedAt).toLocaleString(dateLocale())}` : t('Discovering your workspace…')}</div></div><button className="co-secondary-button" disabled={busy} onClick={() => void refresh()}><Icon name="refresh" size={14} />{busy ? t('Refreshing…') : t('Refresh now')}</button></div>
     <p className="co-panel-note">{t('Built from live skills, providers, tools, connections, and projects. Refreshed on first launch, when changes are detected, and at least daily. No credentials or connected content are included.')}</p>
-    <div className="co-knowledge-tabs" aria-label={t('Knowledge documents')}>{knowledge?.documents.map((item) => <button key={item.id} className={document?.id === item.id ? 'active' : ''} aria-pressed={document?.id === item.id} onClick={() => setSelected(item.id)}>{item.id === 'capabilities' ? t('Capabilities') : item.id === 'connections' ? t('Connections') : t('Projects')}</button>)}</div>
-    <pre className="co-memory-doc">{document?.markdown ?? t('Discovering your workspace…')}</pre>
-    {document ? <a className="co-secondary-button co-download" href={`/api/workspace/knowledge/${document.id}/export`} download><Icon name="download" size={14} />{t('Export {name}.md', { name: document.id })}</a> : null}
+    <details className="co-raw-doc"><summary>{t('Show details')}</summary>
+      <div className="co-knowledge-tabs" aria-label={t('Knowledge documents')}>{knowledge?.documents.map((item) => <button key={item.id} className={document?.id === item.id ? 'active' : ''} aria-pressed={document?.id === item.id} onClick={() => setSelected(item.id)}>{item.id === 'capabilities' ? t('Capabilities') : item.id === 'connections' ? t('Connections') : t('Projects')}</button>)}</div>
+      <pre className="co-memory-doc">{document?.markdown ?? t('Discovering your workspace…')}</pre>
+      {document ? <a className="co-secondary-button co-download" href={`/api/workspace/knowledge/${document.id}/export`} download><Icon name="download" size={14} />{t('Export {name}.md', { name: document.id })}</a> : null}
+    </details>
     <ErrorBanner message={error ?? knowledge?.lastError ?? null} /></div></section>
 }
 
@@ -98,11 +102,12 @@ export function MemoryPanel({ memory, onChange }: { memory: WorkspaceMemory | nu
     if (!memory) return
     try { onChange(await api<WorkspaceMemory>('workspace/memory', { method: 'PATCH', body: { enabled: !memory.enabled } })); setError(null) } catch (err) { setError(errorMessage(err)) }
   }
-  return <section><div className="co-setting-card"><div className="co-setting-row"><div><b>{t('Workspace memory')}</b><p>{t('A continuously compacted Markdown summary shared across your chats.')}</p></div><Switch checked={memory?.enabled ?? false} label={t('Workspace memory enabled')} onChange={() => void toggle()} /></div><div className="co-memory-meta">{memory ? `${t('{count} compactions', { count: memory.compactionCount })} · ${t('{count} source exchanges', { count: memory.sources.length })}${memory.pendingEntries ? ` · ${t('{count} pending', { count: memory.pendingEntries })}` : ''}` : t('Loading')}</div><p className="co-panel-note">{t('Pausing stops new memories from being recorded. It does not delete the existing summary. Memory contains concise facts, not private reasoning.')}</p><pre className="co-memory-doc">{memory?.markdown ?? t('Loading')}</pre><a className="co-secondary-button co-download" href="/api/workspace/memory/export" download><Icon name="file" size={14} />{t('Export memory.md')}</a><ErrorBanner message={error} /></div></section>
+  return <section><div className="co-setting-card"><div className="co-setting-row"><div><b>{t('Workspace memory')}</b><p>{t('A continuously compacted Markdown summary shared across your chats.')}</p></div><Switch checked={memory?.enabled ?? false} label={t('Workspace memory enabled')} onChange={() => void toggle()} /></div><div className="co-memory-meta">{memory ? `${t('{count} compactions', { count: memory.compactionCount })} · ${t('{count} source exchanges', { count: memory.sources.length })}${memory.pendingEntries ? ` · ${t('{count} pending', { count: memory.pendingEntries })}` : ''}` : t('Loading')}</div><p className="co-panel-note">{t('Pausing stops new memories from being recorded. It does not delete the existing summary. Memory contains concise facts, not private reasoning.')}</p><details className="co-raw-doc"><summary>{t('Show what Ada remembers')}</summary><pre className="co-memory-doc">{memory?.markdown ?? t('Loading')}</pre><a className="co-secondary-button co-download" href="/api/workspace/memory/export" download><Icon name="file" size={14} />{t('Export memory.md')}</a></details><ErrorBanner message={error} /></div></section>
 }
 
 export function HostAccessPanel() {
   const { t } = useI18n()
+  const dialogs = useDialogs()
   const { isAdmin } = useAuth()
   const [grants, setGrants] = useState<HostFolderGrant[]>([])
   const [audit, setAudit] = useState<AccessAuditEntry[]>([])
@@ -126,7 +131,7 @@ export function HostAccessPanel() {
     } catch (err) { setError(errorMessage(err)) } finally { setBusy(false) }
   }
   const revoke = async (id: string) => {
-    if (!window.confirm(t('Revoke Ada’s access to this folder? Existing files are unchanged.'))) return
+    if (!(await dialogs.confirm({ title: t('Revoke Ada’s access to this folder?'), detail: t('Existing files are unchanged.'), confirm: t('Revoke access'), danger: true }))) return
     setBusy(true)
     try { await api(`access/host-grants/${id}`, { method: 'DELETE' }); await refresh() } catch (err) { setError(errorMessage(err)) } finally { setBusy(false) }
   }

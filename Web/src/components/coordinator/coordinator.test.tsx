@@ -207,7 +207,7 @@ describe('settings', () => {
     render(<I18nProvider><MemoryRouter initialEntries={['/settings/connections']}><Routes><Route path="/settings/:section" element={<SettingsPage />} /></Routes></MemoryRouter></I18nProvider>)
     const nav = screen.getByRole('navigation', { name: 'Settings' })
     const labels = [...nav.querySelectorAll('a')].map((link) => link.textContent)
-    expect(labels).toEqual(['Connections', 'What Ada can do alone', 'Memory & knowledge', 'Voice & language', 'Account'])
+    expect(labels).toEqual(['Connections', 'What Ada can do alone', 'Memory & knowledge', 'Skills & specialists', 'Voice & language', 'Account'])
     await waitFor(() => expect(api).toHaveBeenCalledWith('connectors'))
   })
 })

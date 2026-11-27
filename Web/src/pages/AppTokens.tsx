@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useDialogs } from '../components/ConfirmDialog'
 import { api, errorMessage } from '../api/client'
 import type { PublicAPIToken, TokenCreated } from '../api/types'
 import { ErrorBanner, formatDate } from '../components/ui'
@@ -7,6 +8,7 @@ import { useI18n } from '../i18n'
 /** Personal tokens let someone use the iPhone or Mac app as themselves, instead of the shared server token. */
 export function AppTokens() {
   const { t } = useI18n()
+  const dialogs = useDialogs()
   const [tokens, setTokens] = useState<PublicAPIToken[]>([])
   const [name, setName] = useState('')
   const [secret, setSecret] = useState<string | null>(null)
@@ -38,7 +40,7 @@ export function AppTokens() {
   }
 
   async function revoke(id: string) {
-    if (!window.confirm(t('Revoke this token? Any app using it will be signed out.'))) return
+    if (!(await dialogs.confirm({ title: t('Revoke this token?'), detail: t('Any app using it will be signed out.'), confirm: t('Revoke'), danger: true }))) return
     try {
       await api(`auth/tokens/${id}`, { method: 'DELETE' })
       await load()

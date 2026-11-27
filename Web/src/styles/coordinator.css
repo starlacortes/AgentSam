@@ -213,6 +213,11 @@
 .co-memory-meta { color: var(--dim); font-family: var(--mono); font-size: 8.5px; }
 .co-memory-doc { max-height: 48vh; overflow: auto; margin-top: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: #0a120d; color: var(--mut); font-family: var(--mono); font-size: 10px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
 .co-download { margin-top: 12px; }
+.co-raw-doc { margin-top: 4px; }
+.co-raw-doc > summary { display: inline-flex; align-items: center; gap: 6px; min-height: 33px; padding: 0 2px; color: var(--em2); font-size: 12px; cursor: pointer; list-style: none; }
+.co-raw-doc > summary::-webkit-details-marker { display: none; }
+.co-raw-doc > summary::before { content: ''; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); transition: transform .15s; }
+.co-raw-doc[open] > summary::before { transform: rotate(45deg); }
 .co-knowledge-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .co-knowledge-toolbar .co-secondary-button { flex: none; }
 .co-knowledge-tabs { display: flex; gap: 5px; margin: 12px 0; padding: 4px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); }
@@ -714,6 +719,10 @@
 
 
 /* Standing permissions */
+.permission-group { margin-top: 22px; }
+.permission-group > h3 { margin: 0 0 8px 2px; font-size: 14px; }
+.permission-group .permission-rules { margin-top: 0; gap: 8px; }
+.permission-rule code { color: var(--dim); font-family: var(--mono); font-size: 10.5px; }
 .permission-rules { margin-top: 14px; }
 .permission-rule .co-setting-row { padding: 6px 0; }
 .permission-rule p { color: var(--mut); font-size: 11px; margin-top: 2px; }
@@ -1000,3 +1009,182 @@
 }
 .people-table .people-person { width: 40%; }
 @media (max-width: 700px) { .people-table .people-person { width: auto; } }
+
+/* Ada's own confirm and ask dialog, in place of the browser's. */
+.co-confirm-overlay { z-index: 130; }
+.co-confirm { width: min(420px, 100%); padding: 22px 22px 18px; border: 1px solid var(--line2); border-radius: 16px; background: var(--panel); box-shadow: var(--shadow-pop); animation: co-fade-in .15s ease; }
+.co-confirm h2 { font-size: 17px; line-height: 1.35; overflow-wrap: anywhere; }
+.co-confirm p { margin-top: 8px; color: var(--mut); font-size: 13.5px; line-height: 1.55; }
+.co-confirm-input { width: 100%; margin-top: 14px; padding: 11px 13px; border: 1px solid var(--line2); border-radius: 10px; background: var(--deep); color: var(--ink); font-size: 16px; outline: none; }
+.co-confirm-input:focus { border-color: var(--em); box-shadow: 0 0 0 3px rgba(74,217,158,.13); }
+.co-confirm-input::placeholder { color: var(--dim); }
+.co-confirm-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 9px; margin-top: 20px; }
+.co-confirm-actions > button { min-height: 40px; padding: 8px 16px; font-size: 13.5px; }
+.co-primary-button.danger { border-color: rgba(229,99,91,.5); background: rgba(229,99,91,.14); color: #f3b1ac; }
+.co-primary-button.danger:hover:not(:disabled) { background: rgba(229,99,91,.24); }
+@media (max-width: 760px) {
+  .co-confirm-actions { flex-direction: column-reverse; }
+  .co-confirm-actions > button { width: 100%; min-height: 46px; font-size: 15px; }
+}
+
+/* ---------- One style inside the app ----------
+   Model providers, People, Account, History and the job page were written in an older, larger style:
+   glowing buttons, big rounded cards and uppercase text buttons. Inside the app they now follow the
+   newer panels (Connections, permissions). The sign-in and first-run screens keep their own look. */
+.shell-scroll .card { padding: 16px; border-radius: 12px; background: var(--panel2); box-shadow: none; }
+.shell-scroll .card + .card { margin-top: 14px; }
+.shell-scroll .card h2 { font-size: var(--t-title); }
+.shell-scroll .card h3 { font-size: var(--t-body); }
+.shell-scroll .lede { font-size: var(--t-body); }
+.settings-body .kicker { display: none; }
+.shell-scroll .btn { padding: 8px 14px; border-color: rgba(74,217,158,.3); border-radius: 9px; background: rgba(74,217,158,.13); color: var(--em2); font-size: 13px; font-weight: 600; box-shadow: none; }
+.shell-scroll .btn:hover { transform: none; background: rgba(74,217,158,.22); }
+.shell-scroll .btn.small { padding: 6px 11px; font-size: 12px; }
+.shell-scroll .btn.ghost { border-color: var(--line2); background: transparent; color: var(--mut); font-weight: 500; }
+.shell-scroll .btn.ghost:hover { border-color: rgba(148,190,156,.35); background: transparent; color: var(--ink); }
+.shell-scroll .btn.gold { border-color: rgba(201,169,106,.45); background: transparent; color: var(--gold2); }
+.shell-scroll .btn.danger { border-color: rgba(229,99,91,.45); background: transparent; color: var(--danger); }
+.shell-scroll .btn.danger-text { color: var(--danger); }
+.shell-scroll .pill { padding: 7px 11px; font-family: var(--sans); font-size: var(--t-small); letter-spacing: 0; text-transform: none; }
+.shell-scroll .filter-pills .pill::first-letter, .shell-scroll .tabs .pill::first-letter { text-transform: uppercase; }
+.shell-scroll .mission-row { padding: 14px 16px; }
+/* The newer panels' helper text comes up one step so both families read the same. */
+.settings-body .co-setting-row p, .settings-body .co-panel-note, .settings-body .permission-rule p, .settings-body .remembered p, .settings-body .push-alerts p, .settings-body .mcp-servers p, .settings-body .co-guide-reset > p, .settings-body .co-connector-detail, .settings-body .co-safety-note, .settings-body .permission-limits label { font-size: var(--t-small); }
+.settings-body .co-permission-row b { font-size: var(--t-small); }
+.settings-body .co-permission-row small, .settings-body .co-connector-head small, .settings-body .co-field-hint { font-size: 11.5px; }
+.settings-body .co-connector-head b { font-size: var(--t-body); }
+.settings-body .co-primary-button, .settings-body .co-secondary-button { font-size: 12px; }
+.settings-body .co-text-button, .settings-body .co-text-link { font-size: 12px; }
+.settings-body .permission-rule code { font-size: 10.5px; }
+
+/* Getting started: three steps on the empty chat. */
+.co-setup { max-width: 520px; margin: 26px auto 0; border: 1px solid var(--line); border-radius: 13px; background: rgba(14,23,18,.62); text-align: left; overflow: hidden; }
+.co-setup > header { display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 14px; border-bottom: 1px solid var(--line); }
+.co-setup > header b { color: var(--ink); font-size: 12.5px; font-weight: 640; }
+.co-setup > header span { flex: 1; color: var(--dim); font-size: 11px; }
+.co-setup ol { list-style: none; margin: 0; padding: 0; }
+.co-setup li + li { border-top: 1px solid var(--line); }
+.co-setup li > a, .co-setup li > div { display: flex; align-items: center; gap: 11px; padding: 10px 14px; color: inherit; }
+.co-setup li > a:hover { background: rgba(148,190,156,.05); }
+.co-setup li > a > svg:last-child { flex: none; color: var(--dim); }
+.co-setup-mark { display: grid; place-items: center; flex: none; width: 18px; height: 18px; border: 1.5px solid var(--line2); border-radius: 50%; color: #082417; }
+.co-setup li.done .co-setup-mark { border-color: var(--em); background: var(--em); }
+.co-setup-text { flex: 1; min-width: 0; }
+.co-setup-text b, .co-setup-text small { display: block; }
+.co-setup-text b { color: var(--ink2); font-size: 12.5px; font-weight: 620; }
+.co-setup-text small { margin-top: 2px; color: var(--mut); font-size: 11px; line-height: 1.45; }
+.co-setup li.done .co-setup-text b { color: var(--mut); text-decoration: line-through; text-decoration-color: var(--line2); }
+.co-setup li.done .co-setup-text small { display: none; }
+.co-setup-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.co-setup li { position: relative; }
+
+/* ---------- Phone comfort ----------
+   Everything you tap is at least 44 points in both directions (Apple's guideline), and the text you
+   read is 15 to 16px. Kept in one block at the end so it wins over the denser rules above. */
+@media (max-width: 760px) {
+  /* Header */
+  .co-chat-header { gap: 2px; padding: 0 4px; }
+  .co-header-actions { gap: 0; }
+  .co-icon-button { width: 44px; height: 44px; border-radius: 10px; }
+  .co-voice-button { min-width: 44px; min-height: 44px; justify-content: center; padding: 0 10px; }
+  .co-chat-heading { padding-left: 4px; }
+  .co-chat-heading h1 { font-size: 15px; }
+  .shell-header { padding: 0 4px; }
+  .co-archived-pill { min-height: 44px; }
+
+  /* Chat list */
+  .co-new-chat { min-height: 46px; font-size: 15px; }
+  .co-search { margin-top: 8px; }
+  .co-search input { padding: 12px 0; }
+  .co-search > span { display: none; }
+  .co-side-label { padding: 0 0 0 8px; font-size: 11px; }
+  .co-side-label button { width: 44px; height: 44px; }
+  .co-project-row { padding: 9px; font-size: 15px; }
+  .co-count { font-size: 11px; }
+  .co-chat-link, .co-chat-row .co-chat-link { min-height: 44px; padding: 11px 8px; font-size: 15px; }
+  .co-chat-archive { right: 0; width: 44px; height: 44px; }
+  .co-chat-day { font-size: 11px; }
+  .co-chat-pending, .co-side-empty { font-size: 13px; }
+  .co-side-item, .co-archived-link { min-height: 44px; font-size: 15px; }
+  .co-profile { min-height: 52px; }
+  .co-profile b { font-size: 15px; }
+  .co-profile small { font-size: 12px; }
+  .co-archive-toast { font-size: 13px; }
+  .co-archive-toast button { min-height: 44px; padding: 0 12px; font-size: 14px; }
+
+  /* Messages */
+  .co-response, .co-user-message > p { font-size: 16px; line-height: 1.55; }
+  .co-ada-name { font-size: 13px; }
+  .co-ada-name > span { font-size: 10px; }
+  .co-thinking-label { font-size: 15px; }
+  .co-thinking-time, .co-step-time { font-size: 11px; }
+  .co-thinking-toggle { min-height: 44px; padding: 0 12px; font-size: 13px; }
+  .co-steps li { font-size: 13.5px; }
+  .co-work-summary summary { min-height: 44px; padding: 0 10px 0 6px; font-size: 13px; }
+  .co-raw-doc > summary { min-height: 44px; font-size: 14px; }
+  .co-user-actions { gap: 0; margin-top: 0; }
+  .co-user-actions button { width: 44px; height: 44px; }
+  .co-message-actions button { min-width: 44px; min-height: 44px; justify-content: center; font-size: 13px; }
+  .co-quick-replies { gap: 8px; }
+  .co-quick-replies button { min-height: 44px; padding: 9px 14px; border-radius: 22px; font-size: 15px; }
+  .co-source-chip { min-height: 44px; padding: 0 12px; font-size: 12px; }
+  .co-jump-latest { min-height: 44px; padding: 0 16px; font-size: 14px; }
+  .co-workbar-line { min-height: 48px; }
+  .co-workbar-detail { font-size: 13.5px; }
+  .co-workbar-count { font-size: 12px; }
+  .co-workbar-toggle { min-height: 44px; padding: 0 12px; font-size: 13px; }
+  .co-workbar-hint { font-size: 12.5px; }
+
+  /* Empty chat */
+  .co-empty-chat > p { font-size: 14.5px; }
+  .co-starters > button { min-height: 56px; }
+  .co-starters b { font-size: 15px; }
+  .co-starters span { font-size: 13px; }
+  .co-prompt-manage { min-height: 44px; font-size: 13.5px; }
+  .co-setup { margin-top: 14px; }
+  .co-setup > header b { font-size: 14px; }
+  .co-setup > header span { font-size: 12.5px; }
+  .co-setup li > a, .co-setup li > div { min-height: 52px; padding: 9px 14px; }
+  .co-setup-text b { font-size: 15px; }
+  .co-setup-text small { font-size: 13px; }
+
+  /* Composer */
+  .co-composer-foot { padding: 2px 6px 6px; gap: 4px; }
+  .co-send-button { width: 44px; height: 44px; border-radius: 12px; }
+  .co-stop-button { min-height: 44px; padding: 0 14px; font-size: 14px; }
+  .co-provider-notice { font-size: 13px; }
+  .co-provider-notice a { padding: 12px 0; }
+  .co-composer-wrap > .error { font-size: 13px; }
+
+  /* Buttons, fields and switches everywhere */
+  .co-primary-button, .co-secondary-button { min-height: 44px; padding: 9px 14px; font-size: 14px; }
+  .co-text-button, .co-text-link { min-height: 44px; font-size: 13.5px; }
+  .btn, .btn.small { min-height: 44px; font-size: 14px; }
+  .pill { min-height: 44px; font-size: 12px; }
+  .input, .textarea, .select, .co-schedule-input, .co-schedule-time { min-height: 44px; font-size: 16px; }
+  .settings-body select:not(.select), .settings-body input[type='text']:not(.input), .settings-body input[type='number']:not(.input) { min-height: 44px; font-size: 16px; }
+  .co-switch { width: 50px; height: 30px; }
+  .co-switch::after { top: 4px; left: 4px; width: 20px; height: 20px; }
+  .co-switch[aria-checked='true']::after { left: 24px; }
+  /* The switch is 30 points tall; this widens what a finger can hit to 44 without moving anything. */
+  .co-switch::before { content: ''; position: absolute; inset: -8px 0; }
+  .toggle input, .settings-body input[type='checkbox'], .co-host-write input { width: 22px; height: 22px; }
+  .toggle, .co-host-write { min-height: 44px; }
+  .settings-link, .settings-signout { min-height: 44px; font-size: 14px; }
+  .co-knowledge-tabs button, .co-canvas-tabs button { min-height: 44px; font-size: 13px; }
+  .co-voice-buttons > button { font-size: 13.5px; }
+  .co-voice-head small { font-size: 12px; }
+  .co-voice-hint { font-size: 12.5px; }
+  .co-voice-response p { font-size: 14px; }
+  .co-voice-transcript, .co-voice-said { font-size: 14px; }
+
+  /* Settings text */
+  .co-setting-row p, .co-panel-note, .permission-rule p, .remembered p, .push-alerts p, .mcp-servers p, .co-guide-reset > p, .co-connector-detail, .co-safety-note, .co-field-hint { font-size: 13.5px; }
+  .permission-limits label { font-size: 13.5px; }
+  .co-connector-head small, .co-team-card-head small { font-size: 12.5px; }
+  .co-connector-head b { font-size: 15px; }
+  .remembered-list li, .mcp-list > li { font-size: 14px; }
+  .kicker { font-size: 11px; }
+  .chip { font-size: 11.5px; }
+  .hint { font-size: 13px; }
+}

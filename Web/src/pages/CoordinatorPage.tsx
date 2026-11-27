@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent } from 'react'
+import { useDialogs } from '../components/ConfirmDialog'
+import { GettingStarted, type SetupStep } from '../components/coordinator/GettingStarted'
+import { currentSubscription, pushSupported } from '../lib/push'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, errorMessage, uploadPhoto, uploadProjectFile } from '../api/client'
 import type { AgentActionRequest, ArchiveSettings, ConnectorStatus, Conversation, ConversationSummary, GuideState, MissionDetail, ProviderStatus, BrowserView } from '../api/types'
@@ -25,6 +28,7 @@ import { transcribeConversation } from '../lib/voice'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 
 const DRAFT_PREFIX = 'agentsam.draft.'
+const SETUP_HIDDEN_KEY = 'agentsam.setupHidden'
 const CANVAS_WIDTH_KEY = 'agentsam.canvasWidth'
 const BROWSER_AUTO_KEY = 'agentsam.browserAutoOpen'
 const MAX_ATTACHMENT_BYTES = 200_000
@@ -66,6 +70,7 @@ export function CoordinatorPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { t, lang } = useI18n()
   const { isAdmin } = useAuth()
+  const dialogs = useDialogs()
   const [conversations, setConversations] = useState<ConversationSummary[]>([])
   const [conversation, setConversation] = useState<Conversation | null>(null)
   const [connectors, setConnectors] = useState<ConnectorStatus[]>([])
@@ -116,6 +121,21 @@ export function CoordinatorPage() {
   const mounted = useRef(true)
   const running = shouldPoll(conversation)
   const hasProvider = providers.some((provider) => provider.hasKey)
+  // Getting started: three steps on the empty chat, until they are done or the person hides them.
+  const [alertsOn, setAlertsOn] = useState<boolean | null>(null)
+  const [setupHidden, setSetupHidden] = useState(() => readStored(SETUP_HIDDEN_KEY) === 'yes')
+  useEffect(() => {
+    if (!pushSupported()) return
+    void currentSubscription().then((subscription) => setAlertsOn(Boolean(subscription))).catch(() => setAlertsOn(false))
+  }, [])
+  const setupSteps: SetupStep[] = [
+    { id: 'key', done: hasProvider, to: isAdmin ? '/settings/providers' : undefined },
+    { id: 'service', done: connectors.some((connector) => connector.configured), to: '/settings/connections' },
+    ...(alertsOn === null ? [] : [{ id: 'alerts' as const, done: alertsOn, to: '/settings/permissions' }]),
+  ]
+  const emptyChat = !conversation || (conversation.messages.length === 0 && actions.length === 0)
+  const showSetup = !loading && !setupHidden && setupSteps.some((step) => !step.done)
+  const hideSetup = () => { setSetupHidden(true); writeStored(SETUP_HIDDEN_KEY, 'yes') }
   const gmail = connectors.find((connector) => connector.id === 'gmail')
   useDocumentTitle(conversation ? chatTitle(conversation.title, t) : t('Chat'))
   // What Ada is doing right now (e.g. "Searching Gmail"), for the status box under the voice orb.
@@ -535,7 +555,7 @@ export function CoordinatorPage() {
   }
 
   const remove = async () => {
-    if (!conversation || !window.confirm(t('Delete this conversation? Its messages will be removed; jobs and files stay intact.'))) return
+    if (!conversation || !(await dialogs.confirm({ title: t('Delete this conversation?'), detail: t('Its messages will be removed; jobs and files stay intact.'), confirm: t('Delete'), danger: true }))) return
     try {
       await api(`conversations/${conversation.id}`, { method: 'DELETE' })
       setConversations((current) => current.filter((item) => item.id !== conversation.id))
@@ -660,10 +680,10 @@ export function CoordinatorPage() {
       </header>
       <AgentWorkroom conversation={conversation} />
       <div className="co-chat-body">
-        {loading && id ? <div className="co-loading"><Spinner /></div> : <ConversationMessages conversation={conversation} busy={sending || running} handlers={handlers} actions={actions} onActions={setActions} promptCards={promptCards} />}
+        {loading && id ? <div className="co-loading"><Spinner /></div> : <ConversationMessages conversation={conversation} busy={sending || running} handlers={handlers} actions={actions} onActions={setActions} promptCards={promptCards} setup={showSetup ? <GettingStarted steps={setupSteps} onDismiss={hideSetup} /> : null} />}
       </div>
       <div className="co-composer-wrap">
-        {!hasProvider && !loading ? <div className="co-provider-notice"><Icon name="info" size={16} /><p>{t('Add a model provider and API key before chatting with Ada.')}</p>{isAdmin ? <Link to="/settings/providers">{t('Set up providers')} →</Link> : null}</div> : null}
+        {!hasProvider && !loading && !(showSetup && emptyChat) ? <div className="co-provider-notice"><Icon name="info" size={16} /><p>{t('Add a model provider and API key before chatting with Ada.')}</p>{isAdmin ? <Link to="/settings/providers">{t('Set up providers')} →</Link> : null}</div> : null}
         <ErrorBanner message={error} />
         <form className={`co-composer ${dragging ? 'dragging' : ''}`} onSubmit={submit} onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); setDragging(true) } }} onDragLeave={() => setDragging(false)} onDrop={drop}>
           <input ref={uploadInput} type="file" multiple hidden aria-label={t('Choose project files')} onChange={(event) => { const files = [...(event.currentTarget.files ?? [])]; event.currentTarget.value = ''; void upload(files) }} />

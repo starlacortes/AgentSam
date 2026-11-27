@@ -295,6 +295,9 @@ public actor ConversationEngine {
         }
     }
 
+    /// How long workspace knowledge is reused between messages before the workspace is looked at again.
+    static let knowledgeFreshSeconds: TimeInterval = 300
+
     private func drive(conversationID: UUID, ownerID: String, userMessage: ConversationMessage, responseID: UUID, launchedBy: String, language: String) async {
         defer { running[conversationID] = nil }
         let ref = ResponseRef(conversationID: conversationID, ownerID: ownerID, responseID: responseID, spoken: userMessage.spoken, launchedBy: launchedBy, language: language == "es" ? "es" : "en")
@@ -329,7 +332,8 @@ public actor ConversationEngine {
             let history = conversation.messages.filter { $0.status != .running && (!$0.text.isEmpty || !$0.photos.isEmpty) }
             let workspaceMemory = await memory.state(ownerID: ownerID)
             let memoryText = workspaceMemory.promptText
-            let currentKnowledge = await knowledge?.refresh(ownerID: ownerID)
+            // Knowledge written in the last few minutes is used as it is; looking again reads every chat.
+            let currentKnowledge = await knowledge?.refresh(ownerID: ownerID, freshFor: Self.knowledgeFreshSeconds)
             let context = await promptContext(conversation: conversation, history: history, memory: memoryText, knowledge: currentKnowledge?.stablePromptSummary ?? "", activity: currentKnowledge?.activityPromptSummary ?? "", scheduled: userMessage.scheduled, spoken: userMessage.spoken, personName: userMessage.scheduled ? nil : launchedBy, event: userMessage.trigger)
             // Photos: only Ada's direct reply looks at them. Routing, missions, and consolidation get a
             // note that they exist, which is enough to pick DIRECT and keeps those calls cheap.

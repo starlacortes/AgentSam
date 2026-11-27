@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useDialogs } from '../components/ConfirmDialog'
 import { Link } from 'react-router-dom'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { api, errorMessage } from '../api/client'
@@ -9,6 +10,7 @@ import { useI18n } from '../i18n'
 
 export function PeoplePage() {
   const { t } = useI18n()
+  const dialogs = useDialogs()
   useDocumentTitle(t('People'))
   const { me } = useAuth()
   const [users, setUsers] = useState<PublicUser[] | null>(null)
@@ -194,8 +196,8 @@ export function PeoplePage() {
                             </button>
                             <button
                               className="btn small danger"
-                              onClick={() => {
-                                if (window.confirm(t('Remove {name}? They’ll be signed out immediately.', { name: user.name }))) {
+                              onClick={async () => {
+                                if (await dialogs.confirm({ title: t('Remove {name}?', { name: user.name }), detail: t('They’ll be signed out immediately.'), confirm: t('Remove'), danger: true })) {
                                   void run(() => api(`users/${user.id}`, { method: 'DELETE' }))
                                 }
                               }}
