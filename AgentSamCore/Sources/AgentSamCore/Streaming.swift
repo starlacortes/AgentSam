@@ -66,6 +66,19 @@ struct StreamHTTPError: Error {
 struct StreamFailure: Error {
     var error: LLMError
     var retryable: Bool
+    /// The connection dropped, which is worth trying again at once rather than after a long wait.
+    var dropped = false
+
+    /// A connection that failed before any text arrived is tried again: with connections kept open
+    /// between calls, one the provider has since closed must not cost the reply. A timeout is not
+    /// retried, and neither is a failure once part of the answer has been shown.
+    static func network(_ error: Error, delivered: Bool) -> StreamFailure {
+        var dropped = false
+        if !delivered, let code = (error as? URLError)?.code {
+            dropped = code != URLError.Code.timedOut && code != URLError.Code.cancelled
+        }
+        return StreamFailure(error: LLMError(message: "Network error: \(error.localizedDescription)"), retryable: dropped, dropped: dropped)
+    }
 
     static func http(_ failure: StreamHTTPError) -> StreamFailure {
         if OpenAICompatClient.isContextOverflow(status: failure.status, body: failure.body) {

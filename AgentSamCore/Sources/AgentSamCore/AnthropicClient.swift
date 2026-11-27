@@ -167,7 +167,7 @@ public struct AnthropicClient: Sendable {
                 } catch let failure as StreamFailure {
                     if failure.retryable {
                         lastError = failure.error
-                        let delay = backoff.isEmpty ? 15 : backoff.removeFirst()
+                        let delay: UInt64 = failure.dropped ? 1 : (backoff.isEmpty ? 15 : backoff.removeFirst())
                         try? await Task.sleep(nanoseconds: delay * 1_000_000_000)
                         continue
                     }
@@ -254,7 +254,7 @@ public struct AnthropicClient: Sendable {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            throw StreamFailure(error: LLMError(message: "Network error: \(error.localizedDescription)"), retryable: false)
+            throw StreamFailure.network(error, delivered: delivered)
         }
         return LLMReply(message: accumulator.message(), inputTokens: accumulator.inputTokens, outputTokens: accumulator.outputTokens, model: model, cachedInputTokens: accumulator.cachedInputTokens)
     }
