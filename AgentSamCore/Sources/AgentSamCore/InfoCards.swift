@@ -122,17 +122,14 @@ public enum InfoCardTools {
     static let calloutTones: Set<String> = ["info", "success", "warning", "danger"]
 
     public static var definitions: [APIToolDef] {
-        let string: (String) -> JSONValue = { .object([("type", .string("string")), ("description", .string($0))]) }
+        let text: JSONValue = .object([("type", .string("string"))])
+        let texts: JSONValue = .object([("type", .string("array")), ("items", text)])
+        let choice: ([String]) -> JSONValue = { .object([("type", .string("string")), ("enum", .array($0.map(JSONValue.string)))]) }
         let item: JSONValue = .object([
             ("type", .string("object")),
             ("properties", .object([
-                ("label", string("What the item is. Required.")),
-                ("value", string("The value shown, as text: \"$4,210\", \"Yes\", \"3 days\".")),
-                ("number", .object([("type", .string("number")), ("description", .string("A plain number, for chart points and ranking bars."))])),
-                ("detail", string("A short second line: a change (\"+12% vs May\"), a reason, a note.")),
-                ("tone", .object([("type", .string("string")), ("enum", .array(["good", "bad", "neutral"].map(JSONValue.string))), ("description", .string("stats: colours the detail line."))])),
-                ("state", .object([("type", .string("string")), ("enum", .array(["done", "current", "todo", "failed"].map(JSONValue.string))), ("description", .string("steps: where each step stands."))])),
-                ("when", string("timeline: the date or time, as people say it (\"Mon 3 Dec\", \"Q1\", \"09:30\").")),
+                ("label", text), ("value", text), ("number", .object([("type", .string("number"))])), ("detail", text),
+                ("tone", choice(["good", "bad", "neutral"])), ("state", choice(["done", "current", "todo", "failed"])), ("when", text),
             ])),
             ("required", .array([.string("label")])),
         ])
@@ -140,46 +137,41 @@ public enum InfoCardTools {
             APIToolDef(
                 name: toolName,
                 description: """
-                Show a small card in your reply, below your text, when information has a shape that is easier \
-                to see than to read: a few key numbers, options side by side, a ranking, a trend, progress through \
-                steps, dates, a key-value summary, or a warning that must not be missed. Fill a template with data; \
-                the app draws it. Plain text only, never HTML or Markdown. Templates and their fields:
-                - stats: items (1-6) with label and value, optional detail (the change) and tone.
-                - comparison: columns (2-4 option names), rows (1-10) each with label and values (one per column), optional highlight (the recommended column, from 0).
-                - ranking: items (2-10) best first, with label and optional value, detail, number (draws bars).
-                - chart: chart "bar" or "line", items (2-24) with label and number, optional unit.
-                - steps: items (1-10) with label, state and optional detail.
-                - timeline: items (1-10) in order, with when, label and optional detail.
-                - summary: items (1-12) with label and value.
-                - callout: tone (info, success, warning, danger) and text, optional title.
-                Every card takes an optional title and note (a source or footnote). At most \(maxPerReply) cards per reply. \
-                Your reply text still answers in a sentence or two without repeating the card, because voice mode reads only the text.
+                Draw a small card below your reply when it carries data that is easier to see than read: several \
+                key numbers, options side by side, a ranking, a trend, progress through steps, dates. Never for a \
+                question, a refusal, an explanation, or a reply of a sentence or two: those stay plain text. Your text \
+                still answers on its own (voice reads only the text). Plain text fields, no HTML or Markdown. At most \(maxPerReply) per reply.
+                Templates (all take optional title and note, a source or footnote):
+                - stats: items 1-6 {label, value, detail?: the change, tone?}
+                - comparison: columns 2-4 (options), rows 1-10 {label, values: one per column}, highlight?: recommended column from 0
+                - ranking: items 2-10 best first {label, value?, number?: draws bars, detail?}, unit?
+                - chart: chart bar|line, items 2-24 {label, number}, unit?
+                - steps: items 1-10 {label, state, detail?}
+                - timeline: items 1-10 in order {when, label, detail?}
+                - summary: items 1-12 {label, value, detail?}
+                - callout: tone info|success|warning|danger, text; only for a risk or deadline the person must not miss in a longer answer
                 """,
                 parameters: .object([
                     ("type", .string("object")),
                     ("properties", .object([
-                        ("template", .object([("type", .string("string")), ("enum", .array(templates.map(JSONValue.string))), ("description", .string("Which card to show."))])),
-                        ("title", string("A short title, at most 80 characters.")),
-                        ("note", string("Optional source or footnote, at most 160 characters.")),
-                        ("items", .object([("type", .string("array")), ("items", item), ("description", .string("The entries, for every template except comparison and callout."))])),
-                        ("columns", .object([("type", .string("array")), ("items", .object([("type", .string("string"))])), ("description", .string("comparison: the options compared."))])),
+                        ("template", choice(templates)),
+                        ("title", text),
+                        ("note", text),
+                        ("items", .object([("type", .string("array")), ("items", item)])),
+                        ("columns", texts),
                         ("rows", .object([
                             ("type", .string("array")),
                             ("items", .object([
                                 ("type", .string("object")),
-                                ("properties", .object([
-                                    ("label", string("The aspect compared (\"Price\", \"Setup time\").")),
-                                    ("values", .object([("type", .string("array")), ("items", .object([("type", .string("string"))])), ("description", .string("One value per column, in column order."))])),
-                                ])),
+                                ("properties", .object([("label", text), ("values", texts)])),
                                 ("required", .array([.string("label"), .string("values")])),
                             ])),
-                            ("description", .string("comparison: one row per aspect.")),
                         ])),
-                        ("highlight", .object([("type", .string("integer")), ("description", .string("comparison: the recommended column, counted from 0."))])),
-                        ("chart", .object([("type", .string("string")), ("enum", .array([.string("bar"), .string("line")])), ("description", .string("chart: bar for categories, line for a trend over time."))])),
-                        ("unit", string("chart and ranking: the unit of the numbers (\"$\", \"%\", \"visits\").")),
-                        ("tone", .object([("type", .string("string")), ("enum", .array(["info", "success", "warning", "danger"].map(JSONValue.string))), ("description", .string("callout: how it reads."))])),
-                        ("text", string("callout: the message, at most 400 characters.")),
+                        ("highlight", .object([("type", .string("integer"))])),
+                        ("chart", choice(["bar", "line"])),
+                        ("unit", text),
+                        ("tone", choice(["info", "success", "warning", "danger"])),
+                        ("text", text),
                     ])),
                     ("required", .array([.string("template")])),
                 ])
