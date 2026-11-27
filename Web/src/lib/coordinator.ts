@@ -82,6 +82,23 @@ export function groupedConversations<T extends { id: string; projectName: string
   return [...groups.entries()]
 }
 
+/** The server's placeholder title for a chat that has not been named yet. */
+const UNTITLED_CHAT = 'New conversation'
+
+/** A chat's title for display: the untitled placeholder is shown in the reader's language. */
+export function chatTitle(title: string | undefined | null, t: (key: string) => string): string {
+  return !title || title === UNTITLED_CHAT ? t(UNTITLED_CHAT) : title
+}
+
+/** Splits one project's chats into those touched today and the rest, newest first as given. */
+export function splitByToday<T extends { updatedAt: string }>(chats: T[], now: Date = new Date()): { today: T[]; earlier: T[] } {
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const today: T[] = []
+  const earlier: T[] = []
+  for (const chat of chats) (new Date(chat.updatedAt).getTime() >= start ? today : earlier).push(chat)
+  return { today, earlier }
+}
+
 /**
  * Plain words for the voice. Mirrors `SpeechClient.spokenText` on the server; change both together.
  * Drops the suggestions block and any on-screen details, code, tables, bare links, IDs and folder

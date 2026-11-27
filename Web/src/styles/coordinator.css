@@ -618,6 +618,9 @@
 .co-chat-archive { position: absolute; top: 50%; right: 4px; display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--dim); opacity: 0; pointer-events: none; transform: translateY(-50%); transition: opacity .12s, color .12s, background .12s; }
 .co-chat-row:hover .co-chat-archive, .co-chat-row:focus-within .co-chat-archive, .co-chat-row.revealed .co-chat-archive { opacity: 1; pointer-events: auto; }
 .co-chat-archive:hover, .co-chat-archive:focus-visible { color: var(--ink); background: rgba(148,190,156,.12); }
+.co-chat-day { padding: 7px 8px 3px; color: var(--dim); font-family: var(--mono); font-size: 9px; letter-spacing: .12em; text-transform: uppercase; }
+.co-chat-day:first-child { padding-top: 3px; }
+.co-chat-pending { padding: 7px 8px; color: var(--dim); font-size: 11px; line-height: 1.4; }
 .co-archived-link { margin-top: 6px; color: var(--dim); font-size: 11px; }
 .co-archive-toast { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0 2px; padding: 7px 9px; border: 1px solid rgba(74,217,158,.22); border-radius: 8px; background: rgba(74,217,158,.07); color: var(--ink2); font-size: 11px; animation: co-toast-in .15s ease; }
 @keyframes co-toast-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
