@@ -68,6 +68,8 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
     /// True once Ada (or one of her helpers) used her live browser during this reply, so the web app
     /// can open the browser window beside the chat while she works.
     public var usedBrowser: Bool
+    /// Cards Ada showed in this reply with `show_card`, drawn below the text. Data only, never HTML.
+    public var cards: [InfoCard]
 
     public init(
         id: UUID = UUID(),
@@ -90,7 +92,8 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
         completedAt: Date? = nil,
         toolLog: [String] = [],
         trigger: TriggerEvent? = nil,
-        usedBrowser: Bool = false
+        usedBrowser: Bool = false,
+        cards: [InfoCard] = []
     ) {
         self.id = id
         self.role = role
@@ -113,10 +116,11 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
         self.toolLog = toolLog
         self.trigger = trigger
         self.usedBrowser = usedBrowser
+        self.cards = cards
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, role, text, createdAt, status, missionIDs, teamIDs, proposal, activity, steps, quickReplies, fileIDs, scheduled, photos, spoken, speech, acknowledgement, completedAt, toolLog, trigger, usedBrowser
+        case id, role, text, createdAt, status, missionIDs, teamIDs, proposal, activity, steps, quickReplies, fileIDs, scheduled, photos, spoken, speech, acknowledgement, completedAt, toolLog, trigger, usedBrowser, cards
     }
 
     /// Older conversations on disk predate `steps`, `quickReplies`, and `completedAt`.
@@ -143,6 +147,7 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
         toolLog = try c.decodeIfPresent([String].self, forKey: .toolLog) ?? []
         trigger = try c.decodeIfPresent(TriggerEvent.self, forKey: .trigger)
         usedBrowser = try c.decodeIfPresent(Bool.self, forKey: .usedBrowser) ?? false
+        cards = try c.decodeIfPresent([InfoCard].self, forKey: .cards) ?? []
     }
 
     /// Trims, de-duplicates, and caps quick replies so model output can't flood the UI.

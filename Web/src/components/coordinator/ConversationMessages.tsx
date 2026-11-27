@@ -10,6 +10,7 @@ import { isHTML, isPreviewableLanguage, pickEntry } from '../../lib/preview'
 import { Markdown, type CodeTools } from '../Markdown'
 import { ErrorBanner } from '../ui'
 import { Icon } from './Icon'
+import { InfoCards } from './InfoCards'
 import type { CanvasState } from './SidePanel'
 import { ThinkingIndicator, WorkSummary } from './ThinkingIndicator'
 import { photoURL } from '../../lib/photos'
@@ -188,6 +189,7 @@ function Message({ conversationID, message, latest, busy, handlers, retry, readA
     <span className={`co-ada-avatar ${running ? 'working' : ''}`}>A</span>
     <div className="co-ada-content"><div className="co-ada-name">Ada{running ? <span>{t('Working')}</span> : null}{!running ? <time className="co-message-time" dateTime={message.createdAt}>{timeLabel(message.createdAt)}</time> : null}</div>
       {running ? <>{message.text ? <div className="co-response co-streaming"><Markdown source={message.text} codeTools={codeTools} /></div> : null}<ThinkingIndicator message={message} /></> : <><WorkSummary message={message} /><div className="co-response"><Markdown source={message.text} codeTools={codeTools} /></div></>}
+      <InfoCards cards={message.cards} />
       {message.status === 'failed' ? <button className="co-secondary-button co-retry" onClick={retry}>{t('Try again')}</button> : null}
       {message.missionIDs.length ? <div className="co-source-row">
         {running ? <button type="button" className="co-source-chip co-watch-chip" onClick={() => onOpenCanvas({ tab: 'console', missionID: message.missionIDs[0], source: null })}><i className="co-live-dot" />{t('Watch work')}</button> : null}

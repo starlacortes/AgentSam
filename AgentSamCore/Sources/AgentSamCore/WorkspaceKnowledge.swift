@@ -422,7 +422,7 @@ public actor WorkspaceKnowledgeStore {
         }
         lines += machines
         lines += ["", "## Direct chat tools"]
-        var directTools = ChatWorkspaceTools.definitions + TriggerTools.definitions + SkillTools.definitions + MemoryTools.definitions + SelfReviewTools.definitions
+        var directTools = ChatWorkspaceTools.definitions + TriggerTools.definitions + SkillTools.definitions + MemoryTools.definitions + SelfReviewTools.definitions + InfoCardTools.definitions
         if includeExtendedTools { directTools += ExtendedWorkspaceTools.definitions }
         // Names only: Ada already receives each tool's full description with its definition.
         lines.append(directTools.map(\.function.name).sorted().map { "`\($0)`" }.joined(separator: ", "))
