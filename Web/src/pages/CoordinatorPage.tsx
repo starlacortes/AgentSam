@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent } from 'react'
+import { useDialogs } from '../components/ConfirmDialog'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, errorMessage, uploadPhoto, uploadProjectFile } from '../api/client'
 import type { AgentActionRequest, ArchiveSettings, ConnectorStatus, Conversation, ConversationSummary, GuideState, MissionDetail, ProviderStatus, BrowserView } from '../api/types'
@@ -66,6 +67,7 @@ export function CoordinatorPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { t, lang } = useI18n()
   const { isAdmin } = useAuth()
+  const dialogs = useDialogs()
   const [conversations, setConversations] = useState<ConversationSummary[]>([])
   const [conversation, setConversation] = useState<Conversation | null>(null)
   const [connectors, setConnectors] = useState<ConnectorStatus[]>([])
@@ -535,7 +537,7 @@ export function CoordinatorPage() {
   }
 
   const remove = async () => {
-    if (!conversation || !window.confirm(t('Delete this conversation? Its messages will be removed; jobs and files stay intact.'))) return
+    if (!conversation || !(await dialogs.confirm({ title: t('Delete this conversation?'), detail: t('Its messages will be removed; jobs and files stay intact.'), confirm: t('Delete'), danger: true }))) return
     try {
       await api(`conversations/${conversation.id}`, { method: 'DELETE' })
       setConversations((current) => current.filter((item) => item.id !== conversation.id))

@@ -1000,3 +1000,20 @@
 }
 .people-table .people-person { width: 40%; }
 @media (max-width: 700px) { .people-table .people-person { width: auto; } }
+
+/* Ada's own confirm and ask dialog, in place of the browser's. */
+.co-confirm-overlay { z-index: 130; }
+.co-confirm { width: min(420px, 100%); padding: 22px 22px 18px; border: 1px solid var(--line2); border-radius: 16px; background: var(--panel); box-shadow: var(--shadow-pop); animation: co-fade-in .15s ease; }
+.co-confirm h2 { font-size: 17px; line-height: 1.35; overflow-wrap: anywhere; }
+.co-confirm p { margin-top: 8px; color: var(--mut); font-size: 13.5px; line-height: 1.55; }
+.co-confirm-input { width: 100%; margin-top: 14px; padding: 11px 13px; border: 1px solid var(--line2); border-radius: 10px; background: var(--deep); color: var(--ink); font-size: 16px; outline: none; }
+.co-confirm-input:focus { border-color: var(--em); box-shadow: 0 0 0 3px rgba(74,217,158,.13); }
+.co-confirm-input::placeholder { color: var(--dim); }
+.co-confirm-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 9px; margin-top: 20px; }
+.co-confirm-actions > button { min-height: 40px; padding: 8px 16px; font-size: 13.5px; }
+.co-primary-button.danger { border-color: rgba(229,99,91,.5); background: rgba(229,99,91,.14); color: #f3b1ac; }
+.co-primary-button.danger:hover:not(:disabled) { background: rgba(229,99,91,.24); }
+@media (max-width: 760px) {
+  .co-confirm-actions { flex-direction: column-reverse; }
+  .co-confirm-actions > button { width: 100%; min-height: 46px; font-size: 15px; }
+}

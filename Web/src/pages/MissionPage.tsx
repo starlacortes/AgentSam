@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useDialogs } from '../components/ConfirmDialog'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, errorMessage } from '../api/client'
 import { phaseLabel, type Mission, type MissionStatus, type Team } from '../api/types'
@@ -38,6 +39,7 @@ export function MissionPage() {
   const navigate = useNavigate()
   const { isAdmin } = useAuth()
   const { t } = useI18n()
+  const dialogs = useDialogs()
   const { detail, events, error, connection, running, reload } = useLiveMission(id)
   const [team, setTeam] = useState<Team | undefined>()
   const [tab, setTab] = useState<Tab>('plan')
@@ -73,7 +75,7 @@ export function MissionPage() {
   }, [mission, running, hasReport])
 
   async function stop() {
-    if (!window.confirm(t('Stop this job? Specialists stop where they are, and it can’t be resumed.'))) return
+    if (!(await dialogs.confirm({ title: t('Stop this job?'), detail: t('Specialists stop where they are, and it can’t be resumed.'), confirm: t('Stop'), cancel: t('Keep running'), danger: true }))) return
     setActionError(null)
     try {
       await api(`missions/${id}/stop`, { method: 'POST' })
@@ -102,7 +104,7 @@ export function MissionPage() {
   }
 
   async function remove() {
-    if (!window.confirm(t('Delete this job and all its files? This can’t be undone.'))) return
+    if (!(await dialogs.confirm({ title: t('Delete this job and all its files?'), detail: t('This can’t be undone.'), confirm: t('Delete'), danger: true }))) return
     try {
       await api(`missions/${id}`, { method: 'DELETE' })
       navigate('/')
