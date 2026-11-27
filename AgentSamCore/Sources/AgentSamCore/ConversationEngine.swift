@@ -601,17 +601,26 @@ public actor ConversationEngine {
         // Proposing a saved helper role needs an approval card, so it is offered only with access.
         let hasBrowser = await browser(ownerID: ref?.ownerID) != nil
         let delegateTools = ref == nil ? [] : HelperTools.definitions(hasWorkstation: workstation != nil, hasMCP: !mcpTools.isEmpty, hasBrowser: hasBrowser, saved: await helpers.all(ownerID: ref?.ownerID), canSave: access != nil, skills: await skills.enabled(for: ref?.ownerID).map(\.id))
-        let offered = OfferedTools.direct(connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedAccess: access != nil, hasWorkstation: workstation != nil, hasBrowser: hasBrowser, mcpTools: mcpTools, taskTools: taskTools, delegateTools: delegateTools)
+        let offered = OfferedTools.direct(connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedAccess: access != nil, hasWorkstation: workstation != nil, hasBrowser: hasBrowser, browserOpen: Self.browserInUse(history: context.history), mcpTools: mcpTools, taskTools: taskTools, delegateTools: delegateTools)
         return (offered, connectorTools, workstation)
+    }
+
+    /// Replies back that count as "the browser is in use", so its page tools are sent from the start.
+    static let browserHistoryWindow = 6
+
+    /// Whether one of Ada's recent replies used her browser. Then a page is likely open and the
+    /// person's next message is likely about it, so every browser tool is sent from the first call.
+    /// Otherwise only `browser_open`, `browser_look` and `browser_tabs` are, and the rest follow
+    /// once she uses one of them.
+    public static func browserInUse(history: [ConversationMessage]) -> Bool {
+        history.suffix(browserHistoryWindow).contains { $0.role == .assistant && $0.usedBrowser }
     }
 
     private func directAnswer(userText: String, photos photoInput: PhotoInputs = PhotoInputs(), coordinator: AgentProfile, context: ConversationPromptContext, history: [ConversationMessage], language: String, ref: ResponseRef? = nil, conversationID: UUID, writtenFiles: inout [String], toolLog: inout [String]) async throws -> String {
         let direct = await directTools(ref: ref, context: context)
         let connectorTools = direct.connectorTools
         let workstation = direct.workstation
-        let offeredTools = direct.offered
-        let tools = offeredTools.definitions
-        let offered = offeredTools.names
+        var offeredTools = direct.offered
         let system = ConversationPrompts.directResponseSystem(coordinator: coordinator, context: context, connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedTools: access != nil, store: promptStore, language: language)
         let text = context.userTurn(userText)
         // The context now rides in the user turn instead of the system prompt; budget for it on top
@@ -626,7 +635,7 @@ public actor ConversationEngine {
         for round in 0..<Self.maxToolRounds {
             try Task.checkCancellation()
             let stream = streamer(for: ref)
-            let reply = try await completeDirect(coordinator: coordinator, system: system, messages: messages, tools: tools, contextAllowance: allowance, summaries: summaries, onDelta: stream?.handler)
+            let reply = try await completeDirect(coordinator: coordinator, system: system, messages: messages, tools: offeredTools.definitions, contextAllowance: allowance, summaries: summaries, onDelta: stream?.handler)
             messages.append(reply.message)
             let calls = reply.message.tool_calls ?? []
             if calls.isEmpty { return reply.message.content ?? "" }
@@ -634,7 +643,9 @@ public actor ConversationEngine {
             // Closing the stream keeps a late flush from bringing the preamble back over a tool's step.
             stream?.close()
             if stream != nil { await publishPartial("", in: ref) }
-            for call in calls {
+            for asked in calls {
+                // A file or terminal call for the project runs as its project tool.
+                let call = offeredTools.resolved(asked)
                 await beginStep(ToolCatalog.label(for: call, language: language), in: ref)
                 let outcome = await executeTool(call: call, offeredTools: offeredTools, state: state, context: context, language: language, ref: ref, conversationID: conversationID, coordinator: coordinator, workstation: workstation)
                 writtenFiles.append(contentsOf: state.writtenFiles)
@@ -642,6 +653,10 @@ public actor ConversationEngine {
                 let shown = Self.workstationFallback(toolName: call.function.name, outcome: outcome, hasWorkstation: workstation != nil)
                 messages.append(.tool(id: call.id, content: String(shown.resultText.prefix(32_000)), isError: !shown.succeeded))
                 if toolLog.count < Self.maxToolLogEntries { toolLog.append(Self.toolLogLine(call: call, outcome: shown)) }
+                // Once Ada uses her browser, the tools that act on a page are sent from the next call on.
+                if offeredTools.family(of: call.function.name) == .browser, offeredTools.holds(.browser) {
+                    offeredTools = offeredTools.revealing(.browser)
+                }
             }
             // The reply's spending limit stops further tool rounds; Ada answers with what she has.
             if let replyCap, (CostMeter.current?.total ?? 0) >= replyCap {
@@ -927,7 +942,8 @@ public actor ConversationEngine {
             }
             request = valid
         }
-        let offeredTools = parent.restricted { name, family in HelperTools.allows(name: name, family: family, groups: request.groups) }
+        // A specialist has a narrow job and a short run, so it gets every tool its groups allow at once.
+        let offeredTools = parent.restricted { name, family in HelperTools.allows(name: name, family: family, groups: request.groups) }.revealingAll()
         let es = language == "es"
         await beginStep(es ? "\(request.name) está trabajando" : "\(request.name) is working", in: ref)
         var line = AgentActivity(agentID: UUID(), agentName: request.name, summary: HelperTools.firstLine(request.task, limit: 160), state: "working", teamName: HelperTools.activityLabel)
@@ -965,7 +981,8 @@ public actor ConversationEngine {
                     finished = true
                     break
                 }
-                for inner in calls {
+                for askedInner in calls {
+                    let inner = offeredTools.resolved(askedInner)
                     // The helper's own tool calls show as steps too: "researchAda: Searching the web for …".
                     await beginStep("\(request.name): \(ToolCatalog.label(for: inner, language: language))", in: ref)
                     let outcome = await executeTool(call: inner, offeredTools: offeredTools, state: helperState, context: context, language: language, ref: ref, conversationID: conversationID, coordinator: coordinator, workstation: workstation)

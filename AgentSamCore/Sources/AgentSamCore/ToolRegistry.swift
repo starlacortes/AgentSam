@@ -37,33 +37,84 @@ public enum ToolFamily: Sendable, Equatable {
 /// This is the single place that decides which tools Ada is offered and how each one runs. Every
 /// call is looked up here, so a name that was not offered in this request cannot run, and a tool
 /// is dispatched by the list it was offered from rather than by name patterns.
+///
+/// Not every tool that may run is sent to the model on every call, because each definition costs
+/// tokens on each of up to 20 calls per reply, and a long list makes wrong picks more likely:
+/// - A *held* tool may run, but its definition is sent only once its family is revealed (the
+///   fine-grained browser tools wait until Ada has a page open).
+/// - A *hidden* tool may run but is never sent: an older name that another tool now covers
+///   (`project_read_file` is `chat_read_file` with `location: "project"`). Calls to it still work,
+///   from older chats and from habits.
 public struct OfferedTools: Sendable {
-    public let definitions: [APIToolDef]
-    private let families: [String: ToolFamily]
+    public enum Visibility: Sendable, Equatable { case sent, held, hidden }
 
-    public init(_ groups: [(ToolFamily, [APIToolDef])]) {
-        var definitions: [APIToolDef] = []
-        var families: [String: ToolFamily] = [:]
-        for (family, defs) in groups {
-            for def in defs where families[def.function.name] == nil {
-                families[def.function.name] = family
-                definitions.append(def)
-            }
-        }
-        self.definitions = definitions
-        self.families = families
+    private struct Entry: Sendable {
+        let definition: APIToolDef
+        let family: ToolFamily
+        var visibility: Visibility
     }
 
-    public var names: Set<String> { Set(families.keys) }
+    private var entries: [Entry]
+    private let index: [String: Int]
 
-    /// The family of a tool offered in this request, or nil when the name was not offered.
-    public func family(of name: String) -> ToolFamily? { families[name] }
+    /// `holding` names tools of `groups` that are held back; they keep their place in the order, so
+    /// once revealed the list is the same as one sent whole from the start.
+    public init(_ groups: [(ToolFamily, [APIToolDef])], holding: Set<String> = [], hidden: [(ToolFamily, [APIToolDef])] = []) {
+        var entries: [Entry] = []
+        var index: [String: Int] = [:]
+        for (isHidden, list) in [(false, groups), (true, hidden)] {
+            for (family, defs) in list {
+                for def in defs where index[def.function.name] == nil {
+                    let name = def.function.name
+                    index[name] = entries.count
+                    entries.append(Entry(definition: def, family: family, visibility: isHidden ? .hidden : (holding.contains(name) ? .held : .sent)))
+                }
+            }
+        }
+        self.entries = entries
+        self.index = index
+    }
+
+    /// The definitions sent to the model in this call, in a stable order.
+    public var definitions: [APIToolDef] { entries.filter { $0.visibility == .sent }.map(\.definition) }
+
+    /// The tools Ada is told about and may call: sent and held, not hidden aliases.
+    public var names: Set<String> { Set(entries.filter { $0.visibility != .hidden }.map(\.definition.function.name)) }
+
+    /// The family of a tool that may run in this request, or nil when the name was not offered.
+    public func family(of name: String) -> ToolFamily? { index[name].map { entries[$0].family } }
+
+    public func visibility(of name: String) -> Visibility? { index[name].map { entries[$0].visibility } }
+
+    /// Whether any tool of this family is still held back.
+    public func holds(_ family: ToolFamily) -> Bool { entries.contains { $0.family == family && $0.visibility == .held } }
+
+    /// The same tools with every held tool of `family` now sent.
+    public func revealing(_ family: ToolFamily) -> OfferedTools {
+        var copy = self
+        for i in copy.entries.indices where copy.entries[i].family == family && copy.entries[i].visibility == .held {
+            copy.entries[i].visibility = .sent
+        }
+        return copy
+    }
+
+    /// The same tools with everything held now sent (helpers get their whole set at once).
+    public func revealingAll() -> OfferedTools {
+        var copy = self
+        for i in copy.entries.indices where copy.entries[i].visibility == .held { copy.entries[i].visibility = .sent }
+        return copy
+    }
+
+    /// Browser tools sent from the start. The rest act on a page, so they wait until one is open.
+    public static let browserFirstNames: Set<String> = ["browser_open", "browser_look", "browser_tabs"]
 
     /// Ada's direct-reply tools. Extended tools need workspace access; mission tools need a linked mission.
-    public static func direct(connectorTools: [APIToolDef], hasLinkedMissions: Bool, hasExtendedAccess: Bool, hasWorkstation: Bool = false, hasBrowser: Bool = false, mcpTools: [APIToolDef] = [], taskTools: [APIToolDef] = [], delegateTools: [APIToolDef] = []) -> OfferedTools {
-        OfferedTools([
+    /// `browserOpen` sends every browser tool from the first call, for chats where the browser is already in use.
+    public static func direct(connectorTools: [APIToolDef], hasLinkedMissions: Bool, hasExtendedAccess: Bool, hasWorkstation: Bool = false, hasBrowser: Bool = false, browserOpen: Bool = false, mcpTools: [APIToolDef] = [], taskTools: [APIToolDef] = [], delegateTools: [APIToolDef] = []) -> OfferedTools {
+        let held = hasBrowser && !browserOpen ? BrowserTools.names.subtracting(browserFirstNames) : []
+        return OfferedTools([
             (.connector, connectorTools),
-            (.chat, ChatWorkspaceTools.definitions),
+            (.chat, ChatWorkspaceTools.definitions(projectLocation: hasExtendedAccess)),
             (.trigger, TriggerTools.definitions),
             (.task, taskTools),
             (.delegate, delegateTools),
@@ -75,19 +126,34 @@ public struct OfferedTools: Sendable {
             (.workstation, hasWorkstation ? WorkstationTools.definitions : []),
             (.browser, hasBrowser ? BrowserTools.definitions : []),
             (.mcp, mcpTools),
+        ], holding: held, hidden: [
+            (.extended, hasExtendedAccess ? ExtendedWorkspaceTools.projectAliases : []),
         ])
     }
 
-    /// The offered tools that `allow` accepts, each still dispatched by the family it was offered from.
+    /// The offered tools that `allow` accepts, each still dispatched by the family it was offered
+    /// from and kept as sent, held or hidden.
     public func restricted(_ allow: (String, ToolFamily) -> Bool) -> OfferedTools {
-        var groups: [ToolFamily: [APIToolDef]] = [:]
-        var order: [ToolFamily] = []
-        for def in definitions {
-            guard let family = families[def.function.name], allow(def.function.name, family) else { continue }
-            if groups[family] == nil { order.append(family) }
-            groups[family, default: []].append(def)
-        }
-        return OfferedTools(order.map { ($0, groups[$0] ?? []) })
+        OfferedTools(entries: entries.filter { allow($0.definition.function.name, $0.family) })
+    }
+
+    private init(entries: [Entry]) {
+        self.entries = entries
+        var index: [String: Int] = [:]
+        for (i, entry) in entries.enumerated() where index[entry.definition.function.name] == nil { index[entry.definition.function.name] = i }
+        self.index = index
+    }
+
+    /// A call to a tool with a `location` argument, turned into the tool that serves that location:
+    /// `chat_read_file` with `location: "project"` runs as `project_read_file`. Other calls are unchanged.
+    public func resolved(_ call: APIToolCall) -> APIToolCall {
+        guard let target = ExtendedWorkspaceTools.projectAlias[call.function.name],
+              index[target] != nil,
+              AgentTools.arguments(of: call)["location"]?.stringValue?.lowercased() == "project"
+        else { return call }
+        var routed = call
+        routed.function.name = target
+        return routed
     }
 }
 

@@ -195,6 +195,64 @@ final class ConversationTests: XCTestCase {
         XCTAssertEqual(basic.family(of: "chat_write_file"), .chat)
     }
 
+    func testProjectFilesAreReachedWithLocationInsteadOfTheirOwnTools() throws {
+        let full = OfferedTools.direct(connectorTools: [], hasLinkedMissions: false, hasExtendedAccess: true)
+        let sent = Set(full.definitions.map(\.function.name))
+        for (chat, project) in ExtendedWorkspaceTools.projectAlias {
+            XCTAssertTrue(sent.contains(chat), chat)
+            XCTAssertFalse(sent.contains(project), "\(project) is covered by \(chat) with location")
+            XCTAssertEqual(full.visibility(of: project), .hidden)
+            XCTAssertNotNil(full.family(of: project), "\(project) still runs, for older chats")
+            let def = try XCTUnwrap(full.definitions.first { $0.function.name == chat })
+            XCTAssertNotNil(def.function.parameters.objectValue?["properties"]?.objectValue?["location"], "\(chat) takes a location")
+        }
+        XCTAssertFalse(full.names.contains("project_read_file"), "hidden aliases are not listed as offered")
+        func call(_ name: String, _ arguments: String) -> APIToolCall { APIToolCall(id: "1", function: .init(name: name, arguments: arguments)) }
+        XCTAssertEqual(full.resolved(call("chat_read_file", #"{"path":"a.md","location":"project"}"#)).function.name, "project_read_file")
+        XCTAssertEqual(full.resolved(call("run_terminal", #"{"command":"ls","location":"Project"}"#)).function.name, "project_terminal")
+        XCTAssertEqual(full.resolved(call("chat_read_file", #"{"path":"a.md","location":"chat"}"#)).function.name, "chat_read_file")
+        XCTAssertEqual(full.resolved(call("chat_read_file", #"{"path":"a.md"}"#)).function.name, "chat_read_file")
+        XCTAssertEqual(full.resolved(call("project_write_file", #"{"path":"a.md","content":"x"}"#)).function.name, "project_write_file")
+
+        // Without extended access there is no project, so no location argument and nothing to route to.
+        let basic = OfferedTools.direct(connectorTools: [], hasLinkedMissions: false, hasExtendedAccess: false)
+        let write = try XCTUnwrap(basic.definitions.first { $0.function.name == "chat_write_file" })
+        XCTAssertNil(write.function.parameters.objectValue?["properties"]?.objectValue?["location"])
+        XCTAssertEqual(basic.resolved(call("chat_write_file", #"{"path":"a.md","content":"x","location":"project"}"#)).function.name, "chat_write_file")
+    }
+
+    func testBrowserPageToolsWaitUntilTheBrowserIsInUse() {
+        let fresh = OfferedTools.direct(connectorTools: [], hasLinkedMissions: false, hasExtendedAccess: true, hasWorkstation: true, hasBrowser: true)
+        let sent = Set(fresh.definitions.map(\.function.name))
+        XCTAssertEqual(sent.intersection(BrowserTools.names), OfferedTools.browserFirstNames)
+        XCTAssertTrue(fresh.holds(.browser))
+        XCTAssertEqual(fresh.visibility(of: "browser_click"), .held)
+        XCTAssertEqual(fresh.family(of: "browser_click"), .browser, "a held tool still runs when called")
+        XCTAssertTrue(fresh.names.contains("browser_click"))
+
+        let revealed = fresh.revealing(.browser)
+        XCTAssertFalse(revealed.holds(.browser))
+        XCTAssertTrue(BrowserTools.names.isSubset(of: Set(revealed.definitions.map(\.function.name))))
+        // Revealing keeps the order of everything already sent, so the cached prefix survives up to the browser tools.
+        let before = fresh.definitions.map(\.function.name)
+        let after = revealed.definitions.map(\.function.name).filter { before.contains($0) }
+        XCTAssertEqual(before, after)
+
+        let open = OfferedTools.direct(connectorTools: [], hasLinkedMissions: false, hasExtendedAccess: true, hasWorkstation: true, hasBrowser: true, browserOpen: true)
+        XCTAssertEqual(open.definitions.map(\.function.name), revealed.definitions.map(\.function.name))
+
+        // Specialists with the browser group get the whole set at once.
+        let helper = fresh.restricted { name, family in HelperTools.allows(name: name, family: family, groups: [.read, .browser]) }.revealingAll()
+        XCTAssertTrue(BrowserTools.names.isSubset(of: Set(helper.definitions.map(\.function.name))))
+
+        var used = ConversationMessage(role: .assistant, text: "Opened it.")
+        used.usedBrowser = true
+        let quiet = (0..<ConversationEngine.browserHistoryWindow).map { _ in ConversationMessage(role: .user, text: "hi") }
+        XCTAssertTrue(ConversationEngine.browserInUse(history: [used] + quiet.dropLast()))
+        XCTAssertFalse(ConversationEngine.browserInUse(history: [used] + quiet))
+        XCTAssertFalse(ConversationEngine.browserInUse(history: []))
+    }
+
     func testToolLogIsKeptWithTheReplyAndSentWithLaterTurns() async throws {
         let store = MissionStore(root: directory)
         await store.saveProviders([provider])
@@ -1306,7 +1364,7 @@ final class ConversationTests: XCTestCase {
     }
 
     func testEveryDirectToolHasAFriendlyStepLabel() {
-        let names = (ChatWorkspaceTools.definitions + TriggerTools.definitions + TaskTools.definitions(catalog: "") + ExtendedWorkspaceTools.definitions + ConversationMissionTools.definitions + WorkstationTools.definitions).map(\.function.name)
+        let names = (ChatWorkspaceTools.definitions + TriggerTools.definitions + TaskTools.definitions(catalog: "") + ExtendedWorkspaceTools.definitions + ExtendedWorkspaceTools.projectAliases + ConversationMissionTools.definitions + WorkstationTools.definitions).map(\.function.name)
             + ConnectorHub.readOnlyToolNames.filter { !$0.hasPrefix("cloudflare_") }
             + ["gmail_draft", "gmail_send", "github_write_file", "github_comment", "googleads_set_status", "googleads_set_budget", "googleads_mutate"]
         for name in names {
@@ -1357,7 +1415,7 @@ final class ConversationTests: XCTestCase {
     func testEveryToolHasOneCatalogEntryWithTheRightAccess() {
         let everything = ConnectorPermissions(sendEmail: true, createDraft: true, dnsWrite: true, githubWrite: true, adsWrite: true)
         let connectorNames = Set(ConnectorHub.providers.flatMap { $0.toolDefs(permissions: everything) }.map(\.function.name))
-        let workspaceNames = Set((ChatWorkspaceTools.definitions + TriggerTools.definitions + TaskTools.definitions(catalog: "") + HelperTools.definitions(hasWorkstation: true, hasMCP: true, canSave: true) + ExtendedWorkspaceTools.definitions + ConversationMissionTools.definitions + SkillTools.definitions + MemoryTools.definitions + SelfReviewTools.definitions + WorkstationTools.definitions + BrowserTools.definitions + AgentTools.workerTools).map(\.function.name))
+        let workspaceNames = Set((ChatWorkspaceTools.definitions + TriggerTools.definitions + TaskTools.definitions(catalog: "") + HelperTools.definitions(hasWorkstation: true, hasMCP: true, canSave: true) + ExtendedWorkspaceTools.definitions + ExtendedWorkspaceTools.projectAliases + ConversationMissionTools.definitions + SkillTools.definitions + MemoryTools.definitions + SelfReviewTools.definitions + WorkstationTools.definitions + BrowserTools.definitions + AgentTools.workerTools).map(\.function.name))
         let catalogNames = ToolCatalog.specs.map(\.name)
         XCTAssertEqual(catalogNames.count, Set(catalogNames).count, "a tool is listed twice in the catalog")
         XCTAssertEqual(Set(catalogNames), connectorNames.union(workspaceNames), "the catalog and the tool definitions disagree")
