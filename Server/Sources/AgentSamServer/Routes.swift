@@ -22,6 +22,10 @@ public func configure(_ app: Application) async throws {
         app.http.server.configuration.port = port
     }
 
+    // Chat and list replies are JSON that shrinks several times over, which matters on phone
+    // networks. Pictures and audio are left as they are.
+    app.http.server.configuration.responseCompression = .enabled
+
     app.middleware.use(SecurityHeadersMiddleware())
     let webDir = WebApp.directory()
     if let webDir {
