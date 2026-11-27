@@ -22,6 +22,8 @@ public enum ToolFamily: Sendable, Equatable {
     case selfReview
     /// Small cards drawn in Ada's reply: stats, comparisons, charts (`InfoCardTools`).
     case card
+    /// A card of tappable choices that ends Ada's reply (`ChoiceCardTools`).
+    case choice
     /// Ada's own Linux machine (`WorkstationTools`): admins only, when the server turns it on.
     case workstation
     /// Ada's browser on the workstation (`BrowserTools`): admins only, when the server turns it on.
@@ -144,7 +146,7 @@ public struct OfferedTools: Sendable {
     /// Ada's direct-reply tools. Extended tools need workspace access; mission tools need a linked mission.
     /// `cardsOpen` sends show_card from the first call, for chats where Ada showed cards lately.
     /// `browserOpen` sends every browser tool from the first call, for chats where the browser is already in use.
-    public static func direct(connectorTools: [APIToolDef], hasLinkedMissions: Bool, hasExtendedAccess: Bool, hasWorkstation: Bool = false, hasBrowser: Bool = false, browserOpen: Bool = false, mcpTools: [APIToolDef] = [], taskTools: [APIToolDef] = [], delegateTools: [APIToolDef] = [], cards: Bool = false, cardsOpen: Bool = false) -> OfferedTools {
+    public static func direct(connectorTools: [APIToolDef], hasLinkedMissions: Bool, hasExtendedAccess: Bool, hasWorkstation: Bool = false, hasBrowser: Bool = false, browserOpen: Bool = false, mcpTools: [APIToolDef] = [], taskTools: [APIToolDef] = [], delegateTools: [APIToolDef] = [], cards: Bool = false, cardsOpen: Bool = false, choices: Bool = false) -> OfferedTools {
         var held = hasBrowser && !browserOpen ? BrowserTools.names.subtracting(browserFirstNames) : []
         // A card shows data Ada found or worked out, so show_card waits until she has used a tool in the
         // reply (or used cards lately). Sent from the start, it drew cards onto questions and refusals.
@@ -163,6 +165,8 @@ public struct OfferedTools: Sendable {
             (.workstation, hasWorkstation ? WorkstationTools.definitions : []),
             (.browser, hasBrowser ? BrowserTools.definitions : []),
             (.mcp, mcpTools),
+            // Sent from the first call (a choice comes before the work), in a fixed place so the list caches.
+            (.choice, choices ? ChoiceCardTools.definitions : []),
             (.card, cards ? InfoCardTools.definitions : []),
         ], holding: held, hidden: [
             (.extended, hasExtendedAccess ? ExtendedWorkspaceTools.projectAliases : []),
@@ -285,6 +289,7 @@ public enum ToolCatalog {
         ToolSpec("memory_remember", .write, en: "Remembering that", es: "Recordándolo"),
         ToolSpec("memory_forget", .write, en: "Forgetting that", es: "Olvidándolo"),
         ToolSpec("show_card", .write, en: "Making a card", es: "Preparando una tarjeta"),
+        ToolSpec("ask_choice", .write, en: "Preparing your options", es: "Preparando tus opciones"),
         ToolSpec("self_review_recent", .read, en: "Looking back at my recent work", es: "Revisando mi trabajo reciente"),
         ToolSpec("workstation_status", .read, en: "Checking the workstation", es: "Revisando la estación de trabajo"),
         ToolSpec("workstation_run", .approval, en: "Preparing a workstation command", es: "Preparando un comando en la estación"),

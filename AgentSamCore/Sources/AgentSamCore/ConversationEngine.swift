@@ -67,17 +67,47 @@ public actor ConversationEngine {
     }
 
     @discardableResult
-    public func send(conversationID: UUID, ownerID: String, text rawText: String, launchedBy: String, language: String, scheduled: Bool = false, photos: [PhotoAttachment] = [], spoken: Bool = false, timeZone: String? = nil, trigger: TriggerEvent? = nil) async throws -> Conversation {
-        let text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
+    /// `choice` answers a choice card Ada asked: its answers become the message text, and the card
+    /// shows them. Any other message the person sends closes a waiting card, showing what they
+    /// picked when their words clearly name its options.
+    public func send(conversationID: UUID, ownerID: String, text rawText: String, launchedBy: String, language: String, scheduled: Bool = false, photos: [PhotoAttachment] = [], spoken: Bool = false, timeZone: String? = nil, trigger: TriggerEvent? = nil, choice: ChoiceReply? = nil) async throws -> Conversation {
+        var text = rawText.trimmingCharacters(in: .whitespacesAndNewlines)
         let photos = Array(photos.prefix(ConversationPhotoStore.maxPerMessage))
-        guard !text.isEmpty || !photos.isEmpty else { throw ConversationError.emptyMessage }
+        guard !text.isEmpty || !photos.isEmpty || choice != nil else { throw ConversationError.emptyMessage }
         guard text.count <= 20_000 else { throw ConversationError.messageTooLong }
         guard running[conversationID] == nil else { throw ConversationError.alreadyRunning }
         guard let conversation = try await conversations.get(id: conversationID, ownerID: ownerID) else { throw ConversationError.notFound }
         guard !conversation.messages.contains(where: { $0.status == .running }) else { throw ConversationError.alreadyRunning }
-        if let timeZone { _ = try? await conversations.setTimeZone(id: conversationID, ownerID: ownerID, timeZone: timeZone) }
         let lang = language.lowercased().hasPrefix("es") ? "es" : "en"
-        let userMessage = ConversationMessage(role: .user, text: text, scheduled: scheduled || trigger != nil, photos: photos, spoken: spoken, trigger: trigger)
+        var choiceReply: ChoiceAnswer?
+        if let choice {
+            guard let card = conversation.messages.last(where: { $0.choice?.id == choice.cardID })?.choice else {
+                throw ConversationError.choice(lang == "es" ? "Esta tarjeta ya no está en el chat." : "This card is no longer in the chat.")
+            }
+            guard card.state == .pending else {
+                throw ConversationError.choice(lang == "es" ? "Esta tarjeta ya tiene respuesta. Escribe tu mensaje para cambiarla." : "This card was already answered. Write a message to change your answer.")
+            }
+            switch ChoiceCardTools.answer(card, reply: choice) {
+            case .failure(let error): throw ConversationError.choice(error.message)
+            case .success(let answer):
+                choiceReply = answer
+                text = answer.text(title: card.title, language: lang)
+            }
+        }
+        if let timeZone { _ = try? await conversations.setTimeZone(id: conversationID, ownerID: ownerID, timeZone: timeZone) }
+        // A waiting card takes one answer: this message, on the card or in words.
+        if !scheduled && trigger == nil {
+            let latestReply = conversation.messages.last(where: { $0.role == .assistant })?.id
+            for message in conversation.messages where message.role == .assistant && message.choice?.state == .pending {
+                guard let card = message.choice else { continue }
+                let answer = card.id == choiceReply?.cardID ? choiceReply : (message.id == latestReply ? ChoiceCardTools.match(text, card: card) : nil)
+                _ = try await conversations.updateMessage(id: conversationID, ownerID: ownerID, messageID: message.id) { updated in
+                    updated.choice?.state = answer == nil ? .closed : .answered
+                    updated.choice?.answer = answer
+                }
+            }
+        }
+        let userMessage = ConversationMessage(role: .user, text: text, scheduled: scheduled || trigger != nil, photos: photos, spoken: spoken, trigger: trigger, choiceReply: choiceReply)
         let choosing = routing ? StepLabel.choosing(lang) : StepLabel.thinking(lang)
         let pending = ConversationMessage(role: .assistant, text: "", status: .running, activity: [AgentActivity(agentID: UUID(), agentName: "Ada", summary: choosing, state: "working")], steps: [MessageStep(label: choosing)])
         _ = try await conversations.append(id: conversationID, ownerID: ownerID, message: userMessage)
@@ -414,11 +444,20 @@ public actor ConversationEngine {
                 }
             }
             // A spoken reply is shown and read the same: what Ada says matches the chat word for word.
-            let speech: String? = nil
+            var speech: String? = nil
             if userMessage.spoken { responseText = ConversationPrompts.extractDetails(responseText).screen }
 
             try Task.checkCancellation()
-            let trimmed = responseText.trimmingCharacters(in: .whitespacesAndNewlines)
+            var trimmed = responseText.trimmingCharacters(in: .whitespacesAndNewlines)
+            // A reply that ends on a choice card: its text is the card's lead-in, or the first question
+            // when Ada wrote none. It is read aloud with the questions and options, and the card
+            // takes the place of suggested replies.
+            if let asked = try await conversations.get(id: conversationID, ownerID: ownerID)?.messages.first(where: { $0.id == responseID })?.choice, let first = asked.questions.first {
+                if trimmed.isEmpty { trimmed = first.question }
+                quickReplies = []
+                let card = ChoiceCardTools.spokenText(asked, language: SpokenNumbers.language(of: trimmed, fallback: language))
+                speech = trimmed == first.question ? card : trimmed + "\n\n" + card
+            }
             guard !trimmed.isEmpty else { throw ConversationError.persistence("Ada received an empty response from the model. Please try again.") }
             for index in activity.indices { activity[index].state = "done" }
             let fileIDs = Array(NSOrderedSet(array: writtenFiles).array.compactMap { $0 as? String }) as [String]
@@ -547,6 +586,10 @@ public actor ConversationEngine {
         if call.function.name == InfoCardTools.toolName, outcome.succeeded, case .success(let card) = InfoCardTools.card(from: AgentTools.arguments(of: call)) {
             return card.logLine + " → ok"
         }
+        // A choice card's questions and options, so a later turn knows what the person's answers are to.
+        if call.function.name == ChoiceCardTools.toolName, outcome.succeeded, case .success(let card) = ChoiceCardTools.card(from: AgentTools.arguments(of: call)) {
+            return card.logLine + " → shown; the person's next message answers it"
+        }
         let arguments = call.function.arguments.replacingOccurrences(of: "\n", with: " ")
         let shortArguments = arguments.count > 120 ? String(arguments.prefix(120)) + "…" : arguments
         let firstLine = outcome.resultText.split(separator: "\n", maxSplits: 1).first.map(String.init) ?? ""
@@ -605,7 +648,7 @@ public actor ConversationEngine {
         // Proposing a saved helper role needs an approval card, so it is offered only with access.
         let hasBrowser = await browser(ownerID: ref?.ownerID) != nil
         let delegateTools = ref == nil ? [] : HelperTools.definitions(hasWorkstation: workstation != nil, hasMCP: !mcpTools.isEmpty, hasBrowser: hasBrowser, saved: await helpers.all(ownerID: ref?.ownerID), canSave: access != nil, skills: await skills.enabled(for: ref?.ownerID).map(\.id))
-        let offered = OfferedTools.direct(connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedAccess: access != nil, hasWorkstation: workstation != nil, hasBrowser: hasBrowser, browserOpen: Self.browserInUse(history: context.history), mcpTools: mcpTools, taskTools: taskTools, delegateTools: delegateTools, cards: ref != nil, cardsOpen: Self.cardsInUse(history: context.history))
+        let offered = OfferedTools.direct(connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedAccess: access != nil, hasWorkstation: workstation != nil, hasBrowser: hasBrowser, browserOpen: Self.browserInUse(history: context.history), mcpTools: mcpTools, taskTools: taskTools, delegateTools: delegateTools, cards: ref != nil, cardsOpen: Self.cardsInUse(history: context.history), choices: ref != nil)
         return (offered, connectorTools, workstation)
     }
 
@@ -670,6 +713,8 @@ public actor ConversationEngine {
                     offeredTools = offeredTools.revealing(.browser)
                 }
             }
+            // A choice card ends the reply: the person answers next. Its lead-in text, if any, is the reply.
+            if state.choice != nil { return DSMLToolCalls.strip(reply.message.content ?? "") }
             // Once Ada has used a tool she may have data worth a card, so show_card is sent from the next call.
             if offeredTools.holds(.card) { offeredTools = offeredTools.revealing(.card) }
             // The reply's spending limit stops further tool rounds; Ada answers with what she has.
@@ -712,6 +757,8 @@ public actor ConversationEngine {
         var delegations = 0
         var helperSaves = 0
         var cards = 0
+        /// The choice card asked in this reply; the reply ends once it is shown.
+        var choice: ChoiceCard?
         /// Set once a self-review runs: memory and skill tools then only suggest.
         var reviewed = false
         var writtenFiles: [String] = []
@@ -814,6 +861,16 @@ public actor ConversationEngine {
                 outcome = await showCard(call: call, in: ref, number: state.cards)
             } else {
                 outcome = .failure("Cards need a chat reply to appear in.")
+            }
+        case .choice:
+            if state.choice != nil {
+                outcome = .failure("A choice card is already shown in this reply; put every question in that one card.")
+            } else if context.scheduled {
+                outcome = .failure("This run was started by a schedule or trigger, so nobody is here to tap a card. Decide yourself, or ask in your text.")
+            } else if let ref {
+                outcome = await askChoice(call: call, in: ref, state: state)
+            } else {
+                outcome = .failure("Choice cards need a chat reply to appear in.")
             }
         case .selfReview:
             // From here on this reply only suggests; memory and skill tools refuse until the user picks.
@@ -1163,6 +1220,24 @@ public actor ConversationEngine {
                 return ToolOutcome(resultText: InfoCardTools.shownMessage(card, number: number))
             } catch {
                 return .failure("The card could not be saved, so it is not shown. Give the information in text.")
+            }
+        }
+    }
+
+    /// Checks an `ask_choice` call and puts the card on the running reply, which then ends.
+    private func askChoice(call: APIToolCall, in ref: ResponseRef, state: ToolRunState) async -> ToolOutcome {
+        switch ChoiceCardTools.card(from: AgentTools.arguments(of: call)) {
+        case .failure(let error):
+            return .failure(error.message)
+        case .success(let card):
+            do {
+                _ = try await conversations.updateMessage(id: ref.conversationID, ownerID: ref.ownerID, messageID: ref.responseID) { message in
+                    message.choice = card
+                }
+                state.choice = card
+                return ToolOutcome(resultText: ChoiceCardTools.shownMessage)
+            } catch {
+                return .failure("The choice card could not be saved, so it is not shown. Ask in text instead.")
             }
         }
     }

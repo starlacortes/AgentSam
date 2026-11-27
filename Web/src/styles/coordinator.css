@@ -1179,6 +1179,67 @@
 .co-card-callout.danger { border-left-color: var(--danger); background: var(--danger-bg); }
 .co-card-callout.danger .co-card-callout-icon { color: var(--danger); background: rgba(229,99,91,.16); }
 
+/* ---------- Ada's choice cards (ask_choice) ----------
+   Tappable options under a reply, one question at a time. The same look as Ada's cards, with the
+   mint accent marking what is picked. Every target is at least 44px tall, also on desktop. */
+.co-choice { margin-top: 14px; max-width: 560px; border: 1px solid var(--line2); border-radius: 14px; background: linear-gradient(180deg, rgba(74,217,158,.05), rgba(74,217,158,.012)), var(--panel); padding: 14px; animation: co-fade-in .25s ease both; }
+.co-choice-head { display: flex; align-items: center; gap: 8px; font-family: var(--display); font-size: var(--t-small); font-weight: 650; color: var(--mut); letter-spacing: .01em; }
+.co-choice-head b { flex: 1; min-width: 0; color: var(--ink2); font-weight: 650; overflow-wrap: anywhere; }
+.co-choice-icon { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 7px; background: rgba(74,217,158,.12); color: var(--em); flex: none; }
+.co-choice-progress { font-family: var(--mono); font-size: var(--t-label); font-weight: 500; color: var(--dim); white-space: nowrap; }
+.co-choice-steps { display: flex; gap: 4px; margin-top: 10px; }
+.co-choice-steps i { flex: 1; height: 3px; border-radius: 2px; background: var(--line2); transition: background .2s; }
+.co-choice-steps i.done { background: rgba(74,217,158,.55); }
+.co-choice-steps i.now { background: var(--em); }
+.co-choice-question { margin-top: 12px; color: var(--bright); font-family: var(--display); font-size: var(--t-title); font-weight: 600; line-height: 1.35; letter-spacing: -0.005em; overflow-wrap: anywhere; }
+.co-choice-hint { margin-top: 3px; color: var(--dim); font-size: var(--t-small); }
+.co-choice-options { display: grid; gap: 7px; margin-top: 11px; }
+.co-choice-option { display: flex; align-items: center; gap: 11px; width: 100%; min-height: 44px; padding: 9px 12px; border: 1px solid var(--line2); border-radius: 11px; background: var(--deep); color: var(--ink2); text-align: left; transition: border-color .15s, background .15s, transform .15s; }
+.co-choice-option:hover:not(:disabled) { border-color: rgba(74,217,158,.45); background: rgba(74,217,158,.05); }
+.co-choice-option:focus-visible { outline: 2px solid var(--em); outline-offset: 2px; }
+.co-choice-option:active:not(:disabled) { transform: scale(.995); }
+.co-choice-option.on { border-color: var(--em); background: rgba(74,217,158,.1); }
+.co-choice-option:disabled { opacity: .6; cursor: default; }
+.co-choice-option.on:disabled { opacity: 1; }
+.co-choice-mark { flex: none; display: grid; place-items: center; width: 20px; height: 20px; border: 1.5px solid var(--line2); color: var(--bg); background: transparent; transition: .15s; }
+.co-choice-mark.dot { border-radius: 50%; }
+.co-choice-mark.box { border-radius: 6px; }
+.co-choice-option.on .co-choice-mark { border-color: var(--em); background: var(--em); }
+.co-choice-mark.dot i { width: 8px; height: 8px; border-radius: 50%; background: var(--bg); }
+.co-choice-text { display: grid; gap: 2px; min-width: 0; }
+.co-choice-text b { color: var(--ink); font-size: var(--t-body); font-weight: 600; overflow-wrap: anywhere; }
+.co-choice-option.on .co-choice-text b { color: var(--bright); }
+.co-choice-text small { color: var(--mut); font-size: var(--t-small); line-height: 1.4; overflow-wrap: anywhere; }
+.co-choice-other { width: 100%; margin-top: 8px; min-height: 44px; padding: 10px 12px; border: 1px solid var(--em); border-radius: 11px; background: var(--deep); color: var(--ink); font: inherit; font-size: var(--t-body); outline: none; }
+.co-choice-other::placeholder { color: var(--dim); }
+.co-choice-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 13px; }
+.co-choice-actions button { min-height: 40px; padding: 0 16px; font-size: 13px; border-radius: 10px; }
+.co-choice-foot { margin-top: 10px; color: var(--dim); font-size: var(--t-label); }
+.co-choice-review { list-style: none; display: grid; gap: 6px; margin-top: 10px; }
+.co-choice-review li { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--deep); }
+.co-choice-review li > div { flex: 1; display: grid; gap: 2px; min-width: 0; }
+.co-choice-review span { color: var(--mut); font-size: var(--t-small); overflow-wrap: anywhere; }
+.co-choice-review b { color: var(--bright); font-size: var(--t-body); font-weight: 600; overflow-wrap: anywhere; }
+.co-choice-review .co-text-button { min-height: 36px; padding: 0 8px; font-size: 12.5px; }
+.co-choice.answered { padding: 0; background: var(--panel); animation: none; }
+.co-choice-summary { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 44px; padding: 8px 12px; border: 0; background: transparent; color: var(--mut); text-align: left; font-size: var(--t-small); }
+.co-choice-summary > svg:first-child { color: var(--em); flex: none; }
+.co-choice-summary b { color: var(--ink2); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
+.co-choice-summary-value { flex: 1; min-width: 0; color: var(--bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.co-choice-summary.static { cursor: default; }
+.co-choice-summary.static .co-chip { margin-left: auto; }
+.co-choice-summary .co-chip { flex: none; font-size: 9px; }
+.co-choice-summary > svg:last-child { flex: none; transition: transform .15s; }
+.co-choice.open .co-choice-summary > svg:last-child { transform: rotate(90deg); }
+.co-choice-recap, .co-choice-reply ol { list-style: none; display: grid; gap: 6px; }
+.co-choice-recap { padding: 0 12px 12px 34px; }
+.co-choice-recap li, .co-choice-reply li { display: grid; gap: 1px; }
+.co-choice-recap span, .co-choice-reply span { color: var(--mut); font-size: var(--t-small); overflow-wrap: anywhere; }
+.co-choice-recap b, .co-choice-reply b { color: var(--ink); font-size: var(--t-body); font-weight: 600; overflow-wrap: anywhere; }
+.co-choice-reply { display: grid; gap: 8px; min-width: 220px; max-width: min(420px, 100%); padding: 11px 14px; border: 1px solid rgba(74,217,158,.28); border-radius: 14px 14px 4px 14px; background: rgba(74,217,158,.07); text-align: left; }
+.co-choice-reply-head { display: flex; align-items: center; gap: 6px; color: var(--em2); font-family: var(--mono); font-size: var(--t-label); letter-spacing: .06em; text-transform: uppercase; }
+@media (prefers-reduced-motion: reduce) { .co-choice, .co-choice-option, .co-choice-steps i { animation: none; transition: none; } }
+
 /* ---------- Phone comfort ----------
    Everything you tap is at least 44 points in both directions (Apple's guideline), and the text you
    read is 15 to 16px. Kept in one block at the end so it wins over the denser rules above. */
@@ -1295,4 +1356,16 @@
   .co-card-when { width: 76px; }
   .co-card-table th, .co-card-table td { padding: 8px 7px; }
   .co-card-summary > div { grid-template-columns: minmax(88px, 40%) 1fr; }
+  /* Ada's choice cards */
+  .co-choice { margin-left: -2px; margin-right: -2px; padding: 14px 12px; }
+  .co-choice-head { font-size: 13px; }
+  .co-choice-question { font-size: 17px; }
+  .co-choice-hint, .co-choice-text small, .co-choice-review span, .co-choice-recap span, .co-choice-reply span { font-size: 14px; }
+  .co-choice-option { min-height: 52px; padding: 11px 13px; }
+  .co-choice-text b, .co-choice-review b, .co-choice-recap b, .co-choice-reply b { font-size: 16px; }
+  .co-choice-other { min-height: 48px; font-size: 16px; }
+  .co-choice-actions button { min-height: 44px; flex: 1; justify-content: center; }
+  .co-choice-review .co-text-button { min-height: 44px; }
+  .co-choice-summary { min-height: 48px; font-size: 14px; }
+  .co-choice-foot { font-size: 13px; }
 }

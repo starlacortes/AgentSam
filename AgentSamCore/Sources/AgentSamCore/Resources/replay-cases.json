@@ -237,5 +237,47 @@
     ],
     "message": "Show the comparison as a card.",
     "expect": { "callsAny": ["show_card"], "mentionsNone": ["not available", "can't render", "cannot render", "html file"] }
+  },
+  {
+    "id": "choice-offer-options",
+    "about": "Asked for questions with tappable options before the work, Ada shows a choice card.",
+    "message": "I want to start posting on social media for my cleaning business but I don't know where to begin. Ask me a few quick questions with options I can tap, then make me a plan.",
+    "expect": { "callsAny": ["ask_choice"], "callsNone": ["delegate", "start_task"] }
+  },
+  {
+    "id": "choice-pick-approach",
+    "about": "When the person wants to pick between ways of doing it first, Ada lays them out on a choice card.",
+    "message": "I have about 200 client contacts in a messy spreadsheet. Give me a few ways to organize them and let me pick one before you start.",
+    "expect": { "callsAny": ["ask_choice"], "callsNone": ["delegate", "start_task"] }
+  },
+  {
+    "id": "choice-spanish",
+    "about": "The same in Spanish: questions with options to choose from become a choice card.",
+    "language": "es",
+    "message": "Quiero organizar una reunión de equipo. Antes de empezar, hazme un par de preguntas con opciones para elegir.",
+    "expect": { "callsAny": ["ask_choice"], "callsNone": ["delegate", "start_task"] }
+  },
+  {
+    "id": "choice-voice",
+    "about": "In voice mode a choice card still works: it is read aloud and answered by voice.",
+    "spoken": true,
+    "message": "Help me decide what to cook tonight. Give me a few options to pick from.",
+    "expect": { "callsAny": ["ask_choice"], "callsNone": ["delegate", "start_task"] }
+  },
+  {
+    "id": "choice-not-for-simple-task",
+    "about": "A small, clear task is just done: no choice card, no questions.",
+    "message": "Write a two-line thank-you note to my client Dana for a great meeting today.",
+    "expect": { "noTools": true, "callsNone": ["ask_choice"], "maxWords": 80, "mentionsAny": ["Dana"] }
+  },
+  {
+    "id": "choice-answer-continues",
+    "about": "Answers that come back from a choice card are used, not asked again.",
+    "history": [
+      { "role": "user", "text": "Help me plan a team offsite for next month." },
+      { "role": "assistant", "text": "A few quick questions first." }
+    ],
+    "message": "My answers to “Team offsite”:\n- Where should it be? → Lisbon\n- How long? → 2 days\n- What matters most? → Team building, Planning next year",
+    "expect": { "callsNone": ["ask_choice"], "mentionsAny": ["Lisbon"] }
   }
 ]

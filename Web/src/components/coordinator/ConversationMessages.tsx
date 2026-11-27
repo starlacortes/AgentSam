@@ -2,7 +2,7 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type R
 import { EMPTY_CHAT_CARDS, type PromptCard } from '../../lib/promptCards'
 import { Link } from 'react-router-dom'
 import { api, errorMessage } from '../../api/client'
-import type { AgentActionRequest, Conversation, ConversationMessage, MissionDetail } from '../../api/types'
+import type { AgentActionRequest, ChoiceReply, Conversation, ConversationMessage, MissionDetail } from '../../api/types'
 import { dateLocale, useI18n } from '../../i18n'
 import { replyLanguage, voiceTranscript } from '../../lib/coordinator'
 import { Speaker } from '../../lib/voice'
@@ -11,6 +11,7 @@ import { Markdown, type CodeTools } from '../Markdown'
 import { ErrorBanner } from '../ui'
 import { Icon } from './Icon'
 import { InfoCards } from './InfoCards'
+import { ChoiceCardView, ChoiceReplyCard } from './ChoiceCard'
 import type { CanvasState } from './SidePanel'
 import { ThinkingIndicator, WorkSummary } from './ThinkingIndicator'
 import { photoURL } from '../../lib/photos'
@@ -98,6 +99,8 @@ export interface MessageHandlers {
   onStarter: (text: string) => void
   /** Opens the prompt cards list; with text, opens it ready to save that text as a new card. */
   onPromptCards?: (draft?: string) => void
+  /** Sends the answers to a choice card; `text` is the same answers as words. */
+  onChoice?: (reply: ChoiceReply, text: string) => void
 }
 
 function useCopy(): [boolean, (text: string) => void] {
@@ -166,8 +169,8 @@ function UserMessage({ conversationID, message, onEdit, onSave }: { conversation
   const photos = message.photos ?? []
   return <div className="co-user-message" title={timeLabel(message.createdAt)}>
     {photos.length ? <div className={`co-message-photos count-${Math.min(photos.length, 4)}`}>{photos.map((photo) => <a key={photo.id} href={photoURL(conversationID, photo.id)} target="_blank" rel="noreferrer" aria-label={t('Open photo')}><img src={photoURL(conversationID, photo.id)} alt={t('Attached photo')} loading="lazy" /></a>)}</div> : null}
-    {message.scheduled ? <p className="co-scheduled-message"><span className="co-scheduled-tag"><Icon name="refresh" size={11} />{message.trigger ? t(message.trigger.kind === 'gmail' ? 'Started by a new email' : 'Started by a webhook call') : t('Scheduled run')}</span>{message.text}</p> : message.text || !photos.length ? <p>{message.text}</p> : null}
-    <div className="co-user-actions"><button type="button" onClick={() => copy(message.text)} aria-label={t('Copy')}><Icon name={copied ? 'check' : 'copy'} size={11} /></button><button type="button" onClick={() => onEdit(message.text)} aria-label={t('Edit and resend')} title={t('Edit and resend')}><Icon name="edit" size={11} /></button>{onSave && message.text.trim() && !message.scheduled ? <button type="button" onClick={() => onSave(message.text)} aria-label={t('Save as prompt card')} title={t('Save as prompt card')}><Icon name="spark" size={11} /></button> : null}</div>
+    {message.choiceReply ? <ChoiceReplyCard answer={message.choiceReply} /> : message.scheduled ? <p className="co-scheduled-message"><span className="co-scheduled-tag"><Icon name="refresh" size={11} />{message.trigger ? t(message.trigger.kind === 'gmail' ? 'Started by a new email' : 'Started by a webhook call') : t('Scheduled run')}</span>{message.text}</p> : message.text || !photos.length ? <p>{message.text}</p> : null}
+    <div className="co-user-actions"><button type="button" onClick={() => copy(message.text)} aria-label={t('Copy')}><Icon name={copied ? 'check' : 'copy'} size={11} /></button>{message.choiceReply ? null : <button type="button" onClick={() => onEdit(message.text)} aria-label={t('Edit and resend')} title={t('Edit and resend')}><Icon name="edit" size={11} /></button>}{onSave && message.text.trim() && !message.scheduled && !message.choiceReply ? <button type="button" onClick={() => onSave(message.text)} aria-label={t('Save as prompt card')} title={t('Save as prompt card')}><Icon name="spark" size={11} /></button> : null}</div>
   </div>
 }
 
@@ -185,11 +188,14 @@ function Message({ conversationID, message, latest, busy, handlers, retry, readA
   }), [t, onOpenCanvas])
   if (message.role === 'user') return <UserMessage conversationID={conversationID} message={message} onEdit={handlers.onEdit} onSave={handlers.onPromptCards} />
   const running = message.status === 'running'
+  // Without a lead-in, a choice reply's text is its first question, which the card already shows.
+  const showText = !(message.choice && message.text.trim() === message.choice.questions[0]?.question)
   return <article className={`co-ada-message ${message.status}`}>
     <span className={`co-ada-avatar ${running ? 'working' : ''}`}>A</span>
     <div className="co-ada-content"><div className="co-ada-name">Ada{running ? <span>{t('Working')}</span> : null}{!running ? <time className="co-message-time" dateTime={message.createdAt}>{timeLabel(message.createdAt)}</time> : null}</div>
-      {running ? <>{message.text ? <div className="co-response co-streaming"><Markdown source={message.text} codeTools={codeTools} /></div> : null}<ThinkingIndicator message={message} /></> : <><WorkSummary message={message} /><div className="co-response"><Markdown source={message.text} codeTools={codeTools} /></div></>}
+      {running ? <>{message.text ? <div className="co-response co-streaming"><Markdown source={message.text} codeTools={codeTools} /></div> : null}<ThinkingIndicator message={message} /></> : <><WorkSummary message={message} />{showText ? <div className="co-response"><Markdown source={message.text} codeTools={codeTools} /></div> : null}</>}
       <InfoCards cards={message.cards} />
+      {message.choice && !running ? <ChoiceCardView card={message.choice} active={latest} busy={busy} onAnswer={handlers.onChoice} /> : null}
       {message.status === 'failed' ? <button className="co-secondary-button co-retry" onClick={retry}>{t('Try again')}</button> : null}
       {message.missionIDs.length ? <div className="co-source-row">
         {running ? <button type="button" className="co-source-chip co-watch-chip" onClick={() => onOpenCanvas({ tab: 'console', missionID: message.missionIDs[0], source: null })}><i className="co-live-dot" />{t('Watch work')}</button> : null}
