@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { EMPTY_CHAT_CARDS, type PromptCard } from '../../lib/promptCards'
 import { Link } from 'react-router-dom'
 import { api, errorMessage } from '../../api/client'
@@ -211,7 +211,7 @@ function Message({ conversationID, message, latest, busy, handlers, retry, readA
   </article>
 }
 
-export function ConversationMessages({ conversation, busy = false, handlers, actions = [], onActions = () => {}, promptCards = [], readAloud = true }: { conversation: Conversation | null; busy?: boolean; handlers: MessageHandlers; actions?: AgentActionRequest[]; onActions?: (actions: AgentActionRequest[]) => void; /** The person's saved prompts, shown on the empty chat in place of the built-in starters. */ promptCards?: PromptCard[]; /** False in voice mode, which reads replies itself: a second speaker would talk over Ada and into the microphone. */ readAloud?: boolean }) {
+export function ConversationMessages({ conversation, busy = false, handlers, actions = [], onActions = () => {}, promptCards = [], readAloud = true, setup = null }: { conversation: Conversation | null; busy?: boolean; handlers: MessageHandlers; actions?: AgentActionRequest[]; onActions?: (actions: AgentActionRequest[]) => void; /** The person's saved prompts, shown on the empty chat in place of the built-in starters. */ promptCards?: PromptCard[]; /** False in voice mode, which reads replies itself: a second speaker would talk over Ada and into the microphone. */ readAloud?: boolean; /** The getting-started checklist, shown under the starters on the empty chat. */ setup?: ReactNode }) {
   const { t } = useI18n()
   const box = useRef<HTMLDivElement>(null)
   const pinned = useRef(true)
@@ -236,7 +236,7 @@ export function ConversationMessages({ conversation, busy = false, handlers, act
       <button onClick={() => handlers.onStarter(t('Build me a simple landing page for '))}><Icon name="monitor" /><b>{t('Build a web page')}</b><span>{t('Preview it live beside the chat as it takes shape.')}</span></button>
       <button onClick={() => handlers.onStarter(t('Whenever I ask for '))}><Icon name="plus" /><b>{t('Teach Ada a routine')}</b><span>{t('She remembers the steps and follows them next time.')}</span></button>
     </>}
-  </div>{handlers.onPromptCards ? <button type="button" className="co-text-button co-prompt-manage" onClick={() => handlers.onPromptCards?.()}><Icon name={promptCards.length ? 'edit' : 'plus'} size={12} />{promptCards.length > EMPTY_CHAT_CARDS ? t('All {count} prompt cards', { count: String(promptCards.length) }) : promptCards.length ? t('Edit prompt cards') : t('Save your own prompt cards')}</button> : null}</div></div>
+  </div>{handlers.onPromptCards ? <button type="button" className="co-text-button co-prompt-manage" onClick={() => handlers.onPromptCards?.()}><Icon name={promptCards.length ? 'edit' : 'plus'} size={12} />{promptCards.length > EMPTY_CHAT_CARDS ? t('All {count} prompt cards', { count: String(promptCards.length) }) : promptCards.length ? t('Edit prompt cards') : t('Save your own prompt cards')}</button> : null}{setup}</div></div>
   const lastAssistant = conversation.messages.reduce((found, message, index) => message.role === 'assistant' ? index : found, -1)
   const placed = placeActions(conversation.messages, actions.slice(0, 10))
   const lastIndex = conversation.messages.length - 1
