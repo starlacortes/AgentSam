@@ -5,6 +5,8 @@ import FoundationNetworking
 
 public struct AnthropicClient: Sendable {
     let session: URLSession
+    /// The caller's long-lived streaming session. Without one, each streamed call makes its own.
+    var streaming: SSETransport?
 
     struct WireRequest: Encodable {
         var model: String
@@ -236,7 +238,7 @@ public struct AnthropicClient: Sendable {
         var accumulator = AnthropicStreamAccumulator()
         var delivered = false
         do {
-            for try await event in streamEvents(session: session, request: request) {
+            for try await event in (streaming ?? SSETransport(configuration: session.configuration)).events(for: request) {
                 if let text = accumulator.consume(event.data) {
                     delivered = true
                     onDelta(text)

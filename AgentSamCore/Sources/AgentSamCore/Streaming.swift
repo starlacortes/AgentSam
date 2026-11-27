@@ -76,51 +76,95 @@ struct StreamFailure: Error {
     }
 }
 
-/// Runs a request and yields its server-sent events as they arrive. Built on a data-task delegate
-/// rather than `URLSession.bytes`, which does not exist in swift-corelibs-foundation (Linux).
-func streamEvents(session: URLSession, request: URLRequest) -> AsyncThrowingStream<SSEEvent, Error> {
-    AsyncThrowingStream { continuation in
-        let delegate = SSEDelegate(continuation: continuation)
-        let streamingSession = URLSession(configuration: session.configuration, delegate: delegate, delegateQueue: nil)
-        let task = streamingSession.dataTask(with: request)
-        continuation.onTermination = { _ in
-            task.cancel()
-            streamingSession.finishTasksAndInvalidate()
+/// Runs streamed requests on one long-lived session, so the connection to a provider stays open
+/// between the calls of a reply instead of being set up again for every tool round. Built on a
+/// data-task delegate rather than `URLSession.bytes`, which does not exist in
+/// swift-corelibs-foundation (Linux).
+final class SSETransport: @unchecked Sendable {
+    private let configuration: URLSessionConfiguration
+    private let router = SSERouter()
+    private let lock = NSLock()
+    private var session: URLSession?
+
+    init(configuration: URLSessionConfiguration) {
+        self.configuration = configuration
+    }
+
+    deinit {
+        // The session holds its delegate until it is invalidated.
+        session?.finishTasksAndInvalidate()
+    }
+
+    /// The shared session, made on first use so a client that never streams opens nothing.
+    private func sharedSession() -> URLSession {
+        lock.lock(); defer { lock.unlock() }
+        if let session { return session }
+        let made = URLSession(configuration: configuration, delegate: router, delegateQueue: nil)
+        session = made
+        return made
+    }
+
+    /// Runs a request and yields its server-sent events as they arrive.
+    func events(for request: URLRequest) -> AsyncThrowingStream<SSEEvent, Error> {
+        let session = sharedSession()
+        let router = self.router
+        return AsyncThrowingStream { continuation in
+            let task = session.dataTask(with: request)
+            router.add(task.taskIdentifier, continuation: continuation)
+            continuation.onTermination = { _ in task.cancel() }
+            task.resume()
         }
-        task.resume()
     }
 }
 
-private final class SSEDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
-    private let continuation: AsyncThrowingStream<SSEEvent, Error>.Continuation
-    private var parser = SSEParser()
-    private var status = 0
-    private var errorBody = Data()
+/// The shared session's delegate: hands each task's bytes to that task's own stream.
+private final class SSERouter: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    private struct Pending {
+        var continuation: AsyncThrowingStream<SSEEvent, Error>.Continuation
+        var parser = SSEParser()
+        var status = 0
+        var errorBody = Data()
+    }
 
-    init(continuation: AsyncThrowingStream<SSEEvent, Error>.Continuation) {
-        self.continuation = continuation
+    private let lock = NSLock()
+    private var streams: [Int: Pending] = [:]
+
+    func add(_ id: Int, continuation: AsyncThrowingStream<SSEEvent, Error>.Continuation) {
+        lock.lock(); streams[id] = Pending(continuation: continuation); lock.unlock()
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-        status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        lock.lock()
+        streams[dataTask.taskIdentifier]?.status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        lock.unlock()
         completionHandler(.allow)
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        if (200..<300).contains(status) {
-            for event in parser.feed(data) { continuation.yield(event) }
-        } else if errorBody.count < 16_384 {
-            errorBody.append(data)
+        lock.lock()
+        guard var stream = streams[dataTask.taskIdentifier] else { lock.unlock(); return }
+        var events: [SSEEvent] = []
+        if (200..<300).contains(stream.status) {
+            events = stream.parser.feed(data)
+        } else if stream.errorBody.count < 16_384 {
+            stream.errorBody.append(data)
         }
+        streams[dataTask.taskIdentifier] = stream
+        lock.unlock()
+        for event in events { stream.continuation.yield(event) }
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        lock.lock()
+        let stream = streams.removeValue(forKey: task.taskIdentifier)
+        lock.unlock()
+        guard let stream else { return }
         if let error {
-            continuation.finish(throwing: error)
-        } else if !(200..<300).contains(status) {
-            continuation.finish(throwing: StreamHTTPError(status: status, body: errorBody))
+            stream.continuation.finish(throwing: error)
+        } else if !(200..<300).contains(stream.status) {
+            stream.continuation.finish(throwing: StreamHTTPError(status: stream.status, body: stream.errorBody))
         } else {
-            continuation.finish()
+            stream.continuation.finish()
         }
     }
 }

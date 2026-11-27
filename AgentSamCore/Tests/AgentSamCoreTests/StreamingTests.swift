@@ -191,4 +191,61 @@ final class StreamingClientTests: XCTestCase {
             XCTFail("unexpected \(error)")
         }
     }
+
+    private static let helloChunks = [
+        "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":3}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\"}}\n\n",
+        "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n\n",
+    ]
+
+    private func sharedClient() -> LLMClient {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [ChunkedSSEProtocol.self]
+        return LLMClient(session: URLSession(configuration: config))
+    }
+
+    /// One client keeps one streaming session for all its calls, so the provider connection is reused.
+    func testOneClientStreamsCallAfterCallOnItsSharedSession() async throws {
+        ChunkedSSEProtocol.status = 200
+        ChunkedSSEProtocol.chunks = Self.helloChunks
+        let client = sharedClient()
+        for _ in 0..<3 {
+            let reply = try await client.complete(provider: provider, key: "k", model: "m", system: "s", messages: [.user("hi")], onDelta: { _ in })
+            XCTAssertEqual(reply.message.content, "Hello")
+            XCTAssertEqual(reply.inputTokens, 3)
+        }
+    }
+
+    func testSharedSessionKeepsCallsApartWhenTheyRunTogether() async throws {
+        ChunkedSSEProtocol.status = 200
+        ChunkedSSEProtocol.chunks = Self.helloChunks
+        let client = sharedClient()
+        let provider = self.provider
+        let answers = try await withThrowingTaskGroup(of: String.self) { group in
+            for _ in 0..<6 {
+                group.addTask {
+                    try await client.complete(provider: provider, key: "k", model: "m", system: "s", messages: [.user("hi")], onDelta: { _ in }).message.content ?? ""
+                }
+            }
+            var all: [String] = []
+            for try await answer in group { all.append(answer) }
+            return all
+        }
+        XCTAssertEqual(answers, Array(repeating: "Hello", count: 6))
+    }
+
+    func testSharedSessionSurfacesAnHTTPErrorAndStillWorksAfter() async throws {
+        ChunkedSSEProtocol.status = 400
+        ChunkedSSEProtocol.chunks = ["{\"error\":\"bad request\"}"]
+        let client = sharedClient()
+        do {
+            _ = try await client.complete(provider: provider, key: "k", model: "m", system: "s", messages: [.user("hi")], onDelta: { _ in })
+            XCTFail("a 400 should throw")
+        } catch let error as LLMError {
+            XCTAssertEqual(error.statusCode, 400)
+        }
+        ChunkedSSEProtocol.status = 200
+        ChunkedSSEProtocol.chunks = Self.helloChunks
+        let reply = try await client.complete(provider: provider, key: "k", model: "m", system: "s", messages: [.user("hi")], onDelta: { _ in })
+        XCTAssertEqual(reply.message.content, "Hello")
+    }
 }
