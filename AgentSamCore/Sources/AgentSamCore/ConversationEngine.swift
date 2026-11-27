@@ -1335,7 +1335,7 @@ public actor ConversationEngine {
         } else {
             reply = try await client.complete(provider: provider, key: keyRing.get(provider.keyAccount) ?? "", model: coordinator.model, system: system, messages: messages, tools: tools, temperature: coordinator.temperature, maxTokens: maxTokens, onDelta: onDelta)
         }
-        CostMeter.current?.add(reply)
+        CostMeter.current?.add(reply, local: provider.isLocal)
         return reply
     }
 

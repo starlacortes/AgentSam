@@ -31,6 +31,15 @@ public func configure(_ app: Application) async throws {
     routes(app, ctx: ctx)
     WebApp.registerFallback(app, directory: webDir)
 
+    // The engine's own log lines (model calls, pricing warnings) go to the server log.
+    let engineLogger = app.logger
+    EngineLog.setSink { level, line in
+        switch level {
+        case .info: engineLogger.info("\(line)")
+        case .warning: engineLogger.warning("\(line)")
+        }
+    }
+
     let dataPath = ctx.dataDir.path
     app.logger.info("AgentSam server running. Data directory: \(dataPath)")
     // run_program and the terminal need bubblewrap to create namespaces, which some hosts block.

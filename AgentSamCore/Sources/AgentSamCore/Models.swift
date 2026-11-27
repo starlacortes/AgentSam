@@ -24,6 +24,12 @@ public struct ProviderConfig: Codable, Identifiable, Hashable, Sendable {
 
     public var keyAccount: String { "provider.\(id)" }
 
+    /// True when the provider runs on this machine (Ollama and the like), so its models cost nothing.
+    public var isLocal: Bool {
+        guard let host = URL(string: baseURL)?.host?.lowercased() else { return false }
+        return ["localhost", "127.0.0.1", "::1", "[::1]", "host.docker.internal"].contains(host) || host.hasSuffix(".local")
+    }
+
     public static let builtin: [ProviderConfig] = [
         ProviderConfig(
             id: "anthropic",
@@ -49,7 +55,7 @@ public struct ProviderConfig: Codable, Identifiable, Hashable, Sendable {
             name: "DeepSeek",
             kind: .openAICompatible,
             baseURL: "https://api.deepseek.com/v1",
-            models: ["deepseek-v4-pro", "deepseek-chat", "deepseek-reasoner"],
+            models: ["deepseek-v4-pro", "deepseek-chat", "deepseek-reasoner", "deepseek-flash"],
             defaultModel: "deepseek-chat"
         ),
         ProviderConfig(
