@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { useDialogs } from '../components/ConfirmDialog'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { api, errorMessage } from '../api/client'
 import type { Ack, ProviderConfig, ProviderStatus, ProviderTestResult, VisionModelSetting } from '../api/types'
@@ -33,7 +34,7 @@ export function ProvidersPage() {
         <div>
           <div className="kicker">{t('Server settings')}</div>
           <h1>{t('Model providers')}</h1>
-          <p className="lede">{t('Keys are stored on the server and shared by every mission. They can be replaced or removed here, but never read back.')}</p>
+          <p className="lede">{t('Keys are stored on the server and used for everyone’s chats and jobs. They can be replaced or removed here, but never read back.')}</p>
         </div>
         <button className="btn ghost" onClick={() => setAdding(true)} disabled={adding}>
           {t('Add provider')}
@@ -69,6 +70,7 @@ export function ProviderCard({
   onCancel?: () => void
 }) {
   const { t } = useI18n()
+  const dialogs = useDialogs()
   const [config, setConfig] = useState<ProviderConfig>(status.provider)
   const [modelsText, setModelsText] = useState(status.provider.models.join(', '))
   const [editing, setEditing] = useState(isNew)
@@ -227,8 +229,8 @@ export function ProviderCard({
         {!isNew && status.hasKey ? (
           <button
             className="pill"
-            onClick={() => {
-              if (window.confirm(t('Remove the saved {name} key? Agents using it will stop working.', { name: config.name }))) {
+            onClick={async () => {
+              if (await dialogs.confirm({ title: t('Remove the saved {name} key?', { name: config.name }), detail: t('Ada and her specialists can’t use {name} until you add a new one.', { name: config.name }), confirm: t('Remove key'), danger: true })) {
                 void run('remove', async () => {
                   await api(`providers/${status.provider.id}/key`, { method: 'DELETE' })
                   onSaved()
@@ -243,8 +245,8 @@ export function ProviderCard({
         {!isNew ? (
           <button
             className="pill"
-            onClick={() => {
-              if (window.confirm(t('Delete the {name} provider and its key?', { name: config.name }))) {
+            onClick={async () => {
+              if (await dialogs.confirm({ title: t('Delete the {name} provider and its key?', { name: config.name }), confirm: t('Delete provider'), danger: true })) {
                 void run('delete', async () => {
                   await api(`providers/${status.provider.id}`, { method: 'DELETE' })
                   onSaved()

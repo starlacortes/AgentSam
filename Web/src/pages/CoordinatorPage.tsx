@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent } from 'react'
-import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { useDialogs } from '../components/ConfirmDialog'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, errorMessage, uploadPhoto, uploadProjectFile } from '../api/client'
 import type { AgentActionRequest, ArchiveSettings, ConnectorStatus, Conversation, ConversationSummary, GuideState, MissionDetail, ProviderStatus, BrowserView } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
@@ -18,7 +19,7 @@ import { PopMenu, type PopMenuItem } from '../components/coordinator/PopMenu'
 import { BrowserWindow } from '../components/coordinator/BrowserWindow'
 import { ErrorBanner, Spinner } from '../components/ui'
 import { useI18n } from '../i18n'
-import { canvasForFinishedFiles, connectorLabel, pollDelay, shouldPoll, workspaceFileSource, wroteFreshFiles, browserTimeZone } from '../lib/coordinator'
+import { canvasForFinishedFiles, chatTitle, connectorLabel, pollDelay, shouldPoll, workspaceFileSource, wroteFreshFiles, browserTimeZone } from '../lib/coordinator'
 import { pickEntry } from '../lib/preview'
 import { isPhotoFile, MAX_PHOTOS, preparePhoto, type PendingPhoto } from '../lib/photos'
 import { transcribeConversation } from '../lib/voice'
@@ -62,16 +63,19 @@ function mergeConversation(list: ConversationSummary[], conversation: Conversati
 export function CoordinatorPage() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const { t, lang } = useI18n()
   const { isAdmin } = useAuth()
+  const dialogs = useDialogs()
   const [conversations, setConversations] = useState<ConversationSummary[]>([])
   const [conversation, setConversation] = useState<Conversation | null>(null)
   const [connectors, setConnectors] = useState<ConnectorStatus[]>([])
   const [providers, setProviders] = useState<ProviderStatus[]>([])
   const [guide, setGuide] = useState<GuideState | null>(null)
   const [draft, setDraft] = useState('')
-  const [projectName, setProjectName] = useState('Personal')
+  /** The project a not-yet-saved chat will start in ("New project" on another page passes it along). */
+  const [projectName, setProjectName] = useState(() => (location.state as { project?: string } | null)?.project?.trim() || 'Personal')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [voiceOpen, setVoiceOpen] = useState(false)
   const [scheduleOpen, setScheduleOpen] = useState(false)
@@ -115,7 +119,7 @@ export function CoordinatorPage() {
   const running = shouldPoll(conversation)
   const hasProvider = providers.some((provider) => provider.hasKey)
   const gmail = connectors.find((connector) => connector.id === 'gmail')
-  useDocumentTitle(conversation?.title ?? t('Chat'))
+  useDocumentTitle(conversation ? chatTitle(conversation.title, t) : t('Chat'))
   // What Ada is doing right now (e.g. "Searching Gmail"), for the status box under the voice orb.
   const liveActivity = useMemo(() => {
     const reply = [...(conversation?.messages ?? [])].reverse().find((message) => message.status === 'running')
@@ -329,16 +333,13 @@ export function CoordinatorPage() {
     return () => window.removeEventListener('keydown', escape)
   }, [running, voiceOpen])
 
-  const newChat = async (project?: string) => {
+  // A new chat is only saved once its first message is sent, so empty chats never pile up in the list.
+  const newChat = (project?: string) => {
     setError(null)
-    try {
-      const result = await api<Conversation>('conversations', { method: 'POST', body: { projectName: project ?? 'Personal' } })
-      setProjectName(project ?? 'Personal')
-      replaceConversation(result)
-      setDraft('')
-      navigate(`/chats/${result.id}`)
-      input.current?.focus()
-    } catch (err) { setError(errorMessage(err)) }
+    setProjectName(project ?? 'Personal')
+    setDraft('')
+    navigate('/')
+    input.current?.focus()
   }
 
   const ensureConversation = async (): Promise<Conversation> => {
@@ -536,7 +537,7 @@ export function CoordinatorPage() {
   }
 
   const remove = async () => {
-    if (!conversation || !window.confirm(t('Delete this conversation? Its messages will be removed; missions and files stay intact.'))) return
+    if (!conversation || !(await dialogs.confirm({ title: t('Delete this conversation?'), detail: t('Its messages will be removed; jobs and files stay intact.'), confirm: t('Delete'), danger: true }))) return
     try {
       await api(`conversations/${conversation.id}`, { method: 'DELETE' })
       setConversations((current) => current.filter((item) => item.id !== conversation.id))
@@ -645,11 +646,11 @@ export function CoordinatorPage() {
   // While Ada's browser is open it is the main area, with the chat beside it; the preview panel waits behind it.
   const showCanvas = canvas && !browserOpen
   return <div className={`co-app ${showCanvas ? 'with-canvas' : ''} ${browserOpen ? 'with-browser' : ''} ${browserOpen && browserFull ? 'browser-full' : ''}`} style={showCanvas ? { ['--co-canvas-width' as string]: `${clampCanvasWidth(canvasWidth)}px` } : undefined}>
-    <CoordinatorSidebar conversations={conversations} selectedID={conversation?.id ?? null} open={sidebarOpen} onClose={() => setSidebarOpen(false)} onSelect={(chatID) => navigate(`/chats/${chatID}`)} onNew={(project) => void newChat(project)} onArchive={(chatID) => void archiveChat(chatID)} onShowArchived={showArchived} archivedNotice={archivedNotice} onUndoArchive={() => void undoArchive()} />
+    <CoordinatorSidebar conversations={conversations} selectedID={conversation?.id ?? null} open={sidebarOpen} onClose={() => setSidebarOpen(false)} onSelect={(chatID) => navigate(`/chats/${chatID}`)} onNew={newChat} pendingProject={conversation ? null : projectName} onArchive={(chatID) => void archiveChat(chatID)} onShowArchived={showArchived} archivedNotice={archivedNotice} onUndoArchive={() => void undoArchive()} />
     <main className="co-main">
       <header className="co-chat-header">
         <button className="co-icon-button co-menu-button" aria-label={t('Open workspace sidebar')} onClick={() => setSidebarOpen(true)}><Icon name="menu" /></button>
-        <div className="co-chat-heading"><span>{t(conversation?.projectName ?? projectName)} <span className="co-path-separator">/</span></span><h1>{conversation?.title ?? t('New conversation')}</h1></div>
+        <div className="co-chat-heading"><span>{t(conversation?.projectName ?? projectName)} <span className="co-path-separator">/</span></span><h1>{chatTitle(conversation?.title, t)}</h1></div>
         <div className="co-header-actions">
           {conversation?.archivedAt ? <button className="co-archived-pill" title={t('Restore this chat to the sidebar')} onClick={() => void api<Conversation>(`conversations/${conversation.id}/archive`, { method: 'DELETE' }).then(restored).catch((err) => setError(errorMessage(err)))}><Icon name="archive" size={13} /><span>{t('Archived')}</span><b>{t('Restore')}</b></button> : null}
           {conversation?.schedule || conversation?.triggers?.length ? <button className="co-icon-button co-schedule-toggle active" aria-label={t('Automation on — open settings')} aria-pressed title={t('Automation')} onClick={() => setScheduleOpen(true)}><Icon name="refresh" size={16} /></button> : null}

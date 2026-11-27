@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useDialogs } from '../components/ConfirmDialog'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { api, errorMessage } from '../api/client'
 import { phaseLabel, type Mission, type MissionStatus, type Team } from '../api/types'
@@ -38,6 +39,7 @@ export function MissionPage() {
   const navigate = useNavigate()
   const { isAdmin } = useAuth()
   const { t } = useI18n()
+  const dialogs = useDialogs()
   const { detail, events, error, connection, running, reload } = useLiveMission(id)
   const [team, setTeam] = useState<Team | undefined>()
   const [tab, setTab] = useState<Tab>('plan')
@@ -73,7 +75,7 @@ export function MissionPage() {
   }, [mission, running, hasReport])
 
   async function stop() {
-    if (!window.confirm(t('Stop this mission? Agents stop where they are, and it can’t be resumed.'))) return
+    if (!(await dialogs.confirm({ title: t('Stop this job?'), detail: t('Specialists stop where they are, and it can’t be resumed.'), confirm: t('Stop'), cancel: t('Keep running'), danger: true }))) return
     setActionError(null)
     try {
       await api(`missions/${id}/stop`, { method: 'POST' })
@@ -102,7 +104,7 @@ export function MissionPage() {
   }
 
   async function remove() {
-    if (!window.confirm(t('Delete this mission and all its files? This can’t be undone.'))) return
+    if (!(await dialogs.confirm({ title: t('Delete this job and all its files?'), detail: t('This can’t be undone.'), confirm: t('Delete'), danger: true }))) return
     try {
       await api(`missions/${id}`, { method: 'DELETE' })
       navigate('/')
@@ -120,7 +122,7 @@ export function MissionPage() {
       <div className="page-head">
         <div style={{ minWidth: 0, flex: 1 }}>
           <div className="kicker">
-            <Link to="/">{t('Missions')}</Link> · {mission?.teamName}
+            <Link to="/missions">{t('History')}</Link> · {mission?.teamName}
           </div>
           <h1 className="mission-title">{mission?.objective}</h1>
           <div className="row" style={{ marginTop: 8 }}>
@@ -179,7 +181,7 @@ export function MissionPage() {
       <div className="card">
         {tab === 'plan' ? (
           presentation.tasks.length === 0 ? (
-            <p className="muted">{running ? t('The coordinator is planning…') : t('No plan was recorded.')}</p>
+            <p className="muted">{running ? t('Ada is planning…') : t('No plan was recorded.')}</p>
           ) : (
             <ol className="task-list">
               {presentation.tasks.map((task) => (
@@ -245,7 +247,7 @@ function Chatter({ items }: { items: ChatterItem[] }) {
       {items.map((item) => (
         <div key={item.seq} className={`chat ${item.system ? 'system' : ''} ${item.failed ? 'failed' : ''} role-${item.role ?? 'none'}`}>
           <div className="chat-head mono">
-            {item.system ? t('mission') : item.agentName}
+            {item.system ? t('job') : item.agentName}
             <span className="dim"> · {new Date(item.timestamp).toLocaleTimeString(dateLocale())}</span>
           </div>
           <div className="chat-text">{item.text}</div>
@@ -295,7 +297,7 @@ function Files({ missionID, names, selected, onSelect }: { missionID: string; na
       .catch((err) => setError(errorMessage(err)))
   }, [current, missionID, content])
 
-  if (names.length === 0) return <p className="muted">{t('No files yet. Agents write their deliverables here.')}</p>
+  if (names.length === 0) return <p className="muted">{t('No files yet. Specialists write their deliverables here.')}</p>
 
   async function downloadAll() {
     setZipping(true)

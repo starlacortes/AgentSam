@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useDialogs } from '../components/ConfirmDialog'
 import { Link } from 'react-router-dom'
 import { useDocumentTitle } from '../lib/useDocumentTitle'
 import { api, errorMessage } from '../api/client'
@@ -9,6 +10,7 @@ import { useI18n } from '../i18n'
 
 export function PeoplePage() {
   const { t } = useI18n()
+  const dialogs = useDialogs()
   useDocumentTitle(t('People'))
   const { me } = useAuth()
   const [users, setUsers] = useState<PublicUser[] | null>(null)
@@ -65,7 +67,7 @@ export function PeoplePage() {
         <div>
           <div className="kicker">{t('People')}</div>
           <h1>{t('Who can use this server')}</h1>
-          <p className="lede">{t('Everyone shares the same projects and missions. Admins also manage people and provider keys.')}</p>
+          <p className="lede">{t('Each person has their own chats, projects and jobs. Admins also manage people and provider keys.')}</p>
         </div>
         <Link className="btn ghost" to="/provisioning">{t('Provision accounts in bulk →')}</Link>
       </div>
@@ -194,8 +196,8 @@ export function PeoplePage() {
                             </button>
                             <button
                               className="btn small danger"
-                              onClick={() => {
-                                if (window.confirm(t('Remove {name}? They’ll be signed out immediately.', { name: user.name }))) {
+                              onClick={async () => {
+                                if (await dialogs.confirm({ title: t('Remove {name}?', { name: user.name }), detail: t('They’ll be signed out immediately.'), confirm: t('Remove'), danger: true })) {
                                   void run(() => api(`users/${user.id}`, { method: 'DELETE' }))
                                 }
                               }}

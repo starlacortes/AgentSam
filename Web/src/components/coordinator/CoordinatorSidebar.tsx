@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type TouchEvent } from 'react'
+import { useDialogs } from '../ConfirmDialog'
 import { Link, NavLink } from 'react-router-dom'
 import type { ConversationSummary } from '../../api/types'
 import { useAuth } from '../../auth/AuthContext'
 import { useI18n } from '../../i18n'
-import { groupedConversations } from '../../lib/coordinator'
+import { chatTitle, groupedConversations, splitByToday } from '../../lib/coordinator'
 import { Icon } from './Icon'
 
 interface Props {
@@ -13,6 +14,8 @@ interface Props {
   onClose: () => void
   onSelect: (id: string) => void
   onNew: (projectName?: string) => void
+  /** The project of a chat that is open but not saved yet. Shown as a row so a newly named project is visible. */
+  pendingProject?: string | null
   /** Archives a chat. Left out on pages that cannot archive, which hides the archive buttons. */
   onArchive?: (id: string) => void
   onShowArchived: () => void
@@ -24,9 +27,10 @@ interface Props {
 /** Swipe left at least this far (px) on a phone to reveal a chat's archive button. */
 const SWIPE_REVEAL = 36
 
-export function CoordinatorSidebar({ conversations, selectedID, open, onClose, onSelect, onNew, onArchive, onShowArchived, archivedNotice, onUndoArchive }: Props) {
+export function CoordinatorSidebar({ conversations, selectedID, open, onClose, onSelect, onNew, pendingProject, onArchive, onShowArchived, archivedNotice, onUndoArchive }: Props) {
   const { t } = useI18n()
   const { me } = useAuth()
+  const dialogs = useDialogs()
   const [query, setQuery] = useState('')
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase()
@@ -53,6 +57,15 @@ export function CoordinatorSidebar({ conversations, selectedID, open, onClose, o
     else if (dx > SWIPE_REVEAL) { setRevealed(null); swipe.current = null }
   }
   const archive = (id: string) => { setRevealed(null); onArchive?.(id) }
+  // A project named a moment ago has no saved chat yet; show it so the name is not lost from view.
+  const pending = pendingProject?.trim()
+  const newProject = pending && pending !== 'Personal' && !query.trim() && !conversations.some((chat) => (chat.projectName.trim() || 'Personal') === pending) ? pending : null
+  const chatRow = (chat: ConversationSummary) => <div key={chat.id} className={`co-chat-row ${selectedID === chat.id ? 'active' : ''} ${revealed === chat.id ? 'revealed' : ''}`} onTouchStart={onArchive ? (event) => touchStart(chat.id, event) : undefined} onTouchMove={onArchive ? touchMove : undefined}>
+    <button className={`co-chat-link ${selectedID === chat.id ? 'active' : ''}`} onClick={() => revealed === chat.id ? setRevealed(null) : select(chat.id)} title={chatTitle(chat.title, t)}>
+      {chat.running ? <span className="co-live-dot" /> : null}{chatTitle(chat.title, t)}
+    </button>
+    {onArchive ? <button className="co-chat-archive" aria-label={t('Archive {title}', { title: chatTitle(chat.title, t) })} title={t('Archive chat')} onClick={() => archive(chat.id)}><Icon name="close" size={13} /></button> : null}
+  </div>
 
   return <>
     {open ? <div className="co-nav-scrim" onClick={onClose} /> : null}
@@ -64,20 +77,28 @@ export function CoordinatorSidebar({ conversations, selectedID, open, onClose, o
       </div>
       <div className="co-side-scroll">
         <section className="co-side-section">
-          <div className="co-side-label">{t('Projects')}<button aria-label={t('New project')} onClick={() => {
-            const name = window.prompt(t('Project name'))
-            if (name?.trim()) { onNew(name.trim()); onClose() }
+          <div className="co-side-label">{t('Projects')}<button aria-label={t('New project')} onClick={async () => {
+            const name = await dialogs.ask({ title: t('New project'), detail: t('Chats in a project are grouped together in the list.'), label: t('Project name'), confirm: t('Create project') })
+            if (name) { onNew(name); onClose() }
           }}><Icon name="plus" size={14} /></button></div>
-          {groups.map(([project, chats]) => <div className="co-project" key={project}>
-            <div className="co-project-row"><Icon name="folder" size={14} /><span>{project === 'Personal' ? t('Personal') : project}</span><span className="co-count">{chats.length}</span></div>
-            <div className="co-project-chats">{chats.map((chat) => <div key={chat.id} className={`co-chat-row ${selectedID === chat.id ? 'active' : ''} ${revealed === chat.id ? 'revealed' : ''}`} onTouchStart={onArchive ? (event) => touchStart(chat.id, event) : undefined} onTouchMove={onArchive ? touchMove : undefined}>
-              <button className={`co-chat-link ${selectedID === chat.id ? 'active' : ''}`} onClick={() => revealed === chat.id ? setRevealed(null) : select(chat.id)} title={chat.title}>
-                {chat.running ? <span className="co-live-dot" /> : null}{chat.title}
-              </button>
-              {onArchive ? <button className="co-chat-archive" aria-label={t('Archive {title}', { title: chat.title })} title={t('Archive chat')} onClick={() => archive(chat.id)}><Icon name="close" size={13} /></button> : null}
-            </div>)}</div>
-          </div>)}
-          {groups.length === 0 ? <p className="co-side-empty">{t('No conversations found.')}</p> : null}
+          {groups.map(([project, chats]) => {
+            const { today, earlier } = splitByToday(chats)
+            const dated = today.length > 0 && earlier.length > 0
+            return <div className="co-project" key={project}>
+              <div className="co-project-row"><Icon name="folder" size={14} /><span>{project === 'Personal' ? t('Personal') : project}</span><span className="co-count">{chats.length}</span></div>
+              <div className="co-project-chats">
+                {dated ? <div className="co-chat-day">{t('Today')}</div> : null}
+                {today.map(chatRow)}
+                {dated ? <div className="co-chat-day">{t('Earlier')}</div> : null}
+                {earlier.map(chatRow)}
+              </div>
+            </div>
+          })}
+          {newProject ? <div className="co-project pending">
+            <div className="co-project-row"><Icon name="folder" size={14} /><span>{newProject}</span></div>
+            <div className="co-project-chats"><p className="co-chat-pending">{t('Send a message to start this project.')}</p></div>
+          </div> : null}
+          {groups.length === 0 && !newProject ? <p className="co-side-empty">{t('No conversations found.')}</p> : null}
           {archivedNotice ? <div className="co-archive-toast" role="status"><span>{t('Chat archived')}</span>{onUndoArchive ? <button onClick={onUndoArchive}>{t('Undo')}</button> : null}</div> : null}
 </section>
       </div>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useDialogs } from '../components/ConfirmDialog'
 import { Link } from 'react-router-dom'
 import { api, errorMessage } from '../api/client'
 import type { Ack, BatchDetail, ProvisioningDelivery, ProvisioningItem, PublicBatch, UserRole } from '../api/types'
@@ -30,6 +31,7 @@ function csvCell(value: string): string {
 
 export function ProvisioningPage() {
   const { t } = useI18n()
+  const dialogs = useDialogs()
   useDocumentTitle(t('Bulk provisioning'))
 
   const [batches, setBatches] = useState<PublicBatch[] | null>(null)
@@ -167,8 +169,8 @@ export function ProvisioningPage() {
     void run(() => api<PublicBatch>(`admin/provisioning/batches/${id}/${action}`, { method: 'POST' }))
   }
 
-  function cancelBatch(id: string) {
-    if (!window.confirm(t('Cancel the remaining items? Accounts and invites already created will remain.'))) return
+  async function cancelBatch(id: string) {
+    if (!(await dialogs.confirm({ title: t('Cancel the remaining items?'), detail: t('Accounts and invites already created will remain.'), confirm: t('Cancel remaining items'), cancel: t('Keep going'), danger: true }))) return
     void run(() => api<Ack>(`admin/provisioning/batches/${id}`, { method: 'DELETE' }))
   }
 
@@ -210,7 +212,7 @@ export function ProvisioningPage() {
 
   async function downloadCSV() {
     if (!detail || revealableItems.length === 0) return
-    if (!window.confirm(t('Download credentials and permanently hide them from this page? Store the CSV securely.'))) return
+    if (!(await dialogs.confirm({ title: t('Download credentials and permanently hide them from this page?'), detail: t('Store the CSV securely.'), confirm: t('Download and hide') }))) return
     setBusy(true)
     setError(null)
     try {
@@ -246,7 +248,7 @@ export function ProvisioningPage() {
       </div>
 
       <div className="notice" style={{ marginBottom: 18 }}>
-        {t('Identity separation only: every account still shares the same projects and missions. Credentials are retrievable until copied or downloaded, then permanently hidden.')}
+        {t('Each account gets its own chats, projects and jobs. Credentials are retrievable until copied or downloaded, then permanently hidden.')}
       </div>
       <ErrorBanner message={error} />
 

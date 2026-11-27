@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
-import { api, errorMessage } from '../api/client'
-import type { Conversation, ConversationSummary } from '../api/types'
+import { api } from '../api/client'
+import type { ConversationSummary } from '../api/types'
 import { useI18n, type Lang } from '../i18n'
 import { CoordinatorSidebar } from './coordinator/CoordinatorSidebar'
 import { Icon } from './coordinator/Icon'
-import { ErrorBanner } from './ui'
 
 /** English/Spanish switch, used in Settings and the voice screen. */
 export function LanguageToggle() {
@@ -39,19 +38,15 @@ function PageShell() {
   const location = useLocation()
   const [conversations, setConversations] = useState<ConversationSummary[]>([])
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     void api<ConversationSummary[]>('conversations').then(setConversations).catch(() => { /* the page still works without the list */ })
   }, [])
   useEffect(() => { setSidebarOpen(false) }, [location.pathname])
 
-  const newChat = useCallback(async (project?: string) => {
-    if (!project) { navigate('/'); return }
-    try {
-      const created = await api<Conversation>('conversations', { method: 'POST', body: { projectName: project } })
-      navigate(`/chats/${created.id}`)
-    } catch (err) { setError(errorMessage(err)) }
+  // The chat itself is created when its first message is sent.
+  const newChat = useCallback((project?: string) => {
+    navigate('/', project ? { state: { project } } : undefined)
   }, [navigate])
 
   return (
@@ -62,7 +57,7 @@ function PageShell() {
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         onSelect={(id) => navigate(`/chats/${id}`)}
-        onNew={(project) => void newChat(project)}
+        onNew={newChat}
         onShowArchived={() => navigate('/?archived=1')}
       />
       <main className="co-main shell-main">
@@ -71,7 +66,6 @@ function PageShell() {
         </header>
         <div className="shell-scroll">
           <div className="page">
-            <ErrorBanner message={error} />
             <Outlet />
           </div>
         </div>
