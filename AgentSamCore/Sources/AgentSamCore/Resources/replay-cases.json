@@ -179,4 +179,29 @@
     "message": "When you hand off part of a big piece of work, who actually does it? One or two sentences.",
     "expect": { "noTools": true, "maxWords": 80, "mentionsAny": ["specialist"], "mentionsNone": ["helper", "worker", "subagent", "sub-agent"] }
   }
+  ,
+  {
+    "id": "browser-open-site",
+    "about": "A page that needs the person's account is opened in Ada's browser.",
+    "setup": { "workstation": true, "browser": true },
+    "message": "Open my Google Ads account in your browser and tell me which campaigns are running.",
+    "expect": { "callsAny": ["browser_open"], "callsNone": ["start_task"] }
+  },
+  {
+    "id": "browser-act-on-open-page",
+    "about": "With a page already open, Ada acts on it instead of starting over.",
+    "setup": { "workstation": true, "browser": true },
+    "history": [
+      { "role": "user", "text": "Open the contact form at example.com/contact in your browser." },
+      { "role": "assistant", "text": "I opened the contact form at example.com/contact. It has fields for Name [3], Email [4] and Message [5], and a Send button [6].", "usedBrowser": true }
+    ],
+    "message": "Put Sam Lee in the name field.",
+    "expect": { "callsAny": ["browser_type", "browser_paste", "browser_click", "browser_look"], "callsNone": ["browser_open", "delegate", "start_task"] }
+  },
+  {
+    "id": "save-to-project",
+    "about": "A file meant for the person's other chats goes to the shared project workspace.",
+    "message": "Save these meeting notes to the shared project so my other chats can use them: kickoff Monday, owner Ana, budget 12k.",
+    "expect": { "callsAny": ["chat_write_file", "project_write_file"], "callsNone": ["delegate", "start_task"] }
+  }
 ]
