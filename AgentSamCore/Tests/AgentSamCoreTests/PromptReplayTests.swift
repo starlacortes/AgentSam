@@ -25,10 +25,11 @@ final class PromptReplayTests: XCTestCase {
 
     func testEveryExpectedToolIsOfferedInItsCase() throws {
         for replay in try PromptReplay.builtInCases() {
-            let offered = PromptReplay.offeredTools(for: replay.setup).offered.names
-            // A tool Ada must call has to be on offer. A tool she must not call may be absent.
-            for name in replay.expect.callsAny ?? [] {
-                XCTAssertTrue(offered.contains(name), "\(replay.id) expects \(name), which this setup does not offer.")
+            // What the model is sent for this case, with its history (held tools are not sent).
+            let offered = Set(PromptReplay.request(for: replay).tools.map(\.function.name))
+            // One of the tools Ada may call has to be on offer. A tool she must not call may be absent.
+            if let any = replay.expect.callsAny {
+                XCTAssertTrue(any.contains(where: offered.contains), "\(replay.id) expects one of \(any), which this setup does not send.")
             }
             for name in replay.expect.toolNames {
                 XCTAssertNotNil(ToolCatalog.spec(name), "\(replay.id) names an unknown tool: \(name)")

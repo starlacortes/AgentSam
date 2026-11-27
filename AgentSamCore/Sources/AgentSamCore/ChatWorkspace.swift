@@ -189,8 +189,13 @@ public enum ChatWorkspaceTools {
     public static let terminalTimeout: TimeInterval = 120
     public static let maxOutputCharacters = 12_000
 
-    public static var definitions: [APIToolDef] {
-        [
+    public static var definitions: [APIToolDef] { definitions(projectLocation: false) }
+
+    /// The chat's tools. With `projectLocation` (extended access), the file tools also take a
+    /// `location` argument that reaches the shared project workspace, instead of a second set of
+    /// project tools.
+    public static func definitions(projectLocation: Bool) -> [APIToolDef] {
+        let defs: [APIToolDef] = [
             APIToolDef(
                 name: "chat_write_file",
                 description: "Write (create or fully replace) a file in this conversation's private workspace. Use it when the user wants files they can open, preview, or download.",
@@ -275,6 +280,19 @@ public enum ChatWorkspaceTools {
                 ])
             ),
         ]
+        guard projectLocation else { return defs }
+        let note: [String: String] = [
+            "chat_write_file": "Write (create or fully replace) a file in this conversation's private workspace, or with location \"project\" in the project workspace shared by all of this person's chats and jobs (for ongoing project work). Use it when the user wants files they can open, preview, or download.",
+            "chat_read_file": "Read a file from this conversation's workspace, or with location \"project\" from the shared project workspace. Use start_line to continue a clipped read.",
+            "chat_list_files": "List the files in this conversation's workspace, or with location \"project\" in the shared project workspace.",
+        ]
+        return defs.map { def in
+            guard let description = note[def.function.name], case .object(var parameters) = def.function.parameters,
+                  case .object(var properties)? = parameters["properties"] else { return def }
+            properties[ExtendedWorkspaceTools.location.0] = ExtendedWorkspaceTools.location.1
+            parameters["properties"] = .object(properties)
+            return APIToolDef(name: def.function.name, description: description, parameters: .object(parameters))
+        }
     }
 
 

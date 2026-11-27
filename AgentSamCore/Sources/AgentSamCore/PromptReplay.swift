@@ -15,10 +15,13 @@ public enum PromptReplay {
     public struct Turn: Codable, Hashable, Sendable {
         public var role: String
         public var text: String
+        /// Ada's reply used her browser (a page is open), as the server records it on the message.
+        public var usedBrowser: Bool?
 
-        public init(role: String, text: String) {
+        public init(role: String, text: String, usedBrowser: Bool? = nil) {
             self.role = role
             self.text = text
+            self.usedBrowser = usedBrowser
         }
     }
 
@@ -172,7 +175,7 @@ public enum PromptReplay {
     static let timeZoneID = "America/Los_Angeles"
 
     /// The tools Ada is offered in a chat with this setup: the same lists the server builds.
-    public static func offeredTools(for setup: Setup) -> (offered: OfferedTools, connectorTools: [APIToolDef]) {
+    public static func offeredTools(for setup: Setup, history: [ConversationMessage] = []) -> (offered: OfferedTools, connectorTools: [APIToolDef]) {
         var connectorTools: [APIToolDef] = []
         let permissions: ConnectorPermissions = setup.connectorWrites ? .all : ConnectorPermissions()
         for provider in ConnectorHub.providers where setup.connectors.contains(provider.id.rawValue) {
@@ -181,16 +184,20 @@ public enum PromptReplay {
         let skills = Skill.builtIns
         let taskTools = TaskTools.definitions(catalog: SkillTeams.catalog(skills))
         let delegateTools = HelperTools.definitions(hasWorkstation: setup.workstation, hasMCP: false, hasBrowser: setup.browser, saved: [], canSave: setup.extended, skills: skills.map(\.id))
-        let offered = OfferedTools.direct(connectorTools: connectorTools, hasLinkedMissions: false, hasExtendedAccess: setup.extended, hasWorkstation: setup.workstation, hasBrowser: setup.browser, mcpTools: [], taskTools: taskTools, delegateTools: delegateTools)
+        let offered = OfferedTools.direct(connectorTools: connectorTools, hasLinkedMissions: false, hasExtendedAccess: setup.extended, hasWorkstation: setup.workstation, hasBrowser: setup.browser, browserOpen: ConversationEngine.browserInUse(history: history), mcpTools: [], taskTools: taskTools, delegateTools: delegateTools)
         return (offered, connectorTools)
     }
 
     public static func request(for replay: Case, store: PromptStore = PromptStore(builtins: PromptStore.builtins), now: Date = fixedNow) -> Request {
         let setup = replay.setup
-        let tools = offeredTools(for: setup)
+        let history = replay.history.map { turn -> ConversationMessage in
+            var message = ConversationMessage(role: turn.role == "user" ? .user : .assistant, text: turn.text)
+            message.usedBrowser = turn.usedBrowser ?? false
+            return message
+        }
+        let tools = offeredTools(for: setup, history: history)
         var coordinator = AgentProfile.rosterTemplates[0]
         coordinator.systemPrompt = store.render("ada_base")
-        let history = replay.history.map { ConversationMessage(role: $0.role == "user" ? .user : .assistant, text: $0.text) }
         let zone = TimeZone(identifier: timeZoneID) ?? TimeZone(identifier: "UTC")!
         let schedule = setup.schedulePrompt.map {
             ConversationSchedule(prompt: $0, intervalMinutes: setup.scheduleMinutes ?? 1_440, language: replay.language, createdAt: now.addingTimeInterval(-86_400), nextRunAt: now.addingTimeInterval(3_600), timeZone: zone)

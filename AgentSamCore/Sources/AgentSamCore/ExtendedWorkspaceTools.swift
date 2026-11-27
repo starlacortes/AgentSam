@@ -17,29 +17,38 @@ public enum ExtendedWorkspaceTools {
     private static let content = ("content", prop("string", "Complete UTF-8 file content, at most 200 KB"))
     private static let grant = ("grant_id", prop("string", "UUID of a folder explicitly granted by the user in Settings"))
 
+    /// Where a file or terminal tool works. Sent only with extended access, where the project exists.
+    static let location = ("location", JSONValue.object([
+        ("type", .string("string")),
+        ("enum", .array([.string("chat"), .string("project")])),
+        ("description", .string("chat (default): this conversation's private workspace. project: the project workspace shared by all of this person's chats and jobs.")),
+    ]))
+
+    /// The chat tool that also serves the project, and the project tool a `location: "project"` call runs as.
+    public static let projectAlias: [String: String] = [
+        "chat_write_file": "project_write_file",
+        "chat_read_file": "project_read_file",
+        "chat_list_files": "project_list_files",
+        "chat_patch_file": "project_patch_file",
+        "chat_move_file": "project_move_file",
+        "chat_delete_file": "project_delete_file",
+        "run_terminal": "project_terminal",
+    ]
+
+    /// The tools sent with extended access: precise edits, moves, deletes and the terminal, each for
+    /// the chat or the project by `location`, and the granted host folders.
     public static var definitions: [APIToolDef] {
-        var definitions: [APIToolDef] = []
-        for prefix in ["chat", "project"] {
-            let scope = prefix == "chat" ? "this conversation's private workspace" : "the shared project workspace"
-            definitions += [
-                APIToolDef(name: "\(prefix)_patch_file", description: "Replace one exact, unique text passage in a file in \(scope). Read the file first.", parameters: schema([
-                    path, ("old_string", prop("string", "Exact existing text to replace")), ("new_string", prop("string", "Replacement text")),
-                ], required: ["path", "old_string", "new_string"])),
-                APIToolDef(name: "\(prefix)_move_file", description: "Move or rename a file in \(scope), without replacing an existing destination.", parameters: schema([
-                    path, ("destination", prop("string", "New relative file path")),
-                ], required: ["path", "destination"])),
-                APIToolDef(name: "\(prefix)_delete_file", description: "Request deletion of one file in \(scope). This only creates a user approval request; never claim the file is deleted until the user approves.", parameters: schema([path], required: ["path"])),
-            ]
-        }
-        definitions += [
-            APIToolDef(name: "project_list_files", description: "List files shared by all of this user's chats and jobs in the current project.", parameters: schema([])),
-            APIToolDef(name: "project_read_file", description: "Read a UTF-8 file from the shared project workspace. Use start_line after a clipped read.", parameters: schema([path, ("start_line", prop("integer", "Optional 1-based starting line"))], required: ["path"])),
-            APIToolDef(name: "project_write_file", description: "Create or fully replace a UTF-8 file in the shared project workspace, making it available to other chats and future missions.", parameters: schema([path, content], required: ["path", "content"])),
-            APIToolDef(name: "run_terminal", description: "Run a shell command in an OS-sandboxed persistent session rooted at this conversation's private workspace. The working directory and files persist across calls. No host home-folder access or writes outside this workspace. Do not use destructive recursive deletion.", parameters: schema([
-                ("command", prop("string", "Shell command to execute")), ("cwd", prop("string", "Optional relative directory inside the workspace")),
-            ], required: ["command"])),
-            APIToolDef(name: "project_terminal", description: "Run a shell command in an OS-sandboxed persistent session rooted at the shared project workspace. Use this for builds, tests, package scripts, and code verification. The working directory and files persist across calls. Do not use destructive recursive deletion.", parameters: schema([
-                ("command", prop("string", "Shell command to execute")), ("cwd", prop("string", "Optional relative directory inside the workspace")),
+        let scope = "this conversation's private workspace, or the shared project with location \"project\""
+        return [
+            APIToolDef(name: "chat_patch_file", description: "Replace one exact, unique text passage in a file in \(scope). Read the file first.", parameters: schema([
+                path, ("old_string", prop("string", "Exact existing text to replace")), ("new_string", prop("string", "Replacement text")), location,
+            ], required: ["path", "old_string", "new_string"])),
+            APIToolDef(name: "chat_move_file", description: "Move or rename a file in \(scope), without replacing an existing destination.", parameters: schema([
+                path, ("destination", prop("string", "New relative file path")), location,
+            ], required: ["path", "destination"])),
+            APIToolDef(name: "chat_delete_file", description: "Request deletion of one file in \(scope). This only creates a user approval request; never claim the file is deleted until the user approves.", parameters: schema([path, location], required: ["path"])),
+            APIToolDef(name: "run_terminal", description: "Run a shell command in an OS-sandboxed persistent session rooted at this conversation's private workspace, or with location \"project\" at the shared project workspace (use that for builds, tests and package scripts in project work). The working directory and files persist across calls. No host home-folder access or writes outside the workspace. Do not use destructive recursive deletion.", parameters: schema([
+                ("command", prop("string", "Shell command to execute")), ("cwd", prop("string", "Optional relative directory inside the workspace")), location,
             ], required: ["command"])),
             APIToolDef(name: "host_list_grants", description: "List the host folders the user has explicitly granted to Ada, with their UUIDs and read/write access. No other host folders are accessible.", parameters: schema([])),
             APIToolDef(name: "host_list_files", description: "Recursively list files in one explicitly granted host folder. There is no host shell access.", parameters: schema([grant], required: ["grant_id"])),
@@ -48,7 +57,27 @@ public enum ExtendedWorkspaceTools {
             ], required: ["grant_id", "path"])),
             APIToolDef(name: "host_write_file", description: "Create or fully replace a text file in an explicitly granted read/write host folder. Read an existing file first and report what changed.", parameters: schema([grant, path, content], required: ["grant_id", "path", "content"])),
         ]
-        return definitions
+    }
+
+    /// The project tools, which still run but are not sent: the chat tools above reach the project
+    /// with `location: "project"`. Kept so calls from older chats and habits keep working.
+    public static var projectAliases: [APIToolDef] {
+        let scope = "the shared project workspace"
+        return [
+            APIToolDef(name: "project_patch_file", description: "Replace one exact, unique text passage in a file in \(scope). Read the file first.", parameters: schema([
+                path, ("old_string", prop("string", "Exact existing text to replace")), ("new_string", prop("string", "Replacement text")),
+            ], required: ["path", "old_string", "new_string"])),
+            APIToolDef(name: "project_move_file", description: "Move or rename a file in \(scope), without replacing an existing destination.", parameters: schema([
+                path, ("destination", prop("string", "New relative file path")),
+            ], required: ["path", "destination"])),
+            APIToolDef(name: "project_delete_file", description: "Request deletion of one file in \(scope). This only creates a user approval request; never claim the file is deleted until the user approves.", parameters: schema([path], required: ["path"])),
+            APIToolDef(name: "project_list_files", description: "List files shared by all of this user's chats and jobs in the current project.", parameters: schema([])),
+            APIToolDef(name: "project_read_file", description: "Read a UTF-8 file from the shared project workspace. Use start_line after a clipped read.", parameters: schema([path, ("start_line", prop("integer", "Optional 1-based starting line"))], required: ["path"])),
+            APIToolDef(name: "project_write_file", description: "Create or fully replace a UTF-8 file in the shared project workspace, making it available to other chats and future missions.", parameters: schema([path, content], required: ["path", "content"])),
+            APIToolDef(name: "project_terminal", description: "Run a shell command in an OS-sandboxed persistent session rooted at the shared project workspace. Use this for builds, tests, package scripts, and code verification. The working directory and files persist across calls. Do not use destructive recursive deletion.", parameters: schema([
+                ("command", prop("string", "Shell command to execute")), ("cwd", prop("string", "Optional relative directory inside the workspace")),
+            ], required: ["command"])),
+        ]
     }
 
 

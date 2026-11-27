@@ -204,7 +204,7 @@ public struct ConversationPromptContext: Sendable {
         Workspace files (relative path — size in bytes; contents are not included):
         \(workspaceManifest.isEmpty ? "No workspace files." : Self.clipList(workspaceManifest, limit: 12_000))
 
-        Shared project files (relative path — size in bytes; use project_* tools):
+        Shared project files (relative path — size in bytes; use the file tools with location "project"):
         \(projectManifest.isEmpty ? "No shared project files yet." : Self.clipList(projectManifest, limit: 12_000))
 
         Host folders explicitly granted by this user:
