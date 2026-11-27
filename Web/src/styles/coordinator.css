@@ -731,6 +731,33 @@
 .remembered-form { display: flex; gap: 8px; margin-top: 8px; }
 .remembered-form input { flex: 1; min-width: 0; }
 
+/* Plain fields inside Settings (permissions, spending limits, remembered facts) look like every other field. */
+.settings-body select:not(.select),
+.settings-body input[type='text']:not(.input),
+.settings-body input[type='number']:not(.input) {
+  min-height: 36px; padding: 7px 11px; border: 1px solid var(--line2); border-radius: 9px;
+  background-color: var(--deep); color: var(--ink); font-size: 13px; outline: none; transition: border-color .15s, box-shadow .15s;
+}
+.settings-body select:not(.select), .settings-body .select {
+  appearance: none; -webkit-appearance: none; max-width: 100%; padding-right: 30px; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%2393a89a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center;
+}
+.settings-body .co-setting-row > select { flex: none; }
+.settings-body select:not(.select):focus,
+.settings-body input[type='text']:not(.input):focus,
+.settings-body input[type='number']:not(.input):focus { border-color: var(--em); box-shadow: 0 0 0 3px rgba(74,217,158,.13); }
+.settings-body select:disabled, .settings-body input:disabled { opacity: .55; cursor: not-allowed; }
+.settings-body input:not(.input)::placeholder { color: var(--dim); }
+.settings-body option { background: var(--panel); color: var(--ink); }
+.settings-body input[type='checkbox'] { accent-color: var(--em); }
+@media (max-width: 760px) {
+  /* 16px keeps iPhone Safari from zooming the page when a field is tapped. */
+  .settings-body select, .settings-body input[type='text'], .settings-body input[type='number'], .settings-body input[type='url'], .settings-body input[type='password'], .settings-body input[type='email'], .settings-body textarea { font-size: 16px; min-height: 44px; }
+  .co-search input { font-size: 16px; padding: 10px 0; }
+  .co-setting-row { flex-wrap: wrap; }
+}
+
 /* MCP servers */
 .mcp-servers { margin-top: 14px; }
 .mcp-servers p { color: var(--mut); font-size: 11px; margin-top: 2px; }

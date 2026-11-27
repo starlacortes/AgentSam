@@ -8,7 +8,8 @@
   --ink2: #dce6dd;
   --bright: #f2f7f2;
   --mut: #93a89a;
-  --dim: #5f7367;
+  /* Dimmest text. 4.7:1 or better on every surface (was #5f7367, about 3.7:1). */
+  --dim: #788f80;
   --line: rgba(148, 190, 156, 0.14);
   --line2: rgba(148, 190, 156, 0.24);
   --em: #4ad99e;

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Navigate, NavLink, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, errorMessage } from '../api/client'
 import type { VoiceInfo } from '../api/chatTypes'
@@ -44,11 +44,20 @@ export function SettingsPage() {
   const sections = all.filter((item) => isAdmin || !item.adminOnly)
   const current = sections.find((item) => item.id === section)
   useDocumentTitle(current ? `${current.label} · ${t('Settings')}` : t('Settings'))
+  // On phones the sections are a swipeable row of chips: keep the open one in view.
+  const nav = useRef<HTMLElement>(null)
+  const currentID = current?.id
+  useEffect(() => {
+    const active = nav.current?.querySelector<HTMLElement>('.settings-link.active')
+    const row = nav.current
+    if (!active || !row || row.scrollWidth <= row.clientWidth) return
+    row.scrollTo({ left: active.offsetLeft - (row.clientWidth - active.offsetWidth) / 2 })
+  }, [currentID])
   if (!current) return <Navigate to="/settings/connections" replace />
 
   return (
     <div className="settings">
-      <nav className="settings-nav" aria-label={t('Settings')}>
+      <nav ref={nav} className="settings-nav" aria-label={t('Settings')}>
         <h1 className="settings-title">{t('Settings')}</h1>
         {sections.map((item) => (
           <NavLink key={item.id} to={`/settings/${item.id}`} className={({ isActive }) => `settings-link ${isActive ? 'active' : ''}`}>
