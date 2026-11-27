@@ -76,7 +76,8 @@ final class ModelCallLogTests: XCTestCase {
             if mine.contains(where: { $0.hasPrefix("reply ") }) { break }
             try await Task.sleep(nanoseconds: 20_000_000)
         }
-        let calls = mine.filter { $0.hasPrefix("model-call ") }
+        // Memory upkeep may call the model too, after the reply; it is counted apart from the reply.
+        let calls = mine.filter { $0.hasPrefix("model-call ") && $0.contains("purpose=reply") }
         XCTAssertEqual(calls.count, 1, mine.joined(separator: "\n"))
         XCTAssertTrue(calls.first?.contains("n=1 purpose=reply provider=test model=claude-sonnet-4-5 in=1000 cached=400 out=50") == true, calls.first ?? "")
         // 600 fresh tokens at $3 and 400 cached at $0.30 per million, plus 50 out at $15.
@@ -84,6 +85,43 @@ final class ModelCallLogTests: XCTestCase {
         let summary = mine.first { $0.hasPrefix("reply ") }
         XCTAssertTrue(summary?.contains("calls=1 in=1000 cached=400 out=50") == true, mine.joined(separator: "\n"))
         XCTAssertTrue(summary?.hasSuffix("cost_usd=0.002670") == true, summary ?? "")
+        await engine.shutdown()
+    }
+
+    func testMemoryUpkeepAfterAReplyIsCountedInTheDaysSpend() async throws {
+        let lines = LockedLines()
+        EngineLog.setSink { level, line in
+            if level == .info { lines.append(line) }
+        }
+        let provider = ProviderConfig(id: "test", name: "Test", kind: .openAICompatible, baseURL: "http://localhost/v1", models: ["stub"], defaultModel: "stub")
+        let store = MissionStore(root: directory)
+        await store.saveProviders([provider])
+        let keys = FileKeyRing(url: directory.appendingPathComponent("keys.json"))
+        try keys.set("test-key", for: provider.keyAccount)
+        let conversations = ConversationStore(root: directory)
+        let access = ConversationAccess(root: directory)
+        // Each call costs $3: one million fresh input tokens of claude-sonnet-4-5.
+        let engine = ConversationEngine(store: store, conversations: conversations, memory: WorkspaceMemoryStore(root: directory), keyRing: keys, access: access, routing: false, completion: { _, _, _, _, _, _ in
+            LLMReply(message: .assistant("Noted."), inputTokens: 1_000_000, outputTokens: 0, model: "claude-sonnet-4-5")
+        })
+        let conversation = try await conversations.create(ownerID: "owner")
+        let tag = "conv=" + String(conversation.id.uuidString.prefix(8)).lowercased() + " "
+        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Hi", launchedBy: "Owner", language: "en")
+        // The memory call is logged a moment before its cost reaches the day's spend, so wait until
+        // the two agree and stay that way.
+        var memoryCalls = -1
+        var spent = 0.0
+        var steady = 0
+        for _ in 0..<100 where steady < 3 {
+            let mine = lines.values.filter { $0.contains(tag) }
+            let calls = mine.filter { $0.contains("purpose=memory") && !$0.contains("failed=") }.count
+            spent = await access.spend.today(ownerID: "owner")
+            let agrees = mine.contains { $0.hasPrefix("reply ") } && abs(spent - 3 * Double(1 + calls)) < 0.001
+            steady = agrees && calls == memoryCalls ? steady + 1 : 0
+            memoryCalls = calls
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        XCTAssertEqual(spent, 3 * Double(1 + memoryCalls), accuracy: 0.001, "the reply and \(memoryCalls) memory call(s) are all in today's spend")
         await engine.shutdown()
     }
 

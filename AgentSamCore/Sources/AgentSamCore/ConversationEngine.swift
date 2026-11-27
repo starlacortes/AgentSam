@@ -1564,23 +1564,36 @@ public actor ConversationEngine {
     private func remember(conversationID: UUID, ownerID: String, user: ConversationMessage, assistant: ConversationMessage, coordinator: AgentProfile) {
         memoryJobs[assistant.id] = Task(priority: .utility) {
             defer { self.memoryJobs[assistant.id] = nil }
-            do {
-                var job = try await memory.record(conversationID: conversationID, ownerID: ownerID, userMessage: user, assistantMessage: assistant)
-                var attempts = 0
-                while let compaction = job, attempts < 3, !Task.isCancelled {
-                    attempts += 1
-                    do {
-                        let reply = try await complete(coordinator: coordinator, system: ConversationPrompts.memorySystem(store: promptStore), messages: [.user(compaction.prompt)], tools: nil, purpose: "memory")
-                        _ = try await memory.finishCompaction(compaction, markdown: reply.message.content ?? "")
-                    } catch {
-                        await memory.compactionFailed(ownerID: ownerID)
-                        break
-                    }
-                    job = await memory.nextCompaction(ownerID: ownerID)
+            // Memory upkeep runs on after the reply has been costed and summed up, so it keeps its
+            // own meter and call count, and adds what it spent to the day itself.
+            let meter = CostMeter()
+            let trace = ReplyTrace(conversationID: conversationID)
+            await CostMeter.$current.withValue(meter) {
+                await ReplyTrace.$current.withValue(trace) {
+                    await self.runMemoryUpkeep(conversationID: conversationID, ownerID: ownerID, user: user, assistant: assistant, coordinator: coordinator)
                 }
-            } catch {
-                await memory.compactionFailed(ownerID: ownerID)
             }
+            await self.access?.spend.add(ownerID: ownerID, usd: meter.total)
+        }
+    }
+
+    private func runMemoryUpkeep(conversationID: UUID, ownerID: String, user: ConversationMessage, assistant: ConversationMessage, coordinator: AgentProfile) async {
+        do {
+            var job = try await memory.record(conversationID: conversationID, ownerID: ownerID, userMessage: user, assistantMessage: assistant)
+            var attempts = 0
+            while let compaction = job, attempts < 3, !Task.isCancelled {
+                attempts += 1
+                do {
+                    let reply = try await complete(coordinator: coordinator, system: ConversationPrompts.memorySystem(store: promptStore), messages: [.user(compaction.prompt)], tools: nil, purpose: "memory")
+                    _ = try await memory.finishCompaction(compaction, markdown: reply.message.content ?? "")
+                } catch {
+                    await memory.compactionFailed(ownerID: ownerID)
+                    break
+                }
+                job = await memory.nextCompaction(ownerID: ownerID)
+            }
+        } catch {
+            await memory.compactionFailed(ownerID: ownerID)
         }
     }
 
