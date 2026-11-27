@@ -1,0 +1,182 @@
+[
+  {
+    "id": "quick-fact",
+    "about": "A quick question gets a short direct answer, with no tools and nothing handed on.",
+    "message": "What's the capital of Australia?",
+    "expect": { "noTools": true, "callsNone": ["delegate", "start_task"], "maxWords": 40, "mentionsAny": ["Canberra"] }
+  },
+  {
+    "id": "greeting-spanish",
+    "about": "A Spanish greeting gets a short Spanish reply.",
+    "language": "es",
+    "message": "¡Hola Ada! ¿Cómo estás hoy?",
+    "expect": { "noTools": true, "maxWords": 50, "language": "es" }
+  },
+  {
+    "id": "english-in-spanish-app",
+    "about": "The person writes English in a Spanish app; Ada still answers the way she was asked to.",
+    "language": "es",
+    "message": "Please answer in English: what is two plus two?",
+    "expect": { "noTools": true, "maxWords": 40, "language": "en", "mentionsAny": ["4", "four"] }
+  },
+  {
+    "id": "follow-up-from-history",
+    "about": "A follow-up is answered from the earlier turns, without re-reading anything.",
+    "history": [
+      { "role": "user", "text": "When is my dentist appointment?" },
+      { "role": "assistant", "text": "Your dentist appointment is on Thursday at 3:30 PM with Dr. Okafor." }
+    ],
+    "message": "Sorry, what time was that again?",
+    "expect": { "noTools": true, "maxWords": 40, "mentionsAny": ["3:30"] }
+  },
+  {
+    "id": "gmail-read",
+    "about": "A question about connected email goes to the Gmail read tool.",
+    "setup": { "connectors": ["gmail", "web"] },
+    "message": "Did Maria reply to my email about the invoice?",
+    "expect": { "callsAny": ["gmail_search"], "callsNone": ["delegate", "start_task"] }
+  },
+  {
+    "id": "email-without-gmail",
+    "about": "With no email connection, Ada says she cannot send it and never claims it was sent.",
+    "setup": { "connectors": ["web"] },
+    "message": "Send an email to tom@example.com saying I'll be ten minutes late.",
+    "expect": { "noTools": true, "mentionsNone": ["i sent", "i've sent", "i have sent", "has been sent", "email sent", "sent the email"], "maxWords": 120 }
+  },
+  {
+    "id": "email-with-approval",
+    "about": "A send that needs approval is proposed by calling the tool, not by asking in chat first.",
+    "setup": { "connectors": ["gmail", "web"], "connectorWrites": true },
+    "message": "Send an email to tom@example.com with the subject \"Running late\" saying I'll be ten minutes late.",
+    "expect": { "callsAny": ["gmail_send", "gmail_draft"] }
+  },
+  {
+    "id": "web-lookup",
+    "about": "A question about something current is looked up, not answered from memory.",
+    "message": "What's the latest stable version of Node.js right now?",
+    "expect": { "callsAny": ["web_search", "web_fetch"], "callsNone": ["start_task"] }
+  },
+  {
+    "id": "read-workspace-file",
+    "about": "A question about a file in the chat is answered by reading the file.",
+    "setup": { "files": ["notes.md — 1840", "budget.csv — 5210"] },
+    "message": "What does notes.md say about the launch date?",
+    "expect": { "callsAny": ["chat_read_file"], "callsNone": ["delegate", "start_task"] }
+  },
+  {
+    "id": "write-a-page",
+    "about": "A page the person can open is written as a workspace file.",
+    "message": "Make me a simple one-page HTML countdown to New Year's that I can open.",
+    "expect": { "callsAny": ["chat_write_file"], "callsNone": ["start_task"] }
+  },
+  {
+    "id": "write-a-page-spanish",
+    "about": "The same in Spanish: a file, not a long chat answer.",
+    "language": "es",
+    "message": "Hazme una página HTML sencilla con una lista de tareas que pueda abrir.",
+    "expect": { "callsAny": ["chat_write_file"], "callsNone": ["start_task"] }
+  },
+  {
+    "id": "run-a-calculation",
+    "about": "A calculation worth checking is run as a program rather than guessed.",
+    "message": "Run a quick program to tell me the sum of all prime numbers below 5,000.",
+    "expect": { "callsAny": ["run_program", "run_terminal"], "callsNone": ["delegate", "start_task"] }
+  },
+  {
+    "id": "remember-preference",
+    "about": "A lasting preference is saved to memory.",
+    "message": "Please remember that I always want prices shown in euros.",
+    "expect": { "callsAny": ["memory_remember"] }
+  },
+  {
+    "id": "forget-fact",
+    "about": "A fact that is no longer true is removed from memory.",
+    "setup": { "memory": "## Remembered on request\n- Works at Northwind Traders\n- Prefers short answers" },
+    "message": "I don't work at Northwind anymore, please forget that.",
+    "expect": { "callsAny": ["memory_forget"] }
+  },
+  {
+    "id": "save-a-procedure",
+    "about": "A way of handling a kind of request is saved as a skill.",
+    "message": "Whenever I ask for a weekly report, do it like this: pull the numbers from budget.csv, compare them with last week, and write three bullet points with the biggest changes.",
+    "expect": { "callsAny": ["skill_save"] }
+  },
+  {
+    "id": "schedule-daily",
+    "about": "Recurring work at a set time is scheduled.",
+    "message": "Every weekday at 8 in the morning, check my inbox and give me a short summary.",
+    "setup": { "connectors": ["gmail", "web"] },
+    "expect": { "callsAny": ["chat_schedule_run"] }
+  },
+  {
+    "id": "cancel-schedule",
+    "about": "An existing schedule is stopped when the person asks.",
+    "setup": { "schedulePrompt": "Summarize my inbox", "scheduleMinutes": 1440 },
+    "message": "Stop the daily inbox summary, I don't need it anymore.",
+    "expect": { "callsAny": ["chat_schedule_cancel"] }
+  },
+  {
+    "id": "trigger-on-email",
+    "about": "Reacting to an event uses a trigger, not a clock.",
+    "setup": { "connectors": ["gmail", "web"] },
+    "message": "Whenever a new email arrives from billing@acme.com, tell me the amount due.",
+    "expect": { "callsAny": ["chat_trigger_add"], "callsNone": ["chat_schedule_run"] }
+  },
+  {
+    "id": "big-research-job",
+    "about": "A large, multi-source deliverable is handed on instead of stretched into a direct answer.",
+    "message": "I need a full written report comparing the five leading electric cargo bikes sold in Europe: prices, range, payload, warranty and owner reviews, with sources for every figure, saved as a document I can share.",
+    "expect": { "callsAny": ["start_task", "delegate"] }
+  },
+  {
+    "id": "small-task-stays-direct",
+    "about": "A small rewrite is done directly; nothing is handed on.",
+    "message": "Rewrite this sentence to sound friendlier: \"Your request has been denied due to policy.\"",
+    "expect": { "noTools": true, "callsNone": ["delegate", "start_task"], "maxWords": 80 }
+  },
+  {
+    "id": "unclear-request",
+    "about": "When a needed detail is missing, Ada asks one question instead of guessing.",
+    "message": "Can you fix it?",
+    "expect": { "noTools": true, "asksQuestion": true, "maxWords": 60 }
+  },
+  {
+    "id": "delete-file-approval",
+    "about": "A delete needs the person's OK: Ada calls the tool and lets the card ask.",
+    "setup": { "files": ["old-draft.md — 900", "notes.md — 1840"] },
+    "message": "Delete old-draft.md.",
+    "expect": { "callsAny": ["chat_delete_file"], "mentionsNone": ["has been deleted", "i deleted", "i've deleted"] }
+  },
+  {
+    "id": "workstation-command",
+    "about": "A question about the workstation is answered by looking at the workstation.",
+    "setup": { "workstation": true },
+    "message": "How much free disk space is left on your workstation?",
+    "expect": { "callsAny": ["workstation_status", "workstation_run"], "callsNone": ["run_program", "delegate", "start_task"] }
+  },
+  {
+    "id": "self-review",
+    "about": "A request to look back at her own work uses the self-review tool.",
+    "message": "Look back at your recent work and tell me what you could do better.",
+    "expect": { "callsAny": ["self_review_recent"] }
+  },
+  {
+    "id": "cannot-do",
+    "about": "Something Ada has no tool for is declined plainly, with no pretend result.",
+    "message": "Call my mom on the phone and tell her I'll be late.",
+    "expect": { "noTools": true, "maxWords": 100, "mentionsAny": ["can't", "cannot", "can’t", "not able", "unable", "don't have", "don’t have", "no way to"], "mentionsNone": ["i called", "i've called", "call placed"] }
+  },
+  {
+    "id": "voice-quick-question",
+    "about": "A spoken question gets a short answer that works read aloud: no table, no heading.",
+    "spoken": true,
+    "message": "How many days are there until the end of the year?",
+    "expect": { "callsNone": ["delegate", "start_task"], "maxWords": 80, "mentionsNone": ["|---", "## "] }
+  },
+  {
+    "id": "who-does-the-work",
+    "about": "Ada describes herself with the product's words: specialists and jobs.",
+    "message": "When you hand off part of a big piece of work, who actually does it? One or two sentences.",
+    "expect": { "noTools": true, "maxWords": 80, "mentionsAny": ["specialist"], "mentionsNone": ["helper", "worker", "subagent", "sub-agent"] }
+  }
+]
