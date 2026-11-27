@@ -24,6 +24,13 @@
   --shadow: 0 18px 44px rgba(0, 0, 0, 0.45);
   --shadow-pop: 0 30px 80px rgba(0, 0, 0, 0.55);
   --radius: 14px;
+  /* The text sizes new work should use. Six steps: label, small, body, title, heading, page. */
+  --t-label: 11px;
+  --t-small: 12.5px;
+  --t-body: 14px;
+  --t-title: 16px;
+  --t-head: 20px;
+  --t-page: 28px;
   /* iPhone safe areas (home bar, rounded corners, notch). Zero everywhere else.
      Anything that touches a screen edge should pad with these. */
   --safe-bottom: env(safe-area-inset-bottom, 0px);
