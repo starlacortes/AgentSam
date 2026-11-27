@@ -24,7 +24,7 @@ export function HelpersPanel() {
   }, [])
 
   return <section className="co-setting-card helpers-panel">
-    <div className="co-setting-row"><div><b>{t('Ada’s helpers')}</b><p>{t('Ada can hand part of a job to a helper named after what it does, like researchAda or judgeAda. When she learns a better way for one to work, she proposes it on a card in the chat, and it changes only if you approve. To undo a change, ask her in any chat. Roles you approve apply only to your own Ada.')}</p></div></div>
+    <div className="co-setting-row"><div><b>{t('Ada’s specialists')}</b><p>{t('Ada can hand part of a job to a specialist named after what it does, like researchAda or judgeAda. When she learns a better way for one to work, she proposes it on a card in the chat, and it changes only if you approve. To undo a change, ask her in any chat. Roles you approve apply only to your own Ada.')}</p></div></div>
     {helpers === null ? null : helpers.length ? <ul className="helpers-list">
       {helpers.map((helper) => <li key={helper.id}>
         <details>
@@ -37,7 +37,7 @@ export function HelpersPanel() {
           <p className="co-panel-note">{t('Tools: {tools}', { tools: helper.groups.join(', ') })}</p>
         </details>
       </li>)}
-    </ul> : <p className="co-panel-note">{t('No saved helper roles yet. Helpers use their ready roles.')}</p>}
+    </ul> : <p className="co-panel-note">{t('No saved specialist roles yet. Specialists use their ready roles.')}</p>}
     <ErrorBanner message={error} />
   </section>
 }

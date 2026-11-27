@@ -246,7 +246,7 @@ export function ProvisioningPage() {
       </div>
 
       <div className="notice" style={{ marginBottom: 18 }}>
-        {t('Identity separation only: every account still shares the same projects and missions. Credentials are retrievable until copied or downloaded, then permanently hidden.')}
+        {t('Each account gets its own chats, projects and jobs. Credentials are retrievable until copied or downloaded, then permanently hidden.')}
       </div>
       <ErrorBanner message={error} />
 

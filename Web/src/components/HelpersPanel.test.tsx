@@ -23,6 +23,6 @@ describe('HelpersPanel', () => {
   it('explains the empty state', async () => {
     vi.mocked(api).mockResolvedValue([])
     render(<I18nProvider><HelpersPanel /></I18nProvider>)
-    await waitFor(() => expect(screen.getByText('No saved helper roles yet. Helpers use their ready roles.')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('No saved specialist roles yet. Specialists use their ready roles.')).toBeTruthy())
   })
 })
