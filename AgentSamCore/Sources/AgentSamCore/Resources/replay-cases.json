@@ -203,5 +203,39 @@
     "about": "A file meant for the person's other chats goes to the shared project workspace.",
     "message": "Save these meeting notes to the shared project so my other chats can use them: kickoff Monday, owner Ana, budget 12k.",
     "expect": { "callsAny": ["chat_write_file", "project_write_file"], "callsNone": ["delegate", "start_task"] }
+  },
+  {
+    "id": "browser-click-long-after-open",
+    "about": "The page Ada opened earlier in the chat is still there: asked to click a button, she clicks or looks, and never says the tool is missing.",
+    "setup": { "workstation": true, "browser": true },
+    "history": [
+      { "role": "user", "text": "Open the contact form at example.com/contact in your browser." },
+      { "role": "assistant", "text": "I opened the contact form at example.com/contact. It has fields for Name [3], Email [4] and Message [5], and a Send button [6].", "usedBrowser": true },
+      { "role": "user", "text": "Thanks. While we're at it, what's a polite way to ask for a refund?" },
+      { "role": "assistant", "text": "Something like: \"I'd like to request a refund for order 4417, which arrived damaged. Could you let me know the next steps?\"" },
+      { "role": "user", "text": "Good. And how long do refunds usually take?" },
+      { "role": "assistant", "text": "Usually five to ten business days after the shop approves it, depending on your bank." },
+      { "role": "user", "text": "Okay, I wrote the message in the form myself." },
+      { "role": "assistant", "text": "Great, it's ready to send whenever you are." }
+    ],
+    "message": "Click the Send button on the page.",
+    "expect": { "callsAny": ["browser_click", "browser_look"], "callsNone": ["browser_open", "delegate", "start_task"], "mentionsNone": ["not available", "don't have", "do not have", "missing"] }
+  },
+  {
+    "id": "browser-click-asked-first",
+    "about": "Asked to click on the open page with no browser use in this chat, Ada reaches for the browser instead of saying she cannot click.",
+    "setup": { "workstation": true, "browser": true },
+    "message": "In your browser, click the Search button on the page that's open.",
+    "expect": { "callsAny": ["browser_click", "browser_look", "browser_tabs"], "callsNone": ["delegate", "start_task"], "mentionsNone": ["not available", "don't have", "do not have", "missing", "can't click", "cannot click"] }
+  },
+  {
+    "id": "card-of-comparison",
+    "about": "Asked to show a comparison from the chat as a card, Ada calls show_card instead of saying she cannot make cards.",
+    "history": [
+      { "role": "user", "text": "Compare the Basic and Pro plans for me: Basic is $9 a month with 1 user and 10 GB, Pro is $29 with 5 users and 100 GB and priority support." },
+      { "role": "assistant", "text": "Basic costs $9 a month for 1 user and 10 GB of storage. Pro costs $29 a month for 5 users, 100 GB and priority support. Per user, Pro is cheaper once you have more than three people." }
+    ],
+    "message": "Show the comparison as a card.",
+    "expect": { "callsAny": ["show_card"], "mentionsNone": ["not available", "can't render", "cannot render", "html file"] }
   }
 ]

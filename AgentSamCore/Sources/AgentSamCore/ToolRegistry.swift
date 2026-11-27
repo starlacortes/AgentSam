@@ -107,6 +107,37 @@ public struct OfferedTools: Sendable {
         return copy
     }
 
+    /// The same tools with the held families that the person's message asks for now sent, so a
+    /// held tool is never missing when it is plainly needed: asking for a card sends show_card,
+    /// and asking to click, fill in or scroll sends the browser's page tools.
+    public func revealing(askedFor message: String) -> OfferedTools {
+        var copy = self
+        if copy.holds(.card), Self.asksForCard(message) { copy = copy.revealing(.card) }
+        if copy.holds(.browser), Self.asksForPageAction(message) { copy = copy.revealing(.browser) }
+        return copy
+    }
+
+    /// Words of a message, lowercased, split on anything that is not a letter or digit.
+    static func words(_ message: String) -> [String] {
+        message.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init)
+    }
+
+    /// Whether the message asks for a card, chart or infographic (English or Spanish).
+    public static func asksForCard(_ message: String) -> Bool {
+        let exact: Set<String> = ["card", "cards", "tarjeta", "tarjetas"]
+        let prefixes = ["infograph", "infograf", "chart", "graph", "gráfic", "grafic", "visualiz", "visualis"]
+        return words(message).contains { word in exact.contains(word) || prefixes.contains { word.hasPrefix($0) } }
+    }
+
+    /// Whether the message asks Ada to act on a page: click, fill in, scroll, press a button (English or Spanish).
+    public static func asksForPageAction(_ message: String) -> Bool {
+        let exact: Set<String> = ["click", "clicks", "clicking", "clicked", "tap", "press", "fill", "scroll", "hover", "drag", "upload", "screenshot",
+                                  "button", "buttons", "checkbox", "dropdown", "field", "fields",
+                                  "clic", "cliquea", "pulsa", "presiona", "rellena", "llena", "desplaza", "arrastra", "sube", "captura",
+                                  "botón", "boton", "botones", "campo", "campos", "casilla"]
+        return words(message).contains { exact.contains($0) }
+    }
+
     /// Browser tools sent from the start. The rest act on a page, so they wait until one is open.
     public static let browserFirstNames: Set<String> = ["browser_open", "browser_look", "browser_tabs"]
 

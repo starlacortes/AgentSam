@@ -247,10 +247,36 @@ final class ConversationTests: XCTestCase {
 
         var used = ConversationMessage(role: .assistant, text: "Opened it.")
         used.usedBrowser = true
-        let quiet = (0..<ConversationEngine.browserHistoryWindow).map { _ in ConversationMessage(role: .user, text: "hi") }
-        XCTAssertTrue(ConversationEngine.browserInUse(history: [used] + quiet.dropLast()))
-        XCTAssertFalse(ConversationEngine.browserInUse(history: [used] + quiet))
+        // Once Ada used the browser in a chat, the page tools stay for the rest of it, however long ago.
+        let quiet = (0..<40).map { _ in ConversationMessage(role: .user, text: "hi") }
+        XCTAssertTrue(ConversationEngine.browserInUse(history: [used] + quiet))
+        XCTAssertFalse(ConversationEngine.browserInUse(history: quiet))
         XCTAssertFalse(ConversationEngine.browserInUse(history: []))
+    }
+
+    func testAskingForACardOrAClickSendsThoseHeldTools() {
+        let fresh = OfferedTools.direct(connectorTools: [], hasLinkedMissions: false, hasExtendedAccess: true, hasWorkstation: true, hasBrowser: true, cards: true)
+        XCTAssertTrue(fresh.holds(.card))
+        XCTAssertTrue(fresh.holds(.browser))
+
+        let card = fresh.revealing(askedFor: "Show that comparison as a card, please.")
+        XCTAssertFalse(card.holds(.card))
+        XCTAssertTrue(card.holds(.browser))
+        XCTAssertFalse(fresh.revealing(askedFor: "Hazme una infografía con esto").holds(.card))
+        XCTAssertFalse(fresh.revealing(askedFor: "Put it in a bar chart").holds(.card))
+
+        let click = fresh.revealing(askedFor: "Click the Send button on the page.")
+        XCTAssertFalse(click.holds(.browser))
+        XCTAssertTrue(click.holds(.card))
+        XCTAssertFalse(fresh.revealing(askedFor: "Haz clic en el botón Enviar").holds(.browser))
+
+        // Ordinary messages keep both held, so questions and refusals still get no card.
+        let plain = fresh.revealing(askedFor: "What should I bring to my first dentist visit? A paragraph is fine.")
+        XCTAssertTrue(plain.holds(.card))
+        XCTAssertTrue(plain.holds(.browser))
+        // Revealed in place: the list matches the full one, so it caches the same.
+        let full = OfferedTools.direct(connectorTools: [], hasLinkedMissions: false, hasExtendedAccess: true, hasWorkstation: true, hasBrowser: true, browserOpen: true, cards: true, cardsOpen: true)
+        XCTAssertEqual(card.revealing(askedFor: "click it").definitions.map(\.function.name), full.definitions.map(\.function.name))
     }
 
     func testToolLogIsKeptWithTheReplyAndSentWithLaterTurns() async throws {

@@ -317,6 +317,7 @@ public actor WorkspaceKnowledgeStore {
 
     /// How Ada works the browser: outline and numbers first, the screen and the mouse when they are not enough.
     static let browserHowTo = [
+        "- Tool list: until Ada has used the browser in a chat, only browser_open, browser_look and browser_tabs are in her tool list. The page tools (browser_click, browser_type, browser_select, browser_key, browser_scroll, browser_screenshot, browser_click_at, browser_drag, browser_hover, browser_paste, browser_upload_file) are added right after her first browser call, stay for the rest of the chat, and are sent at once when the person asks her to click, fill in or scroll. They are held back to save tokens, never missing: when one is not in her list, she calls browser_look (it shows the open page) and then acts. She never tells the person a browser tool is unavailable.",
         "- How to work: browser_open a page and read the outline (text plus numbered elements like `[12] button \"Search\"`), then act with browser_click, browser_type, browser_select, browser_key and browser_scroll using those numbers. Elements inside frames (embedded editors and widgets) are listed after the page under \"Frame N\" and numbered like `[2.5]`. Each action returns the page after it; browser_look with a query reads just the lines you need on long pages.",
         "- Seeing: browser_screenshot shows the window to the vision model and returns what it sees, with positions in page pixels (grid: true makes positions more exact; a question gets a precise answer). The picture is also saved in the chat's files for the person. With no vision model set (Settings, Providers, \"Vision model\") and a model of her own that cannot see, Ada cannot see it.",
         "- Mouse: when the outline has no number for something (canvas apps, maps, editors that draw their own text), take a screenshot, then use browser_click_at, browser_drag or browser_hover at page pixels, and check the result. Clicking by position something that signs in, pays, sends or deletes asks for approval like a numbered click.",
@@ -426,6 +427,7 @@ public actor WorkspaceKnowledgeStore {
         if includeExtendedTools { directTools += ExtendedWorkspaceTools.definitions }
         // Names only: Ada already receives each tool's full description with its definition.
         lines.append(directTools.map(\.function.name).sorted().map { "`\($0)`" }.joined(separator: ", "))
+        lines.append("`show_card` is held back to save tokens, never missing: it joins Ada's tool list after her first tool call in a reply, when the person asks for a card, chart or infographic, and for a while after she showed one. When it is not in her list yet and a card would help, she first gets the data with a tool (reading a file, a search, a query); she never tells the person she cannot make cards.")
         let skillNames = skills.map { Self.inline($0.name) + ($0.enabled ? "" : " (off)") }
         lines += [
             "",

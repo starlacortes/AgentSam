@@ -220,7 +220,7 @@ public enum PromptReplay {
         let system = ConversationPrompts.directResponseSystem(coordinator: coordinator, context: context, connectorTools: tools.connectorTools, hasLinkedMissions: false, hasExtendedTools: setup.extended, store: store, language: replay.language)
         var messages = ConversationEngine.chatTurns(from: history)
         messages.append(.user(context.userTurn(replay.message)))
-        return Request(system: system, tools: tools.offered.definitions, messages: messages)
+        return Request(system: system, tools: tools.offered.revealing(askedFor: replay.message).definitions, messages: messages)
     }
 
     // MARK: - Scoring
