@@ -609,28 +609,30 @@ public actor ConversationEngine {
         return (offered, connectorTools, workstation)
     }
 
-    /// Replies back that count as "the browser is in use", so its page tools are sent from the start.
-    static let browserHistoryWindow = 6
+    /// Replies back that count as "cards are in use", so show_card is sent from the start.
+    static let cardHistoryWindow = 6
 
-    /// Whether one of Ada's recent replies used her browser. Then a page is likely open and the
-    /// person's next message is likely about it, so every browser tool is sent from the first call.
-    /// Otherwise only `browser_open`, `browser_look` and `browser_tabs` are, and the rest follow
-    /// once she uses one of them.
+    /// Whether one of Ada's replies in this chat used her browser. Then a page is likely open and
+    /// the person may come back to it at any point, so every browser tool is sent from the first
+    /// call for the rest of the chat. Otherwise only `browser_open`, `browser_look` and
+    /// `browser_tabs` are, and the rest follow once she uses one of them or the person asks her
+    /// to act on a page.
     public static func browserInUse(history: [ConversationMessage]) -> Bool {
-        history.suffix(browserHistoryWindow).contains { $0.role == .assistant && $0.usedBrowser }
+        history.contains { $0.role == .assistant && $0.usedBrowser }
     }
 
     /// Whether one of Ada's recent replies showed a card: then the person likely wants more of them,
     /// so show_card is sent from the first call. Otherwise it follows once she has used a tool.
     public static func cardsInUse(history: [ConversationMessage]) -> Bool {
-        history.suffix(browserHistoryWindow).contains { $0.role == .assistant && !$0.cards.isEmpty }
+        history.suffix(cardHistoryWindow).contains { $0.role == .assistant && !$0.cards.isEmpty }
     }
 
     private func directAnswer(userText: String, photos photoInput: PhotoInputs = PhotoInputs(), coordinator: AgentProfile, context: ConversationPromptContext, history: [ConversationMessage], language: String, ref: ResponseRef? = nil, conversationID: UUID, writtenFiles: inout [String], toolLog: inout [String]) async throws -> String {
         let direct = await directTools(ref: ref, context: context)
         let connectorTools = direct.connectorTools
         let workstation = direct.workstation
-        var offeredTools = direct.offered
+        // A message that asks for a card or a click gets those tools from the first call.
+        var offeredTools = direct.offered.revealing(askedFor: userText)
         let system = ConversationPrompts.directResponseSystem(coordinator: coordinator, context: context, connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedTools: access != nil, store: promptStore, language: language)
         let text = context.userTurn(userText)
         // The context now rides in the user turn instead of the system prompt; budget for it on top
