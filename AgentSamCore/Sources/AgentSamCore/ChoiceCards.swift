@@ -177,6 +177,8 @@ public struct ChoiceAnswer: Codable, Hashable, Sendable {
         for item in items {
             lines.append("- \(item.question) → \(item.value(language: language))")
         }
+        // Said in the person's voice: Ada goes on with the work rather than asking more.
+        lines.append(es ? "Sigue con esto." : "Go ahead with these.")
         return lines.joined(separator: "\n")
     }
 }

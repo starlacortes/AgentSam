@@ -93,6 +93,7 @@ final class ChoiceCardsTests: XCTestCase {
         - Where should it be? → Lisbon
         - Which hotel area? → By the beach
         - What matters most? → Rest, Team building, good food
+        Go ahead with these.
         """)
         XCTAssertTrue(full.text(title: built.title, language: "es").hasPrefix("Mis respuestas a «Team offsite»:"))
 

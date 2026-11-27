@@ -277,7 +277,7 @@
       { "role": "user", "text": "Help me plan a team offsite for next month." },
       { "role": "assistant", "text": "A few quick questions first." }
     ],
-    "message": "My answers to “Team offsite”:\n- Where should it be? → Lisbon\n- How long? → 2 days\n- What matters most? → Team building, Planning next year",
+    "message": "My answers to “Team offsite”:\n- Where should it be? → Lisbon\n- How long? → 2 days\n- What matters most? → Team building, Planning next year\nGo ahead with these.",
     "expect": { "callsNone": ["ask_choice"], "mentionsAny": ["Lisbon"] }
   }
 ]
