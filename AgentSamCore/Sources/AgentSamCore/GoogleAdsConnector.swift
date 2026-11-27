@@ -33,7 +33,7 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
         return defs
     }
 
-    static let writesDisabled = "Google Ads changes are turned off. Turn on \"Make Google Ads changes\" for the Google Ads connector in Connections."
+    static let writesDisabled = "Google Ads changes are turned off. An admin turns on \"Allow Google Ads changes\" under Settings → Connections → Google Ads."
 
     private static let customerIDProperty: (String, JSONValue) = ("customer_id", .object([("type", .string("string")), ("description", .string("Customer account ID (with or without the customers/ prefix or dashes). Defaults to the configured login customer."))]))
 
@@ -85,6 +85,7 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
         "adGroups", "adGroupAds", "adGroupCriteria", "adGroupAssets", "adGroupLabels", "ads",
         "assetGroups", "assetGroupAssets", "assetGroupSignals", "assetGroupListingGroupFilters", "assets", "assetSets", "assetSetAssets",
         "customerAssets", "biddingStrategies", "sharedSets", "sharedCriteria", "labels", "conversionActions", "customerNegativeCriteria",
+        "customerConversionGoals", "campaignConversionGoals", "conversionGoalCampaignConfigs", "conversionValueRules",
     ]
 
     private static let mutateProperties: [(String, JSONValue)] = [
@@ -96,7 +97,7 @@ public struct GoogleAdsConnector: ConnectorToolProvider {
 
     static let mutateTool = APIToolDef(
         name: "googleads_mutate",
-        description: "Create, update or remove Google Ads resources: campaigns, budgets, ad groups, ads, keywords, asset groups, assets and more. Follows the Google Ads API REST mutate format. Changes live ads and spend, and remove cannot be undone; run googleads_validate with the same arguments first, then call this. The user approves each call on a card before it runs.",
+        description: "Create, update or remove Google Ads resources: campaigns, budgets, bids, ad groups, ads, keywords, asset groups, assets, conversion actions and conversion goals, and more. Follows the Google Ads API REST mutate format. Changes live ads and spend, and remove cannot be undone; run googleads_validate with the same arguments first, then call this. The user approves each call on a card before it runs.",
         parameters: .object([
             ("type", .string("object")),
             ("properties", .object(mutateProperties)),
