@@ -1027,6 +1027,27 @@
   .co-confirm-actions > button { width: 100%; min-height: 46px; font-size: 15px; }
 }
 
+/* Getting started: three steps on the empty chat. */
+.co-setup { max-width: 520px; margin: 26px auto 0; border: 1px solid var(--line); border-radius: 13px; background: rgba(14,23,18,.62); text-align: left; overflow: hidden; }
+.co-setup > header { display: flex; align-items: center; gap: 10px; padding: 6px 6px 6px 14px; border-bottom: 1px solid var(--line); }
+.co-setup > header b { color: var(--ink); font-size: 12.5px; font-weight: 640; }
+.co-setup > header span { flex: 1; color: var(--dim); font-size: 11px; }
+.co-setup ol { list-style: none; margin: 0; padding: 0; }
+.co-setup li + li { border-top: 1px solid var(--line); }
+.co-setup li > a, .co-setup li > div { display: flex; align-items: center; gap: 11px; padding: 10px 14px; color: inherit; }
+.co-setup li > a:hover { background: rgba(148,190,156,.05); }
+.co-setup li > a > svg:last-child { flex: none; color: var(--dim); }
+.co-setup-mark { display: grid; place-items: center; flex: none; width: 18px; height: 18px; border: 1.5px solid var(--line2); border-radius: 50%; color: #082417; }
+.co-setup li.done .co-setup-mark { border-color: var(--em); background: var(--em); }
+.co-setup-text { flex: 1; min-width: 0; }
+.co-setup-text b, .co-setup-text small { display: block; }
+.co-setup-text b { color: var(--ink2); font-size: 12.5px; font-weight: 620; }
+.co-setup-text small { margin-top: 2px; color: var(--mut); font-size: 11px; line-height: 1.45; }
+.co-setup li.done .co-setup-text b { color: var(--mut); text-decoration: line-through; text-decoration-color: var(--line2); }
+.co-setup li.done .co-setup-text small { display: none; }
+.co-setup-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.co-setup li { position: relative; }
+
 /* ---------- Phone comfort ----------
    Everything you tap is at least 44 points in both directions (Apple's guideline), and the text you
    read is 15 to 16px. Kept in one block at the end so it wins over the denser rules above. */
@@ -1090,6 +1111,12 @@
   .co-starters b { font-size: 15px; }
   .co-starters span { font-size: 13px; }
   .co-prompt-manage { min-height: 44px; font-size: 13.5px; }
+  .co-setup { margin-top: 14px; }
+  .co-setup > header b { font-size: 14px; }
+  .co-setup > header span { font-size: 12.5px; }
+  .co-setup li > a, .co-setup li > div { min-height: 52px; padding: 9px 14px; }
+  .co-setup-text b { font-size: 15px; }
+  .co-setup-text small { font-size: 13px; }
 
   /* Composer */
   .co-composer-foot { padding: 2px 6px 6px; gap: 4px; }
