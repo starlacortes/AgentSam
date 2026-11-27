@@ -1,0 +1,59 @@
+name: Replay
+
+# Replays Ada's saved test chats against a real model and reports how her first step scored
+# (tool choice, handing work on, length, truthfulness). Started by hand; it never runs on a push.
+# It needs the repository secret REPLAY_API_KEY: an API key for the provider at base_url.
+# Nothing is executed for real: each chat is one model call, and no tool runs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      model:
+        description: Model to replay against
+        default: deepseek-v4-pro
+      base_url:
+        description: Provider API base URL
+        default: https://api.deepseek.com/v1
+      label:
+        description: A name for this run in the report (for example "baseline")
+        default: ""
+      only:
+        description: Case IDs to run, comma-separated (empty runs all)
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    container:
+      image: swift:6.4-noble
+    steps:
+      - uses: actions/checkout@v4
+      - name: Replay the saved chats
+        timeout-minutes: 30
+        working-directory: AgentSamCore
+        env:
+          ADA_REPLAY_KEY: ${{ secrets.REPLAY_API_KEY }}
+          ADA_REPLAY_MODEL: ${{ inputs.model }}
+          ADA_REPLAY_BASE_URL: ${{ inputs.base_url }}
+          ADA_REPLAY_LABEL: ${{ inputs.label }}
+          ADA_REPLAY_ONLY: ${{ inputs.only }}
+          ADA_REPLAY_REPORT: ${{ github.workspace }}/replay-report.md
+        run: |
+          if [ -z "$ADA_REPLAY_KEY" ]; then
+            echo "::error::Add the repository secret REPLAY_API_KEY (Settings, Secrets and variables, Actions) and run this again."
+            exit 1
+          fi
+          swift test --filter PromptReplayTests/testLiveReplay
+      - name: Show the report
+        if: always()
+        run: |
+          if [ -f replay-report.md ]; then cat replay-report.md >> "$GITHUB_STEP_SUMMARY"; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: replay-report
+          path: replay-report.md
+          if-no-files-found: ignore
