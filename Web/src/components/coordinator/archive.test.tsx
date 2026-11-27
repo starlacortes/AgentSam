@@ -39,6 +39,12 @@ describe('chat archiving', () => {
     expect(row.className).toContain('revealed')
   })
 
+  it('shows a newly named project before its first chat is saved', () => {
+    sidebar({ pendingProject: 'Kitchen remodel' })
+    expect(screen.getByText('Kitchen remodel')).toBeTruthy()
+    expect(screen.getByText('Send a message to start this project.')).toBeTruthy()
+  })
+
   it('offers undo after archiving and links to archived chats', () => {
     const onUndoArchive = vi.fn()
     const props = sidebar({ archivedNotice: { id: 'c3', title: 'Old' }, onUndoArchive })

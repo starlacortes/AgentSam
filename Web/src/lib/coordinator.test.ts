@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentActivity, Conversation, ConversationMessage } from '../api/types'
 import { intervalLabel } from '../api/types'
-import { canvasForFinishedFiles, replyLanguage, connectorLabel, groupedConversations, pollDelay, presentWork, shouldPoll, takeSpeakable, voiceTranscript, workspaceFileSource, wroteFreshFiles } from './coordinator'
+import { canvasForFinishedFiles, chatTitle, splitByToday, replyLanguage, connectorLabel, groupedConversations, pollDelay, presentWork, shouldPoll, takeSpeakable, voiceTranscript, workspaceFileSource, wroteFreshFiles } from './coordinator'
 
 const activity: AgentActivity = { id: 'activity-1', agentID: 'agent-1', agentName: 'Scout', summary: 'Reviewing the brief', state: 'working', updatedAt: '2026-01-01T00:00:00Z', teamID: 'team-1', teamName: 'Research' }
 
@@ -12,6 +12,27 @@ function message(status: ConversationMessage['status'], activities: AgentActivit
 function conversation(messages: ConversationMessage[]): Conversation {
   return { id: 'chat-1', ownerID: 'owner', title: 'Project', projectName: 'Personal', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', running: false, messages }
 }
+
+describe('chat list', () => {
+  it('splits a project into chats from today and earlier ones', () => {
+    const now = new Date(2026, 10, 27, 15, 0)
+    const chats = [
+      { id: 'a', updatedAt: new Date(2026, 10, 27, 9, 0).toISOString() },
+      { id: 'b', updatedAt: new Date(2026, 10, 26, 23, 59).toISOString() },
+      { id: 'c', updatedAt: new Date(2026, 10, 27, 0, 0).toISOString() },
+    ]
+    const { today, earlier } = splitByToday(chats, now)
+    expect(today.map((chat) => chat.id)).toEqual(['a', 'c'])
+    expect(earlier.map((chat) => chat.id)).toEqual(['b'])
+  })
+
+  it('translates only the untitled placeholder', () => {
+    const t = (key: string) => (key === 'New conversation' ? 'Nueva conversación' : key)
+    expect(chatTitle('New conversation', t)).toBe('Nueva conversación')
+    expect(chatTitle(undefined, t)).toBe('Nueva conversación')
+    expect(chatTitle('Taxes', t)).toBe('Taxes')
+  })
+})
 
 describe('coordinator presentation', () => {
   it('shows the help Ada brought in and resumes polling only while Ada works', () => {
