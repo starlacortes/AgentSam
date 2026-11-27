@@ -3,6 +3,8 @@
   --co-sidebar: #0b120e;
   --co-raised: #16221b;
   height: 100dvh;
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
   display: grid;
   grid-template-columns: 264px minmax(0, 1fr);
   overflow: hidden;
@@ -41,7 +43,7 @@
 .co-side-item { padding: 8px 9px; font-size: 11.5px; }
 .co-side-item > span:not(.co-count) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .co-side-empty { padding: 10px; color: var(--dim); font-size: 11px; }
-.co-sidebar-foot { flex: none; padding: 8px 9px 10px; border-top: 1px solid var(--line); }
+.co-sidebar-foot { flex: none; padding: 8px 9px calc(10px + var(--safe-bottom)); border-top: 1px solid var(--line); }
 .co-profile { display: flex; align-items: center; gap: 9px; width: 100%; padding: 12px 9px 5px; margin-top: 4px; border: 0; border-top: 1px solid var(--line); background: transparent; text-align: left; }
 .co-profile-avatar { width: 29px; height: 29px; display: grid; place-items: center; flex: none; border-radius: 50%; background: #27382d; color: var(--ink); font-size: 11px; font-weight: 700; }
 .co-profile > span:nth-child(2) { min-width: 0; }
@@ -105,7 +107,7 @@
 .co-starters b { display: block; margin-top: 11px; color: var(--ink2); font-size: 11.5px; font-weight: 620; }
 .co-starters span { display: block; margin-top: 5px; color: var(--dim); font-size: 10.5px; line-height: 1.45; }
 
-.co-composer-wrap { flex: none; padding: 8px 22px 12px; background: linear-gradient(to top,var(--bg) 80%,transparent); }
+.co-composer-wrap { flex: none; padding: 8px 22px max(12px, var(--safe-bottom)); background: linear-gradient(to top,var(--bg) 80%,transparent); }
 .co-composer { max-width: 830px; margin: 0 auto; border: 1px solid var(--line2); border-radius: 14px; background: #111b15; box-shadow: 0 12px 36px rgba(0,0,0,.22); overflow: hidden; }
 .co-composer:focus-within { border-color: rgba(74,217,158,.4); box-shadow: 0 0 0 3px rgba(74,217,158,.045),0 12px 36px rgba(0,0,0,.22); }
 .co-composer > textarea { display: block; width: 100%; min-height: 52px; max-height: 220px; padding: 13px 15px 6px; border: 0; outline: 0; background: transparent; resize: none; overflow-y: auto; color: var(--ink); font-size: 13.5px; line-height: 1.5; }
@@ -152,7 +154,7 @@
 .co-team-proposal > .error { margin: 0 12px 12px; font-size: 11px; }
 
 .co-scrim, .co-modal-overlay { position: fixed; inset: 0; z-index: 70; background: rgba(3,8,5,.64); backdrop-filter: blur(5px); }
-.co-drawer { position: fixed; z-index: 71; top: 0; right: 0; bottom: 0; width: min(440px,94vw); display: flex; flex-direction: column; background: var(--panel); border-left: 1px solid var(--line2); box-shadow: var(--shadow-pop); animation: co-slide-in .22s ease-out; }
+.co-drawer { position: fixed; z-index: 71; top: 0; right: 0; bottom: 0; width: min(440px,94vw); padding: 0 var(--safe-right) var(--safe-bottom) 0; display: flex; flex-direction: column; background: var(--panel); border-left: 1px solid var(--line2); box-shadow: var(--shadow-pop); animation: co-slide-in .22s ease-out; }
 .co-drawer-head { display: flex; align-items: flex-start; gap: 14px; padding: 22px 20px 17px; border-bottom: 1px solid var(--line); }
 .co-drawer-head > div { flex: 1; }
 .co-kicker { color: var(--em); font-family: var(--mono); font-size: 8.5px; letter-spacing: .16em; text-transform: uppercase; }
@@ -247,7 +249,7 @@
 .co-guide-dots > i.active { width: 17px; border-radius: 99px; background: var(--em); }
 
 /* Full-screen voice */
-.co-voice { position: fixed; inset: 0; z-index: 110; display: flex; flex-direction: column; min-height: 0; background: radial-gradient(ellipse at 50% 45%,rgba(74,217,158,.075),transparent 52%),#080e0b; }
+.co-voice { position: fixed; inset: 0; z-index: 110; padding: 0 var(--safe-right) 0 var(--safe-left); display: flex; flex-direction: column; min-height: 0; background: radial-gradient(ellipse at 50% 45%,rgba(74,217,158,.075),transparent 52%),#080e0b; }
 .co-voice-head { min-height: 66px; display: flex; align-items: center; gap: 11px; padding: 0 24px; border-bottom: 1px solid var(--line); }
 .co-voice-head > div { flex: 1; }
 .co-voice-head b, .co-voice-head small { display: block; }
@@ -266,7 +268,7 @@
 .co-voice-response p { margin-top: 5px; color: var(--mut); font-size: 11px; line-height: 1.55; white-space: pre-wrap; }
 .co-voice-error { max-width: 500px; margin-top: 15px; color: #efa79f; font-size: 12px; }
 .co-voice-hint { display: flex; align-items: center; justify-content: center; gap: 7px; max-width: 480px; margin-top: 16px; color: var(--dim); font-size: 10px; line-height: 1.5; }
-.co-voice-controls { flex: none; width: min(660px,100%); margin: 0 auto; padding: 16px 24px calc(20px + env(safe-area-inset-bottom)); }
+.co-voice-controls { flex: none; width: min(660px,100%); margin: 0 auto; padding: 16px 24px calc(20px + var(--safe-bottom)); }
 .co-voice-controls form { display: flex; align-items: center; gap: 10px; padding: 7px 9px 7px 14px; border: 1px solid var(--line2); border-radius: 13px; background: var(--panel2); color: var(--dim); }
 .co-voice-controls form > input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: 13px; }
 .co-voice-controls form > input::placeholder { color: var(--dim); }
@@ -319,7 +321,7 @@
 
 @media (max-width: 760px) {
   .co-app { display: flex; }
-  .co-sidebar { position: fixed; inset: 0 auto 0 0; width: min(290px,88vw); transform: translateX(-102%); transition: transform .2s ease-out; box-shadow: var(--shadow-pop); }
+  .co-sidebar { position: fixed; inset: 0 auto 0 0; width: calc(min(290px,88vw) + var(--safe-left)); padding-left: var(--safe-left); transform: translateX(-102%); transition: transform .2s ease-out; box-shadow: var(--shadow-pop); }
   .co-sidebar.open { transform: translateX(0); }
   .co-nav-scrim { display: block; position: fixed; inset: 0; z-index: 44; background: rgba(0,0,0,.58); backdrop-filter: blur(3px); }
   .co-main { flex: 1; }
@@ -348,7 +350,7 @@
   .co-starters > button > svg { grid-row: 1 / span 2; }
   .co-starters b { margin-top: 0; }
   .co-starters span { grid-column: 2; margin-top: 3px; }
-  .co-composer-wrap { padding: 6px 10px calc(9px + env(safe-area-inset-bottom)); }
+  .co-composer-wrap { padding: 6px 10px max(9px, var(--safe-bottom)); }
   .co-composer { border-radius: 12px; }
   .co-composer > textarea { min-height: 47px; font-size: 16px; padding: 12px 12px 4px; }
   .co-composer-foot { padding: 4px 8px 8px 11px; }
@@ -376,7 +378,7 @@
   .co-voice-stage { padding: 20px; justify-content: center; }
   .co-voice-stage h1 { font-size: 23px; }
   .co-voice-response { max-height: 140px; }
-  .co-voice-controls { padding: 12px 15px calc(15px + env(safe-area-inset-bottom)); }
+  .co-voice-controls { padding: 12px 15px calc(15px + var(--safe-bottom)); }
   /* Phones: a compact orb on top, the conversation under it, the keyboard at the bottom. */
   .co-voice.with-chat .co-voice-body { flex-direction: column; }
   .co-voice.with-chat .co-voice-stage { flex: 0 1 auto; min-height: 0; max-height: 62%; padding: 12px 15px 10px; justify-content: flex-start; }
@@ -397,7 +399,7 @@
 }
 @media (max-height: 700px) and (min-width: 761px) {
   .co-voice-stage { padding-top: 15px; padding-bottom: 15px; }
-  .co-voice-controls { padding-top: 8px; padding-bottom: 12px; }
+  .co-voice-controls { padding-top: 8px; padding-bottom: calc(12px + var(--safe-bottom)); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -533,7 +535,7 @@
 }
 @media (max-width: 1050px) {
   .co-app.with-canvas { grid-template-columns: 234px minmax(0,1fr); }
-  .co-canvas { position: fixed; top: 0; right: 0; bottom: 0; width: min(var(--co-canvas-width, 520px), calc(100vw - 60px)); box-shadow: -20px 0 50px rgba(0,0,0,.45); z-index: 60; }
+  .co-canvas { position: fixed; top: 0; right: 0; bottom: 0; padding: 0 var(--safe-right) var(--safe-bottom) 0; width: min(var(--co-canvas-width, 520px), calc(100vw - 60px)); box-shadow: -20px 0 50px rgba(0,0,0,.45); z-index: 60; }
 }
 @media (max-width: 760px) {
   .co-canvas { left: 0; width: 100%; border-left: 0; }
@@ -777,7 +779,7 @@
 /* Ada's browser: the live window onto the Chromium window on her workstation. While open it is the
    main area of the page, with the chat (and voice mode) in a column beside it; the chat list slides in. */
 .co-app.with-browser { --co-chat-width: 420px; grid-template-columns: minmax(0,1fr) var(--co-chat-width); }
-.co-app.with-browser .co-sidebar { position: fixed; inset: 0 auto 0 0; width: min(290px,88vw); transform: translateX(-102%); transition: transform .2s ease-out; box-shadow: var(--shadow-pop); z-index: 120; }
+.co-app.with-browser .co-sidebar { position: fixed; inset: 0 auto 0 0; width: calc(min(290px,88vw) + var(--safe-left)); padding-left: var(--safe-left); transform: translateX(-102%); transition: transform .2s ease-out; box-shadow: var(--shadow-pop); z-index: 120; }
 .co-app.with-browser .co-sidebar.open { transform: translateX(0); }
 .co-app.with-browser .co-nav-scrim { display: block; position: fixed; inset: 0; z-index: 119; background: rgba(0,0,0,.58); backdrop-filter: blur(3px); }
 .co-app.with-browser .co-menu-button { display: inline-grid !important; }
@@ -820,7 +822,7 @@
 .co-browser-auto input { accent-color: var(--em); }
 
 /* Voice mode beside the browser: the same orb and chat, stacked in the chat column. */
-.co-voice.docked { left: auto; width: var(--co-chat-width, 420px); border-left: 1px solid var(--line); }
+.co-voice.docked { left: auto; width: calc(var(--co-chat-width, 420px) + var(--safe-right)); padding-left: 0; border-left: 1px solid var(--line); }
 .co-voice.docked .co-voice-head { min-height: 65px; padding: 0 14px; }
 .co-voice.docked .co-voice-body { flex-direction: column; }
 .co-voice.docked .co-voice-stage { padding: 16px; }
@@ -834,7 +836,7 @@
 .co-voice.docked .co-voice-hint { display: none; }
 .co-voice.docked .co-voice-chat { flex: 1; min-height: 140px; width: auto; border-left: 0; border-top: 1px solid var(--line); }
 .co-voice.docked .co-voice-chat .co-message-inner { padding: 14px 15px 20px; }
-.co-voice.docked .co-voice-controls { padding: 10px 14px 14px; }
+.co-voice.docked .co-voice-controls { padding: 10px 14px calc(14px + var(--safe-bottom)); }
 .co-voice.docked .co-voice-buttons { margin-top: 9px; }
 .co-voice.docked .co-voice-orb { --size: 150px; margin: 18px 0; }
 .co-voice.docked.with-chat .co-voice-orb { --size: 104px; margin: 14px 0 12px; }
@@ -853,7 +855,7 @@
   .co-app.with-browser .co-browser-dock { order: -1; flex: none; height: var(--co-browser-height); border-bottom: 1px solid var(--line); }
   .co-app.with-browser .co-main { flex: 1; min-height: 0; border-left: 0; }
   .co-app.with-browser .co-chat-header { height: 50px; }
-  .co-app.browser-full .co-browser-dock { flex: 1; height: auto; border-bottom: 0; }
+  .co-app.browser-full .co-browser-dock { flex: 1; height: auto; border-bottom: 0; padding-bottom: var(--safe-bottom); }
   .co-app.browser-full .co-main, .co-app.browser-full .co-voice.docked { display: none; }
   .co-browser-full { display: inline-grid !important; }
   .co-browser-head { min-height: 50px; gap: 6px; padding: 0 6px 0 12px; }
