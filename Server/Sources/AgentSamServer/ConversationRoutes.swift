@@ -8,6 +8,7 @@ extension ConversationError: AbortError {
         case .notFound: .notFound
         case .alreadyRunning: .conflict
         case .persistence: .internalServerError
+        case .choice: .conflict
         case .emptyMessage, .messageTooLong, .noProvider, .missingProviderKey: .badRequest
         }
     }
@@ -32,6 +33,8 @@ struct ConversationMessageBody: Content {
     var spoken: Bool?
     /// The browser's IANA time zone, e.g. "America/Los_Angeles".
     var timeZone: String?
+    /// Answers to a choice card Ada asked; then `text` may be empty.
+    var choice: ChoiceReply?
 }
 
 /// `retentionDays` is 7, 30, 90, or 365; null (or absent) keeps archived chats forever.
@@ -153,7 +156,8 @@ func conversationRoutes(_ api: RoutesBuilder, ctx: ServerContext) {
             language: body.language ?? SrvL10n.lang(for: req),
             photos: photos,
             spoken: body.spoken ?? false,
-            timeZone: body.timeZone.map { String($0.prefix(64)) }
+            timeZone: body.timeZone.map { String($0.prefix(64)) },
+            choice: body.choice
         )
         return try req.json(conversation, status: .accepted)
     }

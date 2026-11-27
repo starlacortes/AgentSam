@@ -423,11 +423,12 @@ public actor WorkspaceKnowledgeStore {
         }
         lines += machines
         lines += ["", "## Direct chat tools"]
-        var directTools = ChatWorkspaceTools.definitions + TriggerTools.definitions + SkillTools.definitions + MemoryTools.definitions + SelfReviewTools.definitions + InfoCardTools.definitions
+        var directTools = ChatWorkspaceTools.definitions + TriggerTools.definitions + SkillTools.definitions + MemoryTools.definitions + SelfReviewTools.definitions + InfoCardTools.definitions + ChoiceCardTools.definitions
         if includeExtendedTools { directTools += ExtendedWorkspaceTools.definitions }
         // Names only: Ada already receives each tool's full description with its definition.
         lines.append(directTools.map(\.function.name).sorted().map { "`\($0)`" }.joined(separator: ", "))
         lines.append("`show_card` is held back to save tokens, never missing: it joins Ada's tool list after her first tool call in a reply, when the person asks for a card, chart or infographic, and for a while after she showed one. When it is not in her list yet and a card would help, she first gets the data with a tool (reading a file, a search, a query); she never tells the person she cannot make cards.")
+        lines.append("`ask_choice` is always in Ada's list in a chat reply: it shows tappable choices (one or several picks, an own-answer box, up to \(ChoiceCardTools.maxQuestions) questions one at a time, later ones can depend on earlier answers) and ends her reply; the answers come back as the person's next message. Voice mode reads it aloud. Not in scheduled or trigger runs, where nobody is there to tap.")
         let skillNames = skills.map { Self.inline($0.name) + ($0.enabled ? "" : " (off)") }
         lines += [
             "",

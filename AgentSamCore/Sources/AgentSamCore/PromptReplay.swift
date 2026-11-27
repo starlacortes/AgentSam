@@ -184,7 +184,7 @@ public enum PromptReplay {
         let skills = Skill.builtIns
         let taskTools = TaskTools.definitions(catalog: SkillTeams.catalog(skills))
         let delegateTools = HelperTools.definitions(hasWorkstation: setup.workstation, hasMCP: false, hasBrowser: setup.browser, saved: [], canSave: setup.extended, skills: skills.map(\.id))
-        let offered = OfferedTools.direct(connectorTools: connectorTools, hasLinkedMissions: false, hasExtendedAccess: setup.extended, hasWorkstation: setup.workstation, hasBrowser: setup.browser, browserOpen: ConversationEngine.browserInUse(history: history), mcpTools: [], taskTools: taskTools, delegateTools: delegateTools, cards: true, cardsOpen: ConversationEngine.cardsInUse(history: history))
+        let offered = OfferedTools.direct(connectorTools: connectorTools, hasLinkedMissions: false, hasExtendedAccess: setup.extended, hasWorkstation: setup.workstation, hasBrowser: setup.browser, browserOpen: ConversationEngine.browserInUse(history: history), mcpTools: [], taskTools: taskTools, delegateTools: delegateTools, cards: true, cardsOpen: ConversationEngine.cardsInUse(history: history), choices: true)
         return (offered, connectorTools)
     }
 

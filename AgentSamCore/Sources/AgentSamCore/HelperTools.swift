@@ -280,7 +280,7 @@ public enum HelperTools {
             return groups.contains(.mcp)
         case .browser:
             return groups.contains(.browser)
-        case .task, .trigger, .skill, .memory, .selfReview, .card, .delegate, .worker:
+        case .task, .trigger, .skill, .memory, .selfReview, .card, .choice, .delegate, .worker:
             return false
         }
     }

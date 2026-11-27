@@ -70,6 +70,11 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
     public var usedBrowser: Bool
     /// Cards Ada showed in this reply with `show_card`, drawn below the text. Data only, never HTML.
     public var cards: [InfoCard]
+    /// A card of choices Ada asked with `ask_choice`; her reply ends with it. Data only, never HTML.
+    public var choice: ChoiceCard?
+    /// For a user message that answers a choice card: the answers, drawn as a compact answered card.
+    /// `text` holds the same answers as words, for Ada and for apps that do not draw it.
+    public var choiceReply: ChoiceAnswer?
 
     public init(
         id: UUID = UUID(),
@@ -93,7 +98,9 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
         toolLog: [String] = [],
         trigger: TriggerEvent? = nil,
         usedBrowser: Bool = false,
-        cards: [InfoCard] = []
+        cards: [InfoCard] = [],
+        choice: ChoiceCard? = nil,
+        choiceReply: ChoiceAnswer? = nil
     ) {
         self.id = id
         self.role = role
@@ -117,10 +124,12 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
         self.trigger = trigger
         self.usedBrowser = usedBrowser
         self.cards = cards
+        self.choice = choice
+        self.choiceReply = choiceReply
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, role, text, createdAt, status, missionIDs, teamIDs, proposal, activity, steps, quickReplies, fileIDs, scheduled, photos, spoken, speech, acknowledgement, completedAt, toolLog, trigger, usedBrowser, cards
+        case id, role, text, createdAt, status, missionIDs, teamIDs, proposal, activity, steps, quickReplies, fileIDs, scheduled, photos, spoken, speech, acknowledgement, completedAt, toolLog, trigger, usedBrowser, cards, choice, choiceReply
     }
 
     /// Older conversations on disk predate `steps`, `quickReplies`, and `completedAt`.
@@ -148,6 +157,8 @@ public struct ConversationMessage: Codable, Identifiable, Hashable, Sendable {
         trigger = try c.decodeIfPresent(TriggerEvent.self, forKey: .trigger)
         usedBrowser = try c.decodeIfPresent(Bool.self, forKey: .usedBrowser) ?? false
         cards = try c.decodeIfPresent([InfoCard].self, forKey: .cards) ?? []
+        choice = try? c.decodeIfPresent(ChoiceCard.self, forKey: .choice)
+        choiceReply = try? c.decodeIfPresent(ChoiceAnswer.self, forKey: .choiceReply)
     }
 
     /// Trims, de-duplicates, and caps quick replies so model output can't flood the UI.
@@ -525,6 +536,8 @@ public enum ConversationError: Error, LocalizedError, Sendable {
     case noProvider
     case missingProviderKey(String)
     case persistence(String)
+    /// A choice card's answers could not be taken: already answered, or incomplete.
+    case choice(String)
 
     public var errorDescription: String? {
         switch self {
@@ -535,6 +548,7 @@ public enum ConversationError: Error, LocalizedError, Sendable {
         case .noProvider: "Add a model provider before chatting with Ada."
         case .missingProviderKey(let name): "Add an API key for \(name) in Settings before chatting with Ada."
         case .persistence(let reason): reason
+        case .choice(let reason): reason
         }
     }
 }

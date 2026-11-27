@@ -164,6 +164,54 @@ export interface ConversationMessage {
   usedBrowser?: boolean
   /** Cards Ada showed with show_card, drawn below the text. Data only; absent on older messages. */
   cards?: InfoCard[]
+  /** A card of choices Ada asked with ask_choice; her reply ends with it. Data only. */
+  choice?: ChoiceCard
+  /** On a user message that answers a choice card: the answers, drawn as a compact card. `text` has them as words. */
+  choiceReply?: ChoiceAnswer
+}
+
+export interface ChoiceOption {
+  label: string
+  detail?: string
+}
+
+export interface ChoiceQuestion {
+  id: string
+  question: string
+  options: ChoiceOption[]
+  multiple: boolean
+  other: boolean
+  /** Shown only after an earlier question (by id) was answered with one of these option labels. */
+  showIf?: { question: string; anyOf: string[] }
+}
+
+export interface ChoiceAnswerItem {
+  questionID: string
+  question: string
+  picked: string[]
+  other?: string
+}
+
+export interface ChoiceAnswer {
+  cardID: string
+  items: ChoiceAnswerItem[]
+  /** Answered by writing or saying it rather than on the card. */
+  inWords: boolean
+}
+
+/** Every field is plain text; the app never renders markup from it. */
+export interface ChoiceCard {
+  id: string
+  title?: string
+  questions: ChoiceQuestion[]
+  state: 'pending' | 'answered' | 'closed'
+  answer?: ChoiceAnswer
+}
+
+/** What the app sends when the person answers a choice card: option numbers from 0, per question id. */
+export interface ChoiceReply {
+  cardID: string
+  answers: { question: string; picked: number[]; other?: string }[]
 }
 
 /** One entry of a card: a stat, a ranked item, a chart point, a step, a timeline event, a summary line. */

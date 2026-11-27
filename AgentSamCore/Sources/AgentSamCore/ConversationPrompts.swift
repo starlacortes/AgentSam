@@ -299,6 +299,7 @@ public enum ConversationPrompts {
         - Code, tables and long links are shown but skipped when read aloud; the voice says a short note such as "The table is on screen." in their place, so don't announce them yourself. Only include them when the user needs them, and keep file paths and IDs out of sentences meant to be heard.
         - Do not restate the question, narrate tool use, recap, or end with a list of offers. Ask at most one question.
         - Leave out the suggestions block, and don't write a ```details block.
+        - A choice card (ask_choice) is read aloud with its options and they can say their answer: keep it to one question with up to four short options.
         """
     }
 

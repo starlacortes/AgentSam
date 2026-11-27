@@ -4,7 +4,7 @@ import { GettingStarted, type SetupStep } from '../components/coordinator/Gettin
 import { currentSubscription, pushSupported } from '../lib/push'
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, errorMessage, uploadPhoto, uploadProjectFile } from '../api/client'
-import type { AgentActionRequest, ArchiveSettings, ConnectorStatus, Conversation, ConversationSummary, GuideState, MissionDetail, ProviderStatus, BrowserView } from '../api/types'
+import type { AgentActionRequest, ArchiveSettings, ConnectorStatus, Conversation, ConversationSummary, GuideState, MissionDetail, ProviderStatus, BrowserView, ChoiceReply } from '../api/types'
 import { useAuth } from '../auth/AuthContext'
 import { AgentWorkroom } from '../components/coordinator/AgentWorkroom'
 import { CoordinatorSidebar } from '../components/coordinator/CoordinatorSidebar'
@@ -375,7 +375,7 @@ export function CoordinatorPage() {
     return transcribeConversation(current.id, audio, lang)
   }
 
-  const sendMessage = async (raw: string, waitForCompletion = false, onPartial?: (update: VoicePartial) => void, includePhotos = false): Promise<VoiceReply | null> => {
+  const sendMessage = async (raw: string, waitForCompletion = false, onPartial?: (update: VoicePartial) => void, includePhotos = false, choice?: ChoiceReply): Promise<VoiceReply | null> => {
     const text = raw.trim()
     // The composer and voice mode send the photos waiting in the composer; quick replies and retries don't.
     const attached = includePhotos ? photosRef.current : []
@@ -387,11 +387,11 @@ export function CoordinatorPage() {
       const current = await ensureConversation()
       const photoIDs: string[] = []
       for (const photo of attached) photoIDs.push((await uploadPhoto(current.id, photo.blob)).id)
-      const body = { text, language: lang, timeZone: browserTimeZone(), ...(photoIDs.length ? { photoIDs } : {}), ...(waitForCompletion ? { spoken: true } : {}) }
+      const body = { text, language: lang, timeZone: browserTimeZone(), ...(photoIDs.length ? { photoIDs } : {}), ...(waitForCompletion ? { spoken: true } : {}), ...(choice ? { choice } : {}) }
       const result = await api<Conversation>(`conversations/${current.id}/messages`, { method: 'POST', body })
       if (!mounted.current) return null
       replaceConversation(result)
-      setDraft('')
+      if (!choice) setDraft('')
       if (attached.length) {
         for (const photo of attached) URL.revokeObjectURL(photo.url)
         setPhotos((list) => list.filter((photo) => !attached.includes(photo)))
@@ -629,6 +629,7 @@ export function CoordinatorPage() {
     onRetry: (text) => void sendMessage(text),
     onEdit: prompt,
     onQuickReply: (text) => void sendMessage(text),
+    onChoice: (reply, text) => void sendMessage(text, false, undefined, false, reply),
     onOpenCanvas: openCanvas,
     onStarter: prompt,
     onPromptCards: (draft) => setPromptCardsOpen({ draft }),
@@ -716,6 +717,7 @@ export function CoordinatorPage() {
       // In voice mode, replies picked from the chat are sent through voice so Ada answers out loud.
       onRetry: voice.send,
       onQuickReply: voice.send,
+      onChoice: voice.choose,
       onStarter: voice.send,
       onEdit: voice.edit,
       onOpenCanvas: (state) => { setVoiceOpen(false); openCanvas(state) },

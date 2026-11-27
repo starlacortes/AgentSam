@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEve
 import { useI18n } from '../../i18n'
 import { api } from '../../api/client'
 import type { VoiceInfo } from '../../api/chatTypes'
+import type { ChoiceReply } from '../../api/types'
 import { replyLanguage, takeSpeakable } from '../../lib/coordinator'
 import { markVoice } from '../../lib/voiceTiming'
 import { canRecord, MIN_RECORDING_MS, Speaker, useRecorder } from '../../lib/voice'
@@ -133,9 +134,11 @@ export interface VoiceChatHandlers {
   send: (text: string) => void
   /** Puts text in the keyboard box to edit before sending. */
   edit: (text: string) => void
+  /** Sends answers tapped on a choice card, so Ada answers out loud. `text` is what is shown as said. */
+  choose: (reply: ChoiceReply, text: string) => void
 }
 
-export function VoiceMode({ onSend, onTranscribe, onClose, activity = null, transcript: conversation = null, docked = false }: { onSend: (text: string, waitForCompletion: boolean, onPartial?: (update: VoicePartial) => void, includePhotos?: boolean) => Promise<VoiceReply | null>; onTranscribe: (audio: Blob) => Promise<string>; onClose: () => void; /** What Ada is doing right now, such as "Searching Gmail"; null while she isn't working. */ activity?: string | null; /** The chat itself (messages, copy, approval cards), shown beside the orb once there is one. */ transcript?: ((handlers: VoiceChatHandlers) => ReactNode) | null; /** True while Ada's browser is open: voice mode sits in the panel beside it instead of covering the page. */ docked?: boolean }) {
+export function VoiceMode({ onSend, onTranscribe, onClose, activity = null, transcript: conversation = null, docked = false }: { onSend: (text: string, waitForCompletion: boolean, onPartial?: (update: VoicePartial) => void, includePhotos?: boolean, choice?: ChoiceReply) => Promise<VoiceReply | null>; onTranscribe: (audio: Blob) => Promise<string>; onClose: () => void; /** What Ada is doing right now, such as "Searching Gmail"; null while she isn't working. */ activity?: string | null; /** The chat itself (messages, copy, approval cards), shown beside the orb once there is one. */ transcript?: ((handlers: VoiceChatHandlers) => ReactNode) | null; /** True while Ada's browser is open: voice mode sits in the panel beside it instead of covering the page. */ docked?: boolean }) {
   const { t, lang } = useI18n()
   const [phase, setPhase] = useState<'idle' | 'listening' | 'thinking' | 'speaking'>('idle')
   const [rest, setRest] = useState<Rest>('start')
@@ -376,7 +379,7 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null, tran
   }
 
   /** Sends a message and speaks the answer. Photos waiting in the chat composer go with what they say or type, not with picks from the chat. */
-  const submit = async (raw: string, includePhotos = true) => {
+  const submit = async (raw: string, includePhotos = true, choice?: ChoiceReply) => {
     const text = raw.trim()
     if (!text || sending.current) return
     autoListened.current = true
@@ -392,7 +395,7 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null, tran
     setError(null)
     setPhase('thinking')
     try {
-      const answer = await onSend(text, true, streamSpeech(), includePhotos)
+      const answer = await (choice ? onSend(text, true, streamSpeech(), includePhotos, choice) : onSend(text, true, streamSpeech(), includePhotos))
       if (!active.current) return
       if (!answer?.text.trim()) {
         setPhase('idle')
@@ -511,6 +514,7 @@ export function VoiceMode({ onSend, onTranscribe, onClose, activity = null, tran
 
   const chatHandlers: VoiceChatHandlers = {
     send: (text) => void submit(text, false),
+    choose: (reply, text) => void submit(text, false, reply),
     edit: (text) => {
       autoListened.current = true
       stopListening(true)

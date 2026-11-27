@@ -139,7 +139,7 @@ public enum InfoCardTools {
                 description: """
                 Draw a small card below your reply when it carries data that is easier to see than read: several \
                 key numbers, options side by side, a ranking, a trend, progress through steps, dates. Never for a \
-                question, a refusal, choices for the person to pick from (those go in the suggestions block), an explanation, or a reply of a sentence or two: those stay plain text. Your text \
+                question, a refusal, choices for the person to pick from (those go in ask_choice or the suggestions block), an explanation, or a reply of a sentence or two: those stay plain text. Your text \
                 still answers on its own (voice reads only the text). Plain text fields, no HTML or Markdown. At most \(maxPerReply) per reply.
                 Templates (all take optional title and note, a source or footnote):
                 - stats: items 1-6 {label, value, detail?: the change, tone?}

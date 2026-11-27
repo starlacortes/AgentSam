@@ -298,6 +298,15 @@ describe('VoiceMode hands-free', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Quick reply' }))
     await waitFor(() => expect(onSend).toHaveBeenCalledWith('Yes, go ahead', true, expect.any(Function), false))
   })
+
+  it('sends choice card answers tapped beside the orb through voice, so Ada answers out loud', async () => {
+    setUp()
+    const onSend = vi.fn().mockResolvedValue({ text: 'Saturday it is.' })
+    const reply = { cardID: 'c1', answers: [{ question: 'day', picked: [2] }] }
+    render(<I18nProvider><VoiceMode onSend={onSend} onTranscribe={vi.fn()} onClose={vi.fn()} transcript={(voice) => <button onClick={() => voice.choose(reply, 'Which day? → Saturday')}>Saturday</button>} /></I18nProvider>)
+    fireEvent.click(screen.getByRole('button', { name: 'Saturday' }))
+    await waitFor(() => expect(onSend).toHaveBeenCalledWith('Which day? → Saturday', true, expect.any(Function), false, reply))
+  })
 })
 
 describe('spoken filler', () => {
