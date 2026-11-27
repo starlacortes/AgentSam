@@ -783,7 +783,7 @@
 .co-app.with-browser .co-sidebar.open { transform: translateX(0); }
 .co-app.with-browser .co-nav-scrim { display: block; position: fixed; inset: 0; z-index: 119; background: rgba(0,0,0,.58); backdrop-filter: blur(3px); }
 .co-app.with-browser .co-menu-button { display: inline-grid !important; }
-.co-app.with-browser .co-browser-dock { grid-column: 1; grid-row: 1; }
+.co-app.with-browser .co-browser-dock { grid-column: 1; grid-row: 1; padding-bottom: var(--safe-bottom); }
 .co-app.with-browser .co-main { grid-column: 2; grid-row: 1; border-left: 1px solid var(--line); }
 .co-app.with-browser .co-chat-header { gap: 8px; padding: 0 12px; }
 .co-app.with-browser .co-chat-heading > span { display: none; }
@@ -852,7 +852,7 @@
 @media (max-width: 760px) {
   /* Phones: the browser on top, the chat (or voice) under it; one button lets the browser fill the screen. */
   .co-app.with-browser { --co-browser-height: min(54dvh, calc(100vw * .625 + 68px)); flex-direction: column; }
-  .co-app.with-browser .co-browser-dock { order: -1; flex: none; height: var(--co-browser-height); border-bottom: 1px solid var(--line); }
+  .co-app.with-browser .co-browser-dock { order: -1; flex: none; height: var(--co-browser-height); padding-bottom: 0; border-bottom: 1px solid var(--line); }
   .co-app.with-browser .co-main { flex: 1; min-height: 0; border-left: 0; }
   .co-app.with-browser .co-chat-header { height: 50px; }
   .co-app.browser-full .co-browser-dock { flex: 1; height: auto; border-bottom: 0; padding-bottom: var(--safe-bottom); }
