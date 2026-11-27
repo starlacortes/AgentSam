@@ -80,7 +80,7 @@ export function MissionsPage() {
       <ErrorBanner message={error} />
       {needsKeys ? (
         <div className="notice row" style={{ marginBottom: 16 }}>
-          <span style={{ flex: 1 }}>{t('No provider has an API key yet, so missions can’t run.')}</span>
+          <span style={{ flex: 1 }}>{t('No provider has an API key yet, so Ada can’t work.')}</span>
           <Link className="btn small" to="/settings/providers">
             {t('Set up providers')}
           </Link>
@@ -90,10 +90,10 @@ export function MissionsPage() {
         <input
           className="input"
           style={{ flex: '1 1 260px' }}
-          placeholder={t('Search missions')}
+          placeholder={t('Search jobs')}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          aria-label={t('Search missions')}
+          aria-label={t('Search jobs')}
         />
         <div className="row filter-pills" role="group" aria-label={t('Filter by status')}>
           {FILTERS.map((f) => (
@@ -111,13 +111,10 @@ export function MissionsPage() {
         <div className="card empty">
           {missions.length === 0 ? (
             <>
-              <p style={{ marginBottom: 14 }}>{t('Nothing here yet. Bigger jobs you give Ada show up here.')}</p>
-              <Link className="btn" to="/">
-                {t('Ask Ada')}
-              </Link>
+              <p>{t('Nothing here yet. Bigger jobs you give Ada show up here.')}</p>
             </>
           ) : (
-            <p>{t('No missions match.')}</p>
+            <p>{t('No jobs match.')}</p>
           )}
         </div>
       ) : (

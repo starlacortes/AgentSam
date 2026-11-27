@@ -21,6 +21,10 @@ function isNarrow(): boolean {
  * helpers she brought in (researchAda, judgeAda). It is hidden when nothing is running and the
  * last reply was Ada's alone, so an ordinary chat shows nothing extra.
  */
+function specialistCount(count: number, t: (key: string, values?: Record<string, string | number>) => string): string {
+  return count === 1 ? t('1 specialist') : t('{count} specialists', { count })
+}
+
 export function AgentWorkroom({ conversation }: { conversation: Conversation | null }) {
   const { t } = useI18n()
   const work = presentWork(conversation)
@@ -44,18 +48,18 @@ export function AgentWorkroom({ conversation }: { conversation: Conversation | n
       <i className={work.running ? 'co-live-dot' : 'co-online-dot'} aria-hidden="true" />
       <b>{title}</b>
       <span className="co-workbar-detail">{detail}</span>
-      {work.running && work.helpers.length ? <span className="co-workbar-count">{t('{count} helping', { count: work.helpers.filter((helper) => helper.state === 'working').length || work.helpers.length })}</span> : null}
+      {work.running && work.helpers.length ? <span className="co-workbar-count">{specialistCount(work.helpers.filter((helper) => helper.state === 'working').length || work.helpers.length, t)}</span> : null}
       {work.helpers.length ? <button type="button" className="co-workbar-toggle" aria-expanded={expanded} onClick={() => setOpen(!expanded)}>{expanded ? t('Hide') : t('Details')}<Icon name="collapse" size={13} /></button> : null}
     </div>
     {expanded ? <div className="co-workbar-details">
       <ul>{work.helpers.map((helper) => <li key={helper.key} className={helper.state}>
         <span className="co-workbar-avatar" aria-hidden="true">{helper.name.trim()[0]?.toUpperCase() ?? '?'}</span>
         <div>
-          <p><b>{helper.name}</b><small>{helper.group ? t('Part of {group}', { group: helper.group }) : t('Helper')}</small><em>{t(stateWords[helper.state])}</em></p>
+          <p><b>{helper.name}</b><small>{helper.group ? t('Part of {group}', { group: helper.group }) : t('Specialist')}</small><em>{t(stateWords[helper.state])}</em></p>
           <span>{helper.summary}</span>
         </div>
       </li>)}</ul>
-      <p className="co-workbar-hint">{t('Helpers are short-lived assistants Ada brings in for one part of the job. They only use the tools she gives them, and anything that changes your accounts still asks you first.')}</p>
+      <p className="co-workbar-hint">{t('Specialists are short-lived assistants Ada brings in for one part of the job. They only use the tools she gives them, and anything that changes your accounts still asks you first.')}</p>
     </div> : null}
   </section>
 }

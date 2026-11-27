@@ -186,7 +186,7 @@ function Message({ conversationID, message, latest, busy, handlers, retry, readA
   const running = message.status === 'running'
   return <article className={`co-ada-message ${message.status}`}>
     <span className={`co-ada-avatar ${running ? 'working' : ''}`}>A</span>
-    <div className="co-ada-content"><div className="co-ada-name">Ada <span>{running ? t('Working') : t('Coordinator')}</span>{!running ? <time className="co-message-time" dateTime={message.createdAt}>{timeLabel(message.createdAt)}</time> : null}</div>
+    <div className="co-ada-content"><div className="co-ada-name">Ada{running ? <span>{t('Working')}</span> : null}{!running ? <time className="co-message-time" dateTime={message.createdAt}>{timeLabel(message.createdAt)}</time> : null}</div>
       {running ? <>{message.text ? <div className="co-response co-streaming"><Markdown source={message.text} codeTools={codeTools} /></div> : null}<ThinkingIndicator message={message} /></> : <><WorkSummary message={message} /><div className="co-response"><Markdown source={message.text} codeTools={codeTools} /></div></>}
       {message.status === 'failed' ? <button className="co-secondary-button co-retry" onClick={retry}>{t('Try again')}</button> : null}
       {message.missionIDs.length ? <div className="co-source-row">
