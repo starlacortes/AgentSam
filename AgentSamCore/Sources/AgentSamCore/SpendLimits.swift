@@ -18,8 +18,13 @@ public final class CostMeter: @unchecked Sendable {
         lock.lock(); value += usd; lock.unlock()
     }
 
-    public func add(_ reply: LLMReply) {
-        add(Pricing.estimate(model: reply.model, inputTokens: reply.inputTokens, outputTokens: reply.outputTokens))
+    /// Adds one model call. `local` is true for a provider that runs on this machine, where a model
+    /// without a listed price is free. Returns the estimated cost of the call.
+    @discardableResult
+    public func add(_ reply: LLMReply, local: Bool = false) -> Double {
+        let usd = Pricing.estimate(model: reply.model, inputTokens: reply.inputTokens, outputTokens: reply.outputTokens, cachedInputTokens: reply.cachedInputTokens, local: local)
+        add(usd)
+        return usd
     }
 
     @TaskLocal public static var current: CostMeter?
