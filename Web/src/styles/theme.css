@@ -23,6 +23,11 @@
   --shadow: 0 18px 44px rgba(0, 0, 0, 0.45);
   --shadow-pop: 0 30px 80px rgba(0, 0, 0, 0.55);
   --radius: 14px;
+  /* iPhone safe areas (home bar, rounded corners, notch). Zero everywhere else.
+     Anything that touches a screen edge should pad with these. */
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
   color-scheme: dark;
 }
 
@@ -130,7 +135,7 @@ input, textarea, button, select { font-family: inherit; font-size: inherit; colo
 }
 
 /* ---------- auth screens ---------- */
-.auth-wrap { min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; }
+.auth-wrap { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px; }
 .auth-card { width: 100%; max-width: 420px; }
 .auth-card .logo { margin-bottom: 22px; }
 .auth-card h1 { margin: 6px 0 6px; }
