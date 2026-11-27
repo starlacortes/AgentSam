@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { api, errorMessage } from '../../api/client'
 import type { ArchiveSettings, Conversation, ConversationSummary } from '../../api/types'
 import { useI18n } from '../../i18n'
+import { chatTitle } from '../../lib/coordinator'
 import { ErrorBanner, Spinner } from '../ui'
 import { Icon } from './Icon'
 import { useDialogA11y } from './Overlay'
@@ -140,7 +141,7 @@ export function ArchivedChats({ settings, onSettings, onOpen, onRestored, onClos
             const days = chat.archivedAt ? daysUntilPurge(chat.archivedAt, retention) : null
             return <li key={chat.id}>
               <button type="button" className="co-archive-open" onClick={() => onOpen(chat.id)}>
-                <b>{chat.title}</b>
+                <b>{chatTitle(chat.title, t)}</b>
                 <small>{chat.projectName === 'Personal' ? t('Personal') : chat.projectName} · {days === null ? t('Kept until you delete it') : days === 0 ? t('Deleted today') : days === 1 ? t('Deleted tomorrow') : t('Deleted in {count} days', { count: days })}</small>
               </button>
               <button type="button" className="co-secondary-button" disabled={busy !== null} onClick={() => void restore(chat.id)}><Icon name="retry" size={13} />{t('Restore')}</button>
