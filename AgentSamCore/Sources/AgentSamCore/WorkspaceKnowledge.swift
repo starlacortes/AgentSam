@@ -462,7 +462,11 @@ public actor WorkspaceKnowledgeStore {
             if status.permissions.createDraft { permissions.append("create drafts") }
             if status.permissions.dnsWrite { permissions.append("DNS writes and cache purge") }
             if status.permissions.githubWrite { permissions.append("GitHub branch writes and comments") }
+            if status.permissions.adsWrite { permissions.append("Google Ads changes (status, budgets, bids, conversions and other create/update/remove)") }
             lines.append("- Optional write permissions: \(permissions.isEmpty ? "none" : permissions.joined(separator: ", ")).")
+            if status.id == .googleads && status.enabled && status.configured && !status.permissions.adsWrite {
+                lines.append("- Google Ads changes are switched off, so only reading is possible. An admin turns them on with \"Allow Google Ads changes\" under Settings → Connections → Google Ads; each change then still needs the user's approval.")
+            }
             let tools = activeTools.filter { $0.function.name.hasPrefix(status.id.rawValue + "_") }.sorted { $0.function.name < $1.function.name }
             if tools.isEmpty {
                 lines.append("- Active tools: none. Connect and enable this connector to expose its tools.")

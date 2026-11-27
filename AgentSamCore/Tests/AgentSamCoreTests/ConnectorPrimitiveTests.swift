@@ -54,6 +54,10 @@ final class ConnectorPrimitiveTests: XCTestCase {
         XCTAssertFalse(ConnectorHub.readOnlyToolNames.contains("googleads_set_budget"))
         XCTAssertFalse(ConnectorHub.readOnlyToolNames.contains("googleads_mutate"))
         XCTAssertTrue(ConnectorHub.readOnlyToolNames.contains("googleads_validate"))
+        // Conversions can be changed and removed, and which ones count for bidding can be set.
+        for resource in ["conversionActions", "customerConversionGoals", "campaignConversionGoals", "campaignBudgets", "biddingStrategies"] {
+            XCTAssertTrue(GoogleAdsConnector.mutateResources.contains(resource), resource)
+        }
 
         XCTAssertEqual(GoogleAdsConnector.cleanCampaignID("123"), "123")
         XCTAssertEqual(GoogleAdsConnector.cleanCampaignID("customers/9/campaigns/456"), "456")
