@@ -110,7 +110,15 @@ final class InfoCardsTests: XCTestCase {
         XCTAssertNil(without.family(of: InfoCardTools.toolName))
         let with = OfferedTools.direct(connectorTools: [], hasLinkedMissions: false, hasExtendedAccess: false, cards: true)
         XCTAssertEqual(with.family(of: InfoCardTools.toolName), .card)
-        XCTAssertEqual(with.visibility(of: InfoCardTools.toolName), .sent)
+        // Held until Ada has used a tool in the reply, so questions and refusals don't grow cards.
+        XCTAssertEqual(with.visibility(of: InfoCardTools.toolName), .held)
+        XCTAssertFalse(with.definitions.contains { $0.function.name == InfoCardTools.toolName })
+        XCTAssertTrue(with.revealing(.card).definitions.last?.function.name == InfoCardTools.toolName, "last, so the tools before it stay the same")
+        let open = OfferedTools.direct(connectorTools: [], hasLinkedMissions: false, hasExtendedAccess: false, cards: true, cardsOpen: true)
+        XCTAssertEqual(open.visibility(of: InfoCardTools.toolName), .sent)
+        let shown = ConversationMessage(role: .assistant, text: "x", cards: [InfoCard(template: "callout", text: "x")])
+        XCTAssertTrue(ConversationEngine.cardsInUse(history: [shown]))
+        XCTAssertFalse(ConversationEngine.cardsInUse(history: [ConversationMessage(role: .assistant, text: "x")]))
         XCTAssertNotNil(ToolCatalog.spec(InfoCardTools.toolName))
         XCTAssertFalse(HelperTools.allows(name: InfoCardTools.toolName, family: .card, groups: Set(HelperTools.Group.allCases)))
     }
@@ -155,7 +163,8 @@ final class InfoCardsTests: XCTestCase {
         // The second call is invalid (nothing shown, still counts), the fourth is over the limit of 3.
         XCTAssertEqual(reply.cards.count, 2)
         XCTAssertEqual(reply.cards.first?.title, "This month")
-        XCTAssertTrue(offeredNames.values.first?.contains("show_card") == true)
+        XCTAssertEqual(offeredNames.values.first?.contains("show_card"), false, "held on the first call")
+        XCTAssertEqual(offeredNames.values.dropFirst().first?.contains("show_card"), true, "sent once a tool ran")
         XCTAssertTrue(results.values.contains { $0.contains("is shown below your reply text") })
         XCTAssertTrue(results.values.contains { $0.hasPrefix("No card was shown.") })
         XCTAssertTrue(results.values.contains { $0.contains("Card limit reached") })

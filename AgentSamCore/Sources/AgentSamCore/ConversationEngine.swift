@@ -605,7 +605,7 @@ public actor ConversationEngine {
         // Proposing a saved helper role needs an approval card, so it is offered only with access.
         let hasBrowser = await browser(ownerID: ref?.ownerID) != nil
         let delegateTools = ref == nil ? [] : HelperTools.definitions(hasWorkstation: workstation != nil, hasMCP: !mcpTools.isEmpty, hasBrowser: hasBrowser, saved: await helpers.all(ownerID: ref?.ownerID), canSave: access != nil, skills: await skills.enabled(for: ref?.ownerID).map(\.id))
-        let offered = OfferedTools.direct(connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedAccess: access != nil, hasWorkstation: workstation != nil, hasBrowser: hasBrowser, browserOpen: Self.browserInUse(history: context.history), mcpTools: mcpTools, taskTools: taskTools, delegateTools: delegateTools, cards: ref != nil)
+        let offered = OfferedTools.direct(connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedAccess: access != nil, hasWorkstation: workstation != nil, hasBrowser: hasBrowser, browserOpen: Self.browserInUse(history: context.history), mcpTools: mcpTools, taskTools: taskTools, delegateTools: delegateTools, cards: ref != nil, cardsOpen: Self.cardsInUse(history: context.history))
         return (offered, connectorTools, workstation)
     }
 
@@ -618,6 +618,12 @@ public actor ConversationEngine {
     /// once she uses one of them.
     public static func browserInUse(history: [ConversationMessage]) -> Bool {
         history.suffix(browserHistoryWindow).contains { $0.role == .assistant && $0.usedBrowser }
+    }
+
+    /// Whether one of Ada's recent replies showed a card: then the person likely wants more of them,
+    /// so show_card is sent from the first call. Otherwise it follows once she has used a tool.
+    public static func cardsInUse(history: [ConversationMessage]) -> Bool {
+        history.suffix(browserHistoryWindow).contains { $0.role == .assistant && !$0.cards.isEmpty }
     }
 
     private func directAnswer(userText: String, photos photoInput: PhotoInputs = PhotoInputs(), coordinator: AgentProfile, context: ConversationPromptContext, history: [ConversationMessage], language: String, ref: ResponseRef? = nil, conversationID: UUID, writtenFiles: inout [String], toolLog: inout [String]) async throws -> String {
@@ -662,6 +668,8 @@ public actor ConversationEngine {
                     offeredTools = offeredTools.revealing(.browser)
                 }
             }
+            // Once Ada has used a tool she may have data worth a card, so show_card is sent from the next call.
+            if offeredTools.holds(.card) { offeredTools = offeredTools.revealing(.card) }
             // The reply's spending limit stops further tool rounds; Ada answers with what she has.
             if let replyCap, (CostMeter.current?.total ?? 0) >= replyCap {
                 overCap = true

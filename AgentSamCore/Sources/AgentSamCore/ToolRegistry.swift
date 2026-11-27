@@ -111,9 +111,13 @@ public struct OfferedTools: Sendable {
     public static let browserFirstNames: Set<String> = ["browser_open", "browser_look", "browser_tabs"]
 
     /// Ada's direct-reply tools. Extended tools need workspace access; mission tools need a linked mission.
+    /// `cardsOpen` sends show_card from the first call, for chats where Ada showed cards lately.
     /// `browserOpen` sends every browser tool from the first call, for chats where the browser is already in use.
-    public static func direct(connectorTools: [APIToolDef], hasLinkedMissions: Bool, hasExtendedAccess: Bool, hasWorkstation: Bool = false, hasBrowser: Bool = false, browserOpen: Bool = false, mcpTools: [APIToolDef] = [], taskTools: [APIToolDef] = [], delegateTools: [APIToolDef] = [], cards: Bool = false) -> OfferedTools {
-        let held = hasBrowser && !browserOpen ? BrowserTools.names.subtracting(browserFirstNames) : []
+    public static func direct(connectorTools: [APIToolDef], hasLinkedMissions: Bool, hasExtendedAccess: Bool, hasWorkstation: Bool = false, hasBrowser: Bool = false, browserOpen: Bool = false, mcpTools: [APIToolDef] = [], taskTools: [APIToolDef] = [], delegateTools: [APIToolDef] = [], cards: Bool = false, cardsOpen: Bool = false) -> OfferedTools {
+        var held = hasBrowser && !browserOpen ? BrowserTools.names.subtracting(browserFirstNames) : []
+        // A card shows data Ada found or worked out, so show_card waits until she has used a tool in the
+        // reply (or used cards lately). Sent from the start, it drew cards onto questions and refusals.
+        if cards && !cardsOpen { held.formUnion(InfoCardTools.names) }
         return OfferedTools([
             (.connector, connectorTools),
             (.chat, ChatWorkspaceTools.definitions(projectLocation: hasExtendedAccess)),
@@ -125,10 +129,10 @@ public struct OfferedTools: Sendable {
             (.skill, SkillTools.definitions),
             (.memory, MemoryTools.definitions),
             (.selfReview, SelfReviewTools.definitions),
-            (.card, cards ? InfoCardTools.definitions : []),
             (.workstation, hasWorkstation ? WorkstationTools.definitions : []),
             (.browser, hasBrowser ? BrowserTools.definitions : []),
             (.mcp, mcpTools),
+            (.card, cards ? InfoCardTools.definitions : []),
         ], holding: held, hidden: [
             (.extended, hasExtendedAccess ? ExtendedWorkspaceTools.projectAliases : []),
         ])
