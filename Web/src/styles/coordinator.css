@@ -1078,6 +1078,107 @@
 .co-setup-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 .co-setup li { position: relative; }
 
+/* ---------- Ada's cards (show_card) ----------
+   Small, data-only cards under a reply. Dark surfaces, one accent, status colours only with a word or icon. */
+.co-cards { display: grid; gap: 10px; margin-top: 14px; max-width: 620px; }
+.co-card { border: 1px solid var(--line2); border-radius: 13px; background: linear-gradient(180deg, rgba(148,190,156,.045), rgba(148,190,156,.015)), var(--panel); padding: 13px 14px; min-width: 0; }
+.co-card-title { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; font-family: var(--display); font-size: var(--t-body); font-weight: 650; color: var(--bright); letter-spacing: -0.005em; }
+.co-card-title span { font-family: var(--mono); font-size: var(--t-label); font-weight: 500; color: var(--dim); }
+.co-card-note { margin-top: 10px; color: var(--dim); font-size: var(--t-label); line-height: 1.45; }
+.co-card-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+.co-card-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 8px; }
+.co-card-stats.count-1 { grid-template-columns: 1fr; }
+.co-card-stat { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border-radius: 10px; background: var(--deep); border: 1px solid var(--line); min-width: 0; }
+.co-card-stat-label { color: var(--mut); font-size: var(--t-small); }
+.co-card-stat-value { color: var(--bright); font-family: var(--display); font-size: 22px; font-weight: 650; line-height: 1.15; letter-spacing: -0.01em; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.co-card-stat-detail { font-size: var(--t-label); color: var(--mut); }
+.co-card-stat-detail.good { color: var(--em2); }
+.co-card-stat-detail.bad { color: #f0a29c; }
+
+.co-card-scroll { overflow-x: auto; margin: 0 -14px; padding: 0 14px; -webkit-overflow-scrolling: touch; }
+.co-card-table { width: 100%; border-collapse: collapse; font-size: var(--t-small); font-variant-numeric: tabular-nums; }
+.co-card-table th, .co-card-table td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+.co-card-table tr:last-child th, .co-card-table tr:last-child td { border-bottom: 0; }
+.co-card-table thead th { color: var(--bright); font-weight: 650; font-size: var(--t-small); white-space: nowrap; }
+.co-card-table tbody th { color: var(--mut); font-weight: 500; white-space: nowrap; }
+.co-card-table td { color: var(--ink2); min-width: 64px; }
+.co-card-table .best { background: rgba(74, 217, 158, .07); }
+.co-card-table thead .best { border-top-left-radius: 8px; border-top-right-radius: 8px; }
+.co-card-best { display: block; margin-top: 2px; color: var(--em); font-family: var(--mono); font-size: 9.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; }
+
+.co-card-ranking, .co-card-steps, .co-card-timeline { list-style: none; display: grid; gap: 2px; }
+.co-card-ranking li { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; }
+.co-card-rank { flex: none; width: 22px; height: 22px; border-radius: 7px; display: grid; place-items: center; background: var(--deep); border: 1px solid var(--line); color: var(--mut); font-family: var(--mono); font-size: var(--t-label); }
+.co-card-ranking li:first-child .co-card-rank { color: var(--gold2); border-color: rgba(201,169,106,.45); }
+.co-card-rank-body { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.co-card-rank-line { display: flex; gap: 10px; justify-content: space-between; align-items: baseline; }
+.co-card-rank-label { color: var(--ink); font-size: var(--t-body); overflow-wrap: anywhere; }
+.co-card-rank-line b { color: var(--bright); font-weight: 600; font-size: var(--t-small); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.co-card-rank-bar { display: block; height: 6px; border-radius: 4px; background: rgba(148,190,156,.08); overflow: hidden; }
+.co-card-rank-bar i { display: block; height: 100%; border-radius: 4px; background: var(--em); opacity: .85; }
+.co-card-rank-detail { color: var(--mut); font-size: var(--t-small); }
+
+.co-card-chart { position: relative; min-width: 0; }
+.co-card-chart svg { display: block; overflow: visible; touch-action: pan-y; }
+.co-card-readout { display: flex; gap: 8px; align-items: baseline; margin-bottom: 4px; min-height: 20px; font-size: var(--t-small); color: var(--mut); }
+.co-card-readout b { color: var(--bright); font-weight: 650; font-variant-numeric: tabular-nums; }
+.co-card-grid line { stroke: var(--line); stroke-width: 1; }
+.co-card-grid text, .co-card-xlabel { fill: var(--dim); font-family: var(--mono); font-size: 10px; }
+.co-card-bar { fill: var(--em); opacity: .55; transition: opacity .15s; }
+.co-card-bar.on { opacity: 1; }
+.co-card-line { fill: none; stroke: var(--em); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.co-card-dot { fill: var(--em); stroke: var(--panel); stroke-width: 2; }
+.co-card-dot.on { fill: var(--em2); }
+.co-card-hit { fill: transparent; cursor: pointer; outline: none; }
+.co-card-hit:focus-visible { fill: rgba(74, 217, 158, .08); }
+
+.co-card-steps li, .co-card-timeline li { display: flex; gap: 11px; align-items: flex-start; padding: 6px 0; position: relative; }
+.co-card-steps li > div, .co-card-timeline li > div { display: grid; gap: 2px; min-width: 0; flex: 1; }
+.co-card-step-mark { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; border: 1.5px solid var(--line2); color: var(--dim); font-family: var(--mono); font-size: 10px; background: var(--deep); position: relative; z-index: 1; }
+.co-card-steps li:not(:last-child)::before { content: ''; position: absolute; left: 10.5px; top: 30px; bottom: -4px; width: 1.5px; background: var(--line2); }
+.co-card-steps li.done .co-card-step-mark { background: rgba(74,217,158,.16); border-color: var(--em); color: var(--em); }
+.co-card-steps li.done:not(:last-child)::before { background: rgba(74,217,158,.45); }
+.co-card-steps li.current .co-card-step-mark { border-color: var(--gold); }
+.co-card-steps li.current .co-card-step-mark i { width: 8px; height: 8px; border-radius: 50%; background: var(--gold); animation: co-card-pulse 1.6s ease-in-out infinite; }
+.co-card-steps li.failed .co-card-step-mark { background: var(--danger-bg); border-color: var(--danger); color: var(--danger); }
+.co-card-steps li.todo .co-card-step-label { color: var(--mut); }
+.co-card-step-label { color: var(--ink); font-size: var(--t-body); overflow-wrap: anywhere; }
+.co-card-step-state { justify-self: start; padding: 1px 7px; border-radius: 999px; font-family: var(--mono); font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase; }
+.co-card-step-state.current { color: var(--gold2); background: rgba(201,169,106,.12); }
+.co-card-step-state.failed { color: #f0a29c; background: var(--danger-bg); }
+.co-card-step-detail { color: var(--mut); font-size: var(--t-small); }
+@keyframes co-card-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .co-card-steps li.current .co-card-step-mark i { animation: none; } }
+
+.co-card-timeline { padding-left: 2px; }
+.co-card-timeline li { padding-left: 16px; }
+.co-card-timeline li::before { content: ''; position: absolute; left: 0; top: 13px; width: 7px; height: 7px; border-radius: 50%; background: var(--em); box-shadow: 0 0 0 3px var(--panel); z-index: 1; }
+.co-card-timeline li:not(:last-child)::after { content: ''; position: absolute; left: 3px; top: 18px; bottom: -8px; width: 1px; background: var(--line2); }
+.co-card-when { flex: none; width: 92px; color: var(--em2); font-family: var(--mono); font-size: var(--t-label); padding-top: 3px; overflow-wrap: anywhere; }
+
+.co-card-summary { display: grid; }
+.co-card-summary > div { display: grid; grid-template-columns: minmax(96px, 38%) 1fr; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+.co-card-summary > div:last-child { border-bottom: 0; }
+.co-card-summary dt { color: var(--mut); font-size: var(--t-small); }
+.co-card-summary dd { color: var(--ink); font-size: var(--t-body); overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.co-card-summary dd span { display: block; color: var(--dim); font-size: var(--t-label); }
+
+.co-card.callout-card { padding: 0; overflow: hidden; }
+.co-card-callout { display: flex; gap: 11px; padding: 12px 14px; border-left: 3px solid var(--em); }
+.co-card-callout b { display: block; color: var(--bright); font-size: var(--t-body); margin-bottom: 2px; }
+.co-card-callout p { color: var(--ink2); font-size: var(--t-body); line-height: 1.55; }
+.co-card-callout .co-card-note { display: block; margin-top: 6px; }
+.co-card-callout-icon { flex: none; width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; }
+.co-card-callout.info { border-left-color: var(--em2); background: rgba(127,224,180,.05); }
+.co-card-callout.info .co-card-callout-icon { color: var(--em2); background: rgba(127,224,180,.1); }
+.co-card-callout.success { border-left-color: var(--em); background: rgba(74,217,158,.06); }
+.co-card-callout.success .co-card-callout-icon { color: var(--em); background: rgba(74,217,158,.12); }
+.co-card-callout.warning { border-left-color: var(--gold); background: rgba(201,169,106,.07); }
+.co-card-callout.warning .co-card-callout-icon { color: var(--gold2); background: rgba(201,169,106,.14); }
+.co-card-callout.danger { border-left-color: var(--danger); background: var(--danger-bg); }
+.co-card-callout.danger .co-card-callout-icon { color: var(--danger); background: rgba(229,99,91,.16); }
+
 /* ---------- Phone comfort ----------
    Everything you tap is at least 44 points in both directions (Apple's guideline), and the text you
    read is 15 to 16px. Kept in one block at the end so it wins over the denser rules above. */
@@ -1187,4 +1288,11 @@
   .kicker { font-size: 11px; }
   .chip { font-size: 11.5px; }
   .hint { font-size: 13px; }
+  /* Ada's cards */
+  .co-cards { margin-left: -2px; margin-right: -2px; }
+  .co-card-stat-label, .co-card-table, .co-card-summary dt, .co-card-rank-detail, .co-card-step-detail, .co-card-readout { font-size: 14px; }
+  .co-card-rank-label, .co-card-step-label, .co-card-summary dd, .co-card-callout p, .co-card-callout b { font-size: 15px; }
+  .co-card-when { width: 76px; }
+  .co-card-table th, .co-card-table td { padding: 8px 7px; }
+  .co-card-summary > div { grid-template-columns: minmax(88px, 40%) 1fr; }
 }

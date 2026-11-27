@@ -543,6 +543,10 @@ public actor ConversationEngine {
 
     /// "chat_read_file {"path":"notes.md"} → ok" or "… → failed: reason", short enough to carry in history.
     static func toolLogLine(call: APIToolCall, outcome: ToolOutcome) -> String {
+        // A card's data is on screen and in the message; the log only needs to say which card it was.
+        if call.function.name == InfoCardTools.toolName, outcome.succeeded, case .success(let card) = InfoCardTools.card(from: AgentTools.arguments(of: call)) {
+            return card.logLine + " → ok"
+        }
         let arguments = call.function.arguments.replacingOccurrences(of: "\n", with: " ")
         let shortArguments = arguments.count > 120 ? String(arguments.prefix(120)) + "…" : arguments
         let firstLine = outcome.resultText.split(separator: "\n", maxSplits: 1).first.map(String.init) ?? ""
@@ -601,7 +605,7 @@ public actor ConversationEngine {
         // Proposing a saved helper role needs an approval card, so it is offered only with access.
         let hasBrowser = await browser(ownerID: ref?.ownerID) != nil
         let delegateTools = ref == nil ? [] : HelperTools.definitions(hasWorkstation: workstation != nil, hasMCP: !mcpTools.isEmpty, hasBrowser: hasBrowser, saved: await helpers.all(ownerID: ref?.ownerID), canSave: access != nil, skills: await skills.enabled(for: ref?.ownerID).map(\.id))
-        let offered = OfferedTools.direct(connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedAccess: access != nil, hasWorkstation: workstation != nil, hasBrowser: hasBrowser, browserOpen: Self.browserInUse(history: context.history), mcpTools: mcpTools, taskTools: taskTools, delegateTools: delegateTools)
+        let offered = OfferedTools.direct(connectorTools: connectorTools, hasLinkedMissions: !context.missionIDs.isEmpty, hasExtendedAccess: access != nil, hasWorkstation: workstation != nil, hasBrowser: hasBrowser, browserOpen: Self.browserInUse(history: context.history), mcpTools: mcpTools, taskTools: taskTools, delegateTools: delegateTools, cards: ref != nil, cardsOpen: Self.cardsInUse(history: context.history))
         return (offered, connectorTools, workstation)
     }
 
@@ -614,6 +618,12 @@ public actor ConversationEngine {
     /// once she uses one of them.
     public static func browserInUse(history: [ConversationMessage]) -> Bool {
         history.suffix(browserHistoryWindow).contains { $0.role == .assistant && $0.usedBrowser }
+    }
+
+    /// Whether one of Ada's recent replies showed a card: then the person likely wants more of them,
+    /// so show_card is sent from the first call. Otherwise it follows once she has used a tool.
+    public static func cardsInUse(history: [ConversationMessage]) -> Bool {
+        history.suffix(browserHistoryWindow).contains { $0.role == .assistant && !$0.cards.isEmpty }
     }
 
     private func directAnswer(userText: String, photos photoInput: PhotoInputs = PhotoInputs(), coordinator: AgentProfile, context: ConversationPromptContext, history: [ConversationMessage], language: String, ref: ResponseRef? = nil, conversationID: UUID, writtenFiles: inout [String], toolLog: inout [String]) async throws -> String {
@@ -658,6 +668,8 @@ public actor ConversationEngine {
                     offeredTools = offeredTools.revealing(.browser)
                 }
             }
+            // Once Ada has used a tool she may have data worth a card, so show_card is sent from the next call.
+            if offeredTools.holds(.card) { offeredTools = offeredTools.revealing(.card) }
             // The reply's spending limit stops further tool rounds; Ada answers with what she has.
             if let replyCap, (CostMeter.current?.total ?? 0) >= replyCap {
                 overCap = true
@@ -697,6 +709,7 @@ public actor ConversationEngine {
         var tasks = 0
         var delegations = 0
         var helperSaves = 0
+        var cards = 0
         /// Set once a self-review runs: memory and skill tools then only suggest.
         var reviewed = false
         var writtenFiles: [String] = []
@@ -791,6 +804,15 @@ public actor ConversationEngine {
             outcome = await TriggerTools.run(call: call, sink: sink, language: language)
         case .memory:
             if state.reviewed { outcome = .failure(SelfReviewTools.applyLaterMessage) } else { outcome = await MemoryTools.run(call: call, memory: memory, ownerID: ref?.ownerID) }
+        case .card:
+            state.cards += 1
+            if state.cards > InfoCardTools.maxPerReply {
+                outcome = .failure("Card limit reached for this reply (\(InfoCardTools.maxPerReply)). Say the rest in text.")
+            } else if let ref {
+                outcome = await showCard(call: call, in: ref, number: state.cards)
+            } else {
+                outcome = .failure("Cards need a chat reply to appear in.")
+            }
         case .selfReview:
             // From here on this reply only suggests; memory and skill tools refuse until the user picks.
             state.reviewed = true
@@ -1126,6 +1148,23 @@ public actor ConversationEngine {
 
     /// Shows in-progress text on the running response. Never touches a response that has finished.
     /// Flags the reply as using the browser, so the web app opens the live window beside the chat.
+    /// Checks a `show_card` call and adds the card to the running reply, so it shows at once and stays in the chat.
+    private func showCard(call: APIToolCall, in ref: ResponseRef, number: Int) async -> ToolOutcome {
+        switch InfoCardTools.card(from: AgentTools.arguments(of: call)) {
+        case .failure(let error):
+            return .failure(error.message)
+        case .success(let card):
+            do {
+                _ = try await conversations.updateMessage(id: ref.conversationID, ownerID: ref.ownerID, messageID: ref.responseID) { message in
+                    message.cards.append(card)
+                }
+                return ToolOutcome(resultText: InfoCardTools.shownMessage(card, number: number))
+            } catch {
+                return .failure("The card could not be saved, so it is not shown. Give the information in text.")
+            }
+        }
+    }
+
     private func markUsedBrowser(in ref: ResponseRef) async {
         _ = try? await conversations.updateMessage(id: ref.conversationID, ownerID: ref.ownerID, messageID: ref.responseID) { message in
             guard message.status == .running, !message.usedBrowser else { return }

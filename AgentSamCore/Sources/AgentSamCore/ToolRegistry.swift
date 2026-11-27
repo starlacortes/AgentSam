@@ -20,6 +20,8 @@ public enum ToolFamily: Sendable, Equatable {
     case memory
     /// Ada's read-only look back at her own recent work (`SelfReviewTools`).
     case selfReview
+    /// Small cards drawn in Ada's reply: stats, comparisons, charts (`InfoCardTools`).
+    case card
     /// Ada's own Linux machine (`WorkstationTools`): admins only, when the server turns it on.
     case workstation
     /// Ada's browser on the workstation (`BrowserTools`): admins only, when the server turns it on.
@@ -109,9 +111,13 @@ public struct OfferedTools: Sendable {
     public static let browserFirstNames: Set<String> = ["browser_open", "browser_look", "browser_tabs"]
 
     /// Ada's direct-reply tools. Extended tools need workspace access; mission tools need a linked mission.
+    /// `cardsOpen` sends show_card from the first call, for chats where Ada showed cards lately.
     /// `browserOpen` sends every browser tool from the first call, for chats where the browser is already in use.
-    public static func direct(connectorTools: [APIToolDef], hasLinkedMissions: Bool, hasExtendedAccess: Bool, hasWorkstation: Bool = false, hasBrowser: Bool = false, browserOpen: Bool = false, mcpTools: [APIToolDef] = [], taskTools: [APIToolDef] = [], delegateTools: [APIToolDef] = []) -> OfferedTools {
-        let held = hasBrowser && !browserOpen ? BrowserTools.names.subtracting(browserFirstNames) : []
+    public static func direct(connectorTools: [APIToolDef], hasLinkedMissions: Bool, hasExtendedAccess: Bool, hasWorkstation: Bool = false, hasBrowser: Bool = false, browserOpen: Bool = false, mcpTools: [APIToolDef] = [], taskTools: [APIToolDef] = [], delegateTools: [APIToolDef] = [], cards: Bool = false, cardsOpen: Bool = false) -> OfferedTools {
+        var held = hasBrowser && !browserOpen ? BrowserTools.names.subtracting(browserFirstNames) : []
+        // A card shows data Ada found or worked out, so show_card waits until she has used a tool in the
+        // reply (or used cards lately). Sent from the start, it drew cards onto questions and refusals.
+        if cards && !cardsOpen { held.formUnion(InfoCardTools.names) }
         return OfferedTools([
             (.connector, connectorTools),
             (.chat, ChatWorkspaceTools.definitions(projectLocation: hasExtendedAccess)),
@@ -126,6 +132,7 @@ public struct OfferedTools: Sendable {
             (.workstation, hasWorkstation ? WorkstationTools.definitions : []),
             (.browser, hasBrowser ? BrowserTools.definitions : []),
             (.mcp, mcpTools),
+            (.card, cards ? InfoCardTools.definitions : []),
         ], holding: held, hidden: [
             (.extended, hasExtendedAccess ? ExtendedWorkspaceTools.projectAliases : []),
         ])
@@ -246,6 +253,7 @@ public enum ToolCatalog {
         ToolSpec("skill_save", .write, en: "Saving a procedure", es: "Guardando un procedimiento"),
         ToolSpec("memory_remember", .write, en: "Remembering that", es: "Recordándolo"),
         ToolSpec("memory_forget", .write, en: "Forgetting that", es: "Olvidándolo"),
+        ToolSpec("show_card", .write, en: "Making a card", es: "Preparando una tarjeta"),
         ToolSpec("self_review_recent", .read, en: "Looking back at my recent work", es: "Revisando mi trabajo reciente"),
         ToolSpec("workstation_status", .read, en: "Checking the workstation", es: "Revisando la estación de trabajo"),
         ToolSpec("workstation_run", .approval, en: "Preparing a workstation command", es: "Preparando un comando en la estación"),

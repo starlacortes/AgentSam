@@ -162,6 +162,35 @@ export interface ConversationMessage {
   trigger?: TriggerEvent
   /** True once Ada used her live browser during this reply; the web app then opens it beside the chat. */
   usedBrowser?: boolean
+  /** Cards Ada showed with show_card, drawn below the text. Data only; absent on older messages. */
+  cards?: InfoCard[]
+}
+
+/** One entry of a card: a stat, a ranked item, a chart point, a step, a timeline event, a summary line. */
+export interface InfoCardItem {
+  label: string
+  value?: string
+  number?: number
+  detail?: string
+  tone?: 'good' | 'bad' | 'neutral'
+  state?: 'done' | 'current' | 'todo' | 'failed'
+  when?: string
+}
+
+/** A small card in one of a few fixed templates. Every field is plain text; the app never renders markup from it. */
+export interface InfoCard {
+  id: string
+  template: string
+  title?: string
+  note?: string
+  items: InfoCardItem[]
+  columns: string[]
+  rows: { label: string; values: string[] }[]
+  highlight?: number
+  chart?: 'bar' | 'line'
+  unit?: string
+  tone?: 'info' | 'success' | 'warning' | 'danger'
+  text?: string
 }
 
 export interface TriggerEvent {

@@ -653,4 +653,15 @@ export const coordinatorSpanish: Record<string, string> = {
   'All {count} prompt cards': 'Las {count} tarjetas',
   'Edit prompt cards': 'Editar tarjetas',
   'Save your own prompt cards': 'Guarda tus propias tarjetas',
+  // Ada's in-chat cards
+  Card: 'Tarjeta',
+  Chart: 'Gráfico',
+  Compared: 'Comparado',
+  Recommended: 'Recomendado',
+  'In progress': 'En curso',
+  'To do': 'Pendiente',
+  'Heads up': 'Atención',
+  Important: 'Importante',
+  Note: 'Nota',
+  Failed: 'Falló',
 }
