@@ -936,12 +936,23 @@ public actor ConversationEngine {
         var rounds = 0
         var stopped = false
         let replyCap = await replySpendCap(ownerID: ref.ownerID)
+        // Specialists run on the provider's fast model; judgeAda keeps Ada's own.
+        var profile = Self.specialistProfile(for: coordinator, function: request.function, providers: await store.loadProviders())
         do {
             var report = ""
             var finished = false
             for _ in 0..<maxRounds {
                 try Task.checkCancellation()
-                let reply = try await complete(coordinator: coordinator, system: system, messages: messages, tools: offeredTools.definitions.isEmpty ? nil : offeredTools.definitions, purpose: "helper")
+                let reply: LLMReply
+                do {
+                    reply = try await complete(coordinator: profile, system: system, messages: messages, tools: offeredTools.definitions.isEmpty ? nil : offeredTools.definitions, purpose: "helper")
+                } catch let error as LLMError where rounds == 0 && profile.model != coordinator.model && Self.mayBeModelRejection(error) {
+                    // The provider does not know the fast model (an older account, a proxy with other
+                    // names). Do the work on Ada's own model rather than fail the specialist.
+                    await access?.audit.record(ownerID: ref.ownerID, action: "delegate.model_fallback", detail: "\(request.name): \(profile.model) refused (\(error.message.prefix(160))); using \(coordinator.model)")
+                    profile = coordinator
+                    reply = try await complete(coordinator: profile, system: system, messages: messages, tools: offeredTools.definitions.isEmpty ? nil : offeredTools.definitions, purpose: "helper")
+                }
                 rounds += 1
                 messages.append(reply.message)
                 let calls = reply.message.tool_calls ?? []
@@ -962,7 +973,7 @@ public actor ConversationEngine {
             if !finished {
                 stopped = true
                 messages.append(.user("No tool steps are left. Report now with what you have, without calling tools, and say what is missing."))
-                report = try await complete(coordinator: coordinator, system: system, messages: messages, tools: nil, purpose: "helper").message.content ?? ""
+                report = try await complete(coordinator: profile, system: system, messages: messages, tools: nil, purpose: "helper").message.content ?? ""
                 rounds += 1
             }
             line.state = report.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "failed" : "done"
@@ -1261,19 +1272,27 @@ public actor ConversationEngine {
                 }
             }
 
-            // Check: judgeAda reads the files and reports, read-only.
+            // Check: judgeAda reads the files and reports, read-only. A job Ada planned as a single
+            // step skips it: there is one report, and Ada reads it herself before she answers.
             try Task.checkCancellation()
-            await store.appendEvent(mission.id, kind: .phase, text: MissionPhase.verifying.rawValue)
-            await beginStep(es ? "judgeAda está revisando el resultado" : "judgeAda is checking the result", in: ref)
-            let judgeArguments = TaskTools.json(.object([
-                ("function", .string("judge")), ("task", .string(TaskTools.judgeTask(objective: request.objective, reports: reports, files: files))), ("tools", .array([])),
-            ]))
-            let judgeCall = APIToolCall(id: UUID().uuidString, function: .init(name: "delegate", arguments: judgeArguments))
-            let judged = await runHelper(call: judgeCall, parent: parent, state: ToolRunState(), context: context, language: language, ref: ref, conversationID: conversationID, coordinator: coordinator, workstation: workstation)
-            let check = TaskTools.reportBody(judged)
-            let verdict = judged.succeeded ? TaskTools.verdict(in: check) : .unverified
-            await store.appendEvent(mission.id, kind: .verifyVerdict, agentName: "judgeAda", text: verdict.rawValue.uppercased())
-            await store.writeDeliverable(missionID: mission.id, name: "verification.md", content: "# Check by judgeAda: \(verdict.rawValue.uppercased())\n\n\(check)\n")
+            var verdict: VerificationReport.Verdict?
+            var check = ""
+            if TaskTools.needsJudge(planned: plan != nil, steps: steps.count) {
+                await store.appendEvent(mission.id, kind: .phase, text: MissionPhase.verifying.rawValue)
+                await beginStep(es ? "judgeAda está revisando el resultado" : "judgeAda is checking the result", in: ref)
+                let judgeArguments = TaskTools.json(.object([
+                    ("function", .string("judge")), ("task", .string(TaskTools.judgeTask(objective: request.objective, reports: reports, files: files))), ("tools", .array([])),
+                ]))
+                let judgeCall = APIToolCall(id: UUID().uuidString, function: .init(name: "delegate", arguments: judgeArguments))
+                let judged = await runHelper(call: judgeCall, parent: parent, state: ToolRunState(), context: context, language: language, ref: ref, conversationID: conversationID, coordinator: coordinator, workstation: workstation)
+                check = TaskTools.reportBody(judged)
+                let found = judged.succeeded ? TaskTools.verdict(in: check) : .unverified
+                verdict = found
+                await store.appendEvent(mission.id, kind: .verifyVerdict, agentName: "judgeAda", text: found.rawValue.uppercased())
+                await store.writeDeliverable(missionID: mission.id, name: "verification.md", content: "# Check by judgeAda: \(found.rawValue.uppercased())\n\n\(check)\n")
+            } else {
+                await store.appendEvent(mission.id, kind: .notice, text: "One-step job: judgeAda's check is skipped, and Ada reads the result herself.")
+            }
 
             // Report.
             await store.appendEvent(mission.id, kind: .phase, text: MissionPhase.reporting.rawValue)
@@ -1467,6 +1486,43 @@ public actor ConversationEngine {
             }
         }
         return profile
+    }
+
+    // MARK: - The specialists' model
+
+    /// `AGENTSAM_SPECIALIST_MODEL` overrides the choice below: `main` keeps specialists on Ada's own
+    /// model, and any other value is used as the model name on her provider.
+    static let specialistModelOverride: String? = ProcessInfo.processInfo.environment["AGENTSAM_SPECIALIST_MODEL"].flatMap { $0.trimmingCharacters(in: .whitespaces).isEmpty ? nil : $0.trimmingCharacters(in: .whitespaces) }
+
+    /// DeepSeek's fast model, as its API names it. Used when Ada talks to DeepSeek's own API and
+    /// the provider's saved model list has no flash model yet.
+    static let deepSeekFlashModel = "deepseek-flash"
+
+    /// The model one of Ada's specialists runs on: the flash model of Ada's own provider, so reading,
+    /// searching and drafting cost less and come back sooner. judgeAda keeps Ada's model, because a
+    /// check is only worth having from the stronger one. Providers without a flash model are left
+    /// as they are, and the same key is used either way.
+    static func specialistProfile(for coordinator: AgentProfile, function: String, providers: [ProviderConfig], override: String? = specialistModelOverride) -> AgentProfile {
+        guard HelperTools.key(for: function) != "judge" else { return coordinator }
+        var profile = coordinator
+        if let override {
+            if override.lowercased() != "main" { profile.model = override }
+            return profile
+        }
+        func flash(_ model: String) -> Bool { model.lowercased().contains("flash") }
+        guard !flash(coordinator.model), let provider = providers.first(where: { $0.id == coordinator.providerID }) else { return coordinator }
+        if let model = provider.models.first(where: flash) {
+            profile.model = model
+        } else if provider.kind == .openAICompatible, provider.baseURL.lowercased().contains("api.deepseek.com") {
+            profile.model = deepSeekFlashModel
+        }
+        return profile
+    }
+
+    /// True when a provider's answer reads like "I don't know this model", not like a passing fault.
+    static func mayBeModelRejection(_ error: LLMError) -> Bool {
+        guard let status = error.statusCode, !error.isContextOverflow else { return false }
+        return [400, 403, 404, 422].contains(status)
     }
 
     static func acknowledgementSystem(language: String, avoid: String?) -> String {

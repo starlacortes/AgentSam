@@ -25,7 +25,7 @@ public enum TaskTools {
         return [
             APIToolDef(
                 name: startToolName,
-                description: "Hand a larger piece of work to a background task and wait for its result. Use it when, partway through a reply, you find the job needs many steps, research across sources, or a finished deliverable (a report, a set of files) that a direct answer can't do well, for example after reading the files and seeing how much there is. The task is planned into up to \(maxSteps) steps, each run by a helper, and judgeAda checks the result; with a skill, every step follows its procedure. It gets the conversation's files and context, but not this chat's turns, so write the objective in full. The result comes back as untrusted content: check it, then answer the user. At most \(maxPerReply) per reply; don't use it for things you can answer directly.",
+                description: "Hand a larger piece of work to a background task and wait for its result. Use it when, partway through a reply, you find the job needs many steps, research across sources, or a finished deliverable (a report, a set of files) that a direct answer can't do well, for example after reading the files and seeing how much there is. The task is planned into up to \(maxSteps) steps, each run by a helper, and judgeAda checks the result when there is more than one step; with a skill, every step follows its procedure. It gets the conversation's files and context, but not this chat's turns, so write the objective in full. The result comes back as untrusted content: check it, then answer the user. At most \(maxPerReply) per reply; don't use it for things you can answer directly.",
                 parameters: .object([
                     ("type", .string("object")),
                     ("properties", .object([
@@ -110,7 +110,7 @@ public enum TaskTools {
         var text = """
         You are Ada, planning a task that your helpers will carry out. Split the objective into one to \(maxSteps) steps, in order, and submit them with \(planToolName). \
         Use as few steps as the work needs: a single step is fine for one deliverable. Give each step to a helper named by its function (research, write, data, build, design, edit, or another word), \
-        with a self-contained task and only the tool groups it needs; any step that writes a file needs files. Do not plan a checking step: judgeAda checks the result afterwards. \
+        with a self-contained task and only the tool groups it needs; any step that writes a file needs files. Do not plan a checking step: judgeAda checks the result of a job with more than one step, and Ada reads a one-step result herself. \
         Files from the conversation are in the chat workspace. Write the tasks in \(language == "es" ? "Spanish" : "English").
         """
         if let procedure { text += "\n\n" + procedure }
@@ -193,10 +193,22 @@ public enum TaskTools {
         return String(outcome.resultText[range.upperBound...])
     }
 
-    static func finalReport(objective: String, reports: [(name: String, report: String)], verdict: VerificationReport.Verdict, check: String, files: [String]) -> String {
+    /// Whether judgeAda checks a job. A job Ada planned as one step has a single report, which she
+    /// reads herself, so the separate check is skipped. A job with several steps keeps it, and so
+    /// does one that fell back to a single step because planning failed.
+    static func needsJudge(planned: Bool, steps: Int) -> Bool {
+        !(planned && steps == 1)
+    }
+
+    /// `verdict` is nil when judgeAda's check was skipped.
+    static func finalReport(objective: String, reports: [(name: String, report: String)], verdict: VerificationReport.Verdict?, check: String, files: [String]) -> String {
         var text = "# Task report\n\n**Objective:** \(objective)\n"
         for item in reports { text += "\n## \(item.name)\n\n\(item.report.trimmingCharacters(in: .whitespacesAndNewlines))\n" }
-        text += "\n## Check by judgeAda: \(verdict.rawValue.uppercased())\n\n\(check.trimmingCharacters(in: .whitespacesAndNewlines))\n"
+        if let verdict {
+            text += "\n## Check by judgeAda: \(verdict.rawValue.uppercased())\n\n\(check.trimmingCharacters(in: .whitespacesAndNewlines))\n"
+        } else {
+            text += "\n## Check\n\nNot checked by judgeAda: this was a one-step job. Check the result yourself before relying on it.\n"
+        }
         if !files.isEmpty { text += "\n## Files\n\n" + files.map { "- \($0)" }.joined(separator: "\n") + "\n" }
         return text
     }
