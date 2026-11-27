@@ -243,7 +243,9 @@ public enum ChoiceCardTools {
                 Show tappable choices when the person must pick before you can go on and the answers are a few \
                 concrete options: which of the approaches you lay out, which items to include, or a short setup of \
                 several questions in a row. Never for an open question (what to fix, a name, a date), a yes/no, a \
-                fact, or anything you can reasonably assume: ask those in plain text. Your reply ends with the \
+                fact, a vague request you do not yet understand, or anything you can reasonably assume: ask those in plain text. \
+                Ask everything in one card. Once the person has answered a card, do the work; never follow it with \
+                another card. Your reply ends with the \
                 card; the answers come back as the person's next message. Text before the call is optional, one \
                 short line of context; do not repeat the questions. Voice mode reads the card aloud. Plain text, no Markdown.
                 - questions: 1-\(maxQuestions), shown one at a time with a review before sending. Each: question, \

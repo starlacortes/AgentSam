@@ -175,7 +175,8 @@ final class ChoiceCardsTests: XCTestCase {
             if system.contains("Summarize only durable") { return LLMReply(message: .assistant("## Notes"), inputTokens: 0, outputTokens: 0, model: "stub") }
             let last = messages.last?.content ?? ""
             calls.append(last)
-            if last.contains("My answers") || last.contains("Tuesday") {
+            if messages.last?.role == "tool" { return LLMReply(message: .assistant("Going ahead."), inputTokens: 0, outputTokens: 0, model: "stub") }
+            if (last.contains("My answers") && !last.contains("again")) || last.contains("Tuesday") {
                 return LLMReply(message: .assistant("Booked for your pick."), inputTokens: 0, outputTokens: 0, model: "stub")
             }
             return LLMReply(message: APIMessage(role: "assistant", content: "", tool_calls: [
@@ -253,6 +254,22 @@ final class ChoiceCardsTests: XCTestCase {
         XCTAssertEqual(card.answer?.inWords, true)
         XCTAssertEqual(card.answer?.items.first?.picked, ["Tuesday"])
         XCTAssertEqual(done.messages.dropLast().last?.text, "Tuesday", "their words are sent as they are")
+        await engine.shutdown()
+    }
+
+    func testNoSecondCardRightAfterAnswers() async throws {
+        let calls = LockedCardStrings()
+        let (engine, conversations) = try await engine(asking: #"{"title":"again","question":"Which day?","options":["Monday","Tuesday"]}"#, calls: calls)
+        let conversation = try await conversations.create(ownerID: "owner")
+        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "Book it", launchedBy: "Owner", language: "en")
+        let asked = try await settled(conversations, conversation.id)
+        let card = try XCTUnwrap(asked.messages.last?.choice)
+        _ = try await engine.send(conversationID: conversation.id, ownerID: "owner", text: "", launchedBy: "Owner", language: "en", choice: ChoiceReply(cardID: card.id, answers: [.init(question: "q1", picked: [0])]))
+        let done = try await settled(conversations, conversation.id)
+        let reply = try XCTUnwrap(done.messages.last)
+        XCTAssertNil(reply.choice, "a card right after answers is refused")
+        XCTAssertEqual(reply.text, "Going ahead.")
+        XCTAssertTrue(reply.toolLog.first?.contains("just answered your choice card") == true, reply.toolLog.joined(separator: "\n"))
         await engine.shutdown()
     }
 }

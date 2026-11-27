@@ -270,6 +270,8 @@ public actor ConversationEngine {
         var launchedBy: String = "Ada"
         /// The person's language ("en" or "es"), for the live step labels.
         var language: String = "en"
+        /// The person's message answers a choice card, so another card would only stall the work.
+        var answeredChoice: Bool = false
     }
 
     /// The labels of the steps between tool calls, where Ada is working something out or writing.
@@ -330,7 +332,7 @@ public actor ConversationEngine {
 
     private func drive(conversationID: UUID, ownerID: String, userMessage: ConversationMessage, responseID: UUID, launchedBy: String, language: String) async {
         defer { running[conversationID] = nil }
-        let ref = ResponseRef(conversationID: conversationID, ownerID: ownerID, responseID: responseID, spoken: userMessage.spoken, launchedBy: launchedBy, language: language == "es" ? "es" : "en")
+        let ref = ResponseRef(conversationID: conversationID, ownerID: ownerID, responseID: responseID, spoken: userMessage.spoken, launchedBy: launchedBy, language: language == "es" ? "es" : "en", answeredChoice: userMessage.choiceReply != nil)
         let es = language == "es"
         let writing = es ? "Redactando la respuesta" : "Writing the answer"
         do {
@@ -865,6 +867,9 @@ public actor ConversationEngine {
         case .choice:
             if state.choice != nil {
                 outcome = .failure("A choice card is already shown in this reply; put every question in that one card.")
+            } else if ref?.answeredChoice == true {
+                // The person just answered a card: a second card in a row stalls the work.
+                outcome = .failure("The person just answered your choice card. Do the work now with their answers, and assume what you must; say what you assumed.")
             } else if context.scheduled {
                 outcome = .failure("This run was started by a schedule or trigger, so nobody is here to tap a card. Decide yourself, or ask in your text.")
             } else if let ref {
