@@ -111,7 +111,7 @@ public actor HelperStore {
             return helper
         }
         guard file.helpers.count < Self.maxHelpers else {
-            throw HelperStoreError.invalid("There are already \(Self.maxHelpers) saved helpers. Improve an existing one instead.")
+            throw HelperStoreError.invalid("There are already \(Self.maxHelpers) saved specialist roles. Improve an existing one instead.")
         }
         let helper = SavedHelper(id: key, function: function, name: name, role: role, groups: sortedGroups, version: 1, reason: reason, createdAt: now, updatedAt: now, history: [])
         file.helpers.append(helper)
@@ -131,7 +131,7 @@ public actor HelperStore {
             if read(generalURL).helpers.contains(where: { $0.id == key }) {
                 throw HelperStoreError.invalid("The role for “\(function)” is shared with everyone and cannot be undone from here. Save a new role to use your own.")
             }
-            throw HelperStoreError.invalid("There is no saved helper for “\(function)”.")
+            throw HelperStoreError.invalid("There is no saved specialist role for “\(function)”.")
         }
         var helper = file.helpers[index]
         guard let previous = helper.history.first else {

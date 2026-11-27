@@ -181,7 +181,7 @@ public enum SelfReviewTools {
             let result = action.status == .failed ? action.result.map { ": \(quote($0, 120))" } ?? "" : ""
             return "\(action.toolName) \(action.status.rawValue)\(chat), \(stamp(action.createdAt))\(result)"
         })
-        section("Missions that failed or stopped", missions.map { "\($0.teamName): \(quote($0.objective, 120)) (\($0.status.rawValue), \(stamp($0.finishedAt ?? $0.createdAt)))" })
+        section("Jobs that failed or stopped", missions.map { "\($0.teamName): \(quote($0.objective, 120)) (\($0.status.rawValue), \(stamp($0.finishedAt ?? $0.createdAt)))" })
 
         if replies == 0 && toolFailures == 0 && problemActions.isEmpty && missions.isEmpty {
             lines += ["", "Nothing to review in this period."]

@@ -192,7 +192,7 @@ final class SkillsTests: XCTestCase {
                 await seen.set(routing: system)
                 return LLMReply(message: .assistant(#"{"action":"USE_SKILL","skillIDs":["research"],"rationale":"Looking into it"}"#), inputTokens: 0, outputTokens: 0, model: "stub")
             }
-            if system.contains("planning a task that your helpers") { await seen.set(plan: system) }
+            if system.contains("planning a job that your specialists") { await seen.set(plan: system) }
             return LLMReply(message: .assistant("Here is what I found."), inputTokens: 0, outputTokens: 0, model: "stub")
         })
         let conversation = try await conversations.create(ownerID: "owner")

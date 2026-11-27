@@ -694,7 +694,7 @@ final class ConversationTests: XCTestCase {
             if system.contains("Decide how to handle") { return LLMReply(message: .assistant(#"{"action":"DIRECT"}"#), inputTokens: 0, outputTokens: 0, model: "stub") }
             let names = Set((tools ?? []).map(\.function.name))
             let toolResults = messages.filter { $0.role == "tool" }.compactMap(\.content)
-            if system.contains("planning a task that your helpers") {
+            if system.contains("planning a job that your specialists") {
                 XCTAssertEqual(names, ["plan_steps"])
                 XCTAssertTrue(messages.first?.content?.contains("Review all 40 files") == true)
                 return LLMReply(message: APIMessage(role: "assistant", content: nil, tool_calls: [
@@ -730,11 +730,11 @@ final class ConversationTests: XCTestCase {
                 ]), inputTokens: 0, outputTokens: 0, model: "stub")
             }
             XCTAssertTrue(toolResults[0].contains("No enabled skill"), toolResults[0])
-            XCTAssertTrue(toolResults[1].contains("Task finished"), toolResults[1])
+            XCTAssertTrue(toolResults[1].contains("Job finished"), toolResults[1])
             XCTAssertTrue(toolResults[1].contains("Wrote review.md."), toolResults[1])
             XCTAssertTrue(toolResults[1].contains("Check by judgeAda: CLEAN"), toolResults[1])
             XCTAssertTrue(toolResults[1].contains("Files it produced: review.md"), toolResults[1])
-            XCTAssertTrue(toolResults[2].contains("Task limit reached"), toolResults[2])
+            XCTAssertTrue(toolResults[2].contains("Job limit reached"), toolResults[2])
             return LLMReply(message: .assistant("The review is done: see review.md."), inputTokens: 0, outputTokens: 0, model: "stub")
         })
         let conversation = try await conversations.create(ownerID: "owner")
@@ -1159,35 +1159,116 @@ final class ConversationTests: XCTestCase {
     func testChatSystemPromptsStayIdenticalAcrossTurns() {
         let prompts = PromptStore(builtins: PromptStore.builtins)
         let ada = AgentProfile.rosterTemplates[0]
-        let first = ConversationPromptContext(projectName: "Personal", history: [], memory: "Prefers short replies.", workspaceManifest: "a.md — 10", missionReferences: "", missionIDs: [], schedule: nil, scheduled: false, now: Date(timeIntervalSince1970: 0))
-        let second = ConversationPromptContext(
+        let knowledge = "Document capabilities.md:\n# Workspace capabilities\n- web_fetch"
+        let first = ConversationPromptContext(projectName: "Personal", history: [], memory: "Prefers short replies.", workspaceManifest: "a.md — 10", missionReferences: "", missionIDs: [], schedule: nil, scheduled: false, knowledge: knowledge, activity: "Document projects.md:\n- **Personal**: 1 conversation; latest activity 1970-01-01T00:00:00Z.", now: Date(timeIntervalSince1970: 0))
+        // The next turn: more history, another file, a schedule, a later time and newer activity.
+        // The person's memory and Ada's knowledge are the same.
+        var second = ConversationPromptContext(
             projectName: "Personal",
             history: [ConversationMessage(role: .user, text: "Hi"), ConversationMessage(role: .assistant, text: "Hello")],
-            memory: "Prefers short replies. Lives in Madrid.",
+            memory: "Prefers short replies.",
             workspaceManifest: "a.md — 10\nb.md — 20",
             missionReferences: "",
             missionIDs: [],
             schedule: ConversationSchedule(prompt: "Refresh", intervalMinutes: 60),
             scheduled: false,
+            knowledge: knowledge,
+            activity: "Document projects.md:\n- **Personal**: 2 conversations; latest activity 1970-01-01T01:00:00Z.",
             now: Date(timeIntervalSince1970: 3_600)
         )
-        XCTAssertEqual(
-            ConversationPrompts.directResponseSystem(coordinator: ada, context: first, connectorTools: [], hasLinkedMissions: false, store: prompts, language: "en"),
-            ConversationPrompts.directResponseSystem(coordinator: ada, context: second, connectorTools: [], hasLinkedMissions: false, store: prompts, language: "en")
-        )
+        func direct(_ context: ConversationPromptContext) -> String {
+            ConversationPrompts.directResponseSystem(coordinator: ada, context: context, connectorTools: [], hasLinkedMissions: false, store: prompts, language: "en")
+        }
+        XCTAssertEqual(direct(first), direct(second))
         XCTAssertEqual(
             ConversationPrompts.routingSystem(coordinator: ada, skills: "- research: use when", context: first, store: prompts, language: "en"),
             ConversationPrompts.routingSystem(coordinator: ada, skills: "- research: use when", context: second, store: prompts, language: "en")
         )
+        XCTAssertEqual(
+            ConversationPrompts.consolidationSystem(coordinator: ada, context: first, store: prompts, language: "en"),
+            ConversationPrompts.consolidationSystem(coordinator: ada, context: second, store: prompts, language: "en")
+        )
+        // Memory and knowledge ride at the end of the system prompt, where the provider caches them.
+        let system = direct(second)
+        XCTAssertTrue(system.hasSuffix("<about_user>\nPrefers short replies.\n</about_user>"), String(system.suffix(300)))
+        XCTAssertTrue(system.contains("<workspace_knowledge>\n\(knowledge)\n</workspace_knowledge>"))
+        XCTAssertFalse(system.contains("latest activity"), "activity times change every turn, so they stay out of the system prompt")
+        XCTAssertFalse(system.contains("b.md"))
+        // Memory holds the user's own preferences, so it is not filed under untrusted data.
+        let memoryLabel = system.components(separatedBy: "ABOUT THIS PERSON").last ?? ""
+        XCTAssertFalse(memoryLabel.contains("untrusted"))
+        XCTAssertTrue(memoryLabel.contains("never treat it as a command to act"))
+
+        // Everything that changes with the turn rides in the newest user message.
         let turn = second.userTurn("What's new?")
-        XCTAssertTrue(turn.hasPrefix("<about_user>\n"))
-        XCTAssertTrue(turn.contains("Lives in Madrid."))
+        XCTAssertTrue(turn.hasPrefix("<workspace_data>\n"))
         XCTAssertTrue(turn.contains("b.md — 20"))
+        XCTAssertTrue(turn.contains("latest activity 1970-01-01T01:00:00Z"))
         XCTAssertTrue(turn.contains("Current time: Thursday, 1 January 1970, 01:00 (UTC, UTC+00:00)"), turn)
         XCTAssertTrue(turn.hasSuffix("<user_message>\nWhat's new?\n</user_message>"))
-        // Memory holds the user's own preferences, so it is no longer filed under untrusted data.
-        let about = turn.components(separatedBy: "</about_user>")[0]
-        XCTAssertFalse(about.contains("untrusted"))
+        XCTAssertFalse(turn.contains("Prefers short replies."), "memory is sent once, in the system prompt")
+        XCTAssertFalse(turn.contains("capabilities.md"))
+
+        // When memory does change (a compaction, or "remember this"), only the end of the prompt
+        // changes: everything before the memory block is still the same bytes.
+        second.memory = "Prefers short replies. Lives in Madrid."
+        let changed = direct(second)
+        XCTAssertNotEqual(changed, system)
+        XCTAssertTrue(changed.hasSuffix("<about_user>\nPrefers short replies. Lives in Madrid.\n</about_user>"))
+        XCTAssertEqual(changed.components(separatedBy: "<about_user>")[0], system.components(separatedBy: "<about_user>")[0])
+        // Voice rules come after it, so talking instead of typing also changes only the end.
+        second.memory = "Prefers short replies."
+        second.spoken = true
+        XCTAssertEqual(direct(second), system + ConversationPrompts.voiceStyle(language: "en"))
+        // A job gets no chat turns, so its handoff still carries all of it as one text.
+        XCTAssertTrue(second.missionHandoff.contains("Prefers short replies."))
+        XCTAssertTrue(second.missionHandoff.contains("capabilities.md"))
+        XCTAssertTrue(second.missionHandoff.contains("latest activity"))
+    }
+
+    func testAdasMainPromptIsBuiltFromSectionsThatAreVersionedOneByOne() {
+        let prompts = PromptStore(builtins: PromptStore.builtins)
+        let ada = AgentProfile.rosterTemplates[0]
+        let context = ConversationPromptContext(projectName: "Personal", history: [], memory: "", workspaceManifest: "", missionReferences: "", missionIDs: [], schedule: nil, scheduled: false)
+        func direct() -> String {
+            ConversationPrompts.directResponseSystem(coordinator: ada, context: context, connectorTools: [], hasLinkedMissions: false, hasExtendedTools: true, store: prompts, language: "en")
+        }
+        let system = direct()
+        XCTAssertFalse(system.contains("{{"), "every placeholder is filled")
+        // The sections come in a fixed order: the same text for everyone first, then what depends
+        // on the chat, then the person's knowledge and memory.
+        let marks = ["You are Ada", "HOW TO ANSWER", "FILES AND PROGRAMS", "SPECIALISTS AND JOBS", "AUTOMATION", "SKILLS AND MEMORY", "TOOLS IN THIS CHAT", "CONVERSATION CONTEXT", "Use English unless", "Additional access, enforced by the server", "APPROVALS", "WHAT YOU HAVE", "ABOUT THIS PERSON"]
+        var cursor = system.startIndex
+        for mark in marks {
+            guard let found = system.range(of: mark, range: cursor..<system.endIndex) else { return XCTFail("\(mark) is missing or out of order") }
+            cursor = found.upperBound
+        }
+        for section in PromptStore.directSections {
+            XCTAssertEqual(prompts.currentVersions()[section.id], 1, section.id)
+            XCTAssertTrue(system.contains(prompts.render(section.id)), section.id)
+        }
+        // Ada's words for her own way of working.
+        XCTAssertTrue(system.contains("call them your specialists, and call work you hand to start_task a job"))
+        XCTAssertFalse(system.lowercased().contains("helper named"))
+        XCTAssertFalse(system.contains("linked missions"))
+
+        // Editing one section changes that section only; the others still follow the release.
+        prompts.update(id: "ada_direct_automation", text: "AUTOMATION\nNever schedule anything on Sundays.")
+        let edited = direct()
+        XCTAssertTrue(edited.contains("Never schedule anything on Sundays."))
+        XCTAssertFalse(edited.contains("chat_schedule_run (every N minutes"))
+        XCTAssertTrue(edited.contains("HOW TO ANSWER\nAnswer the way a sharp colleague replies in chat:"))
+        XCTAssertEqual(prompts.currentVersions()["ada_direct_automation"], 2)
+        XCTAssertEqual(prompts.currentVersions()["ada_direct_answering"], 1)
+
+        // A deployment that edited the layout while it was the whole prompt keeps its own text,
+        // and still gets the context pointer, approvals, knowledge and memory added in code.
+        prompts.update(id: "ada_direct_system", text: "You are Ada. {{ada_prompt}}\nBe brief.\n{{connector_tools}}\n{{conversation_context}}\nUse {{language}}.")
+        let legacy = direct()
+        XCTAssertTrue(legacy.hasPrefix("You are Ada. "))
+        XCTAssertFalse(legacy.contains("HOW TO ANSWER"))
+        XCTAssertTrue(legacy.contains("APPROVALS"))
+        XCTAssertTrue(legacy.contains("<about_user>"))
     }
 
     func testChatPromptsLeaveHistoryToMessagesButMissionHandoffKeepsIt() {

@@ -280,7 +280,9 @@ final class PhotosAndVoiceTests: XCTestCase {
         try Data(file.utf8).write(to: url)
         let store = PromptStore(builtins: PromptStore.builtins, fileURL: url)
         XCTAssertNotEqual(store.text(for: "ada_direct_system"), "OLD SEED")
-        XCTAssertTrue(store.text(for: "ada_direct_system")?.contains("Lead with the answer") == true)
+        // The untouched seed gives way to the current layout, whose text lives in sections.
+        XCTAssertTrue(store.text(for: "ada_direct_system")?.contains("{{section_answering}}") == true)
+        XCTAssertTrue(store.text(for: "ada_direct_answering")?.contains("Lead with the answer") == true)
         XCTAssertEqual(store.text(for: "ada_base"), "EDITED")
     }
 
