@@ -23,10 +23,10 @@
     "id": "follow-up-from-history",
     "about": "A follow-up is answered from the earlier turns, without re-reading anything.",
     "history": [
-      { "role": "user", "text": "When is my dentist appointment?" },
-      { "role": "assistant", "text": "Your dentist appointment is on Thursday at 3:30 PM with Dr. Okafor." }
+      { "role": "user", "text": "My dentist appointment is on Thursday at 3:30 PM with Dr. Okafor. What should I bring to a first visit?" },
+      { "role": "assistant", "text": "For a first visit on Thursday, bring a photo ID, your insurance card, a list of the medicines you take, and any recent dental X-rays if you have them." }
     ],
-    "message": "Sorry, what time was that again?",
+    "message": "Sorry, what time did I say the appointment was?",
     "expect": { "noTools": true, "maxWords": 40, "mentionsAny": ["3:30"] }
   },
   {

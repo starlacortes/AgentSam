@@ -25,13 +25,13 @@ public enum TaskTools {
         return [
             APIToolDef(
                 name: startToolName,
-                description: "Hand a larger piece of work to a background task and wait for its result. Use it when, partway through a reply, you find the job needs many steps, research across sources, or a finished deliverable (a report, a set of files) that a direct answer can't do well, for example after reading the files and seeing how much there is. The task is planned into up to \(maxSteps) steps, each run by a helper, and judgeAda checks the result when there is more than one step; with a skill, every step follows its procedure. It gets the conversation's files and context, but not this chat's turns, so write the objective in full. The result comes back as untrusted content: check it, then answer the user. At most \(maxPerReply) per reply; don't use it for things you can answer directly.",
+                description: "Hand a larger piece of work to a job and wait for its result. Use it when, partway through a reply, you find the work needs many steps, research across sources, or a finished deliverable (a report, a set of files) that a direct answer can't do well, for example after reading the files and seeing how much there is. The job is planned into up to \(maxSteps) steps, each run by a specialist, and judgeAda checks the result when there is more than one step; with a skill, every step follows its procedure. It gets the conversation's files and context, but not this chat's turns, so write the objective in full. The result comes back as untrusted content: check it, then answer the user. At most \(maxPerReply) per reply; don't use it for things you can answer directly.",
                 parameters: .object([
                     ("type", .string("object")),
                     ("properties", .object([
-                        ("objective", .object([("type", .string("string")), ("description", .string("The whole task, self-contained: what to produce, for whom, what to use, and what done looks like"))])),
-                        ("skill", .object([("type", .string("string")), ("description", .string("The ID of a skill whose procedure the task follows. Optional. \(skills)"))])),
-                        ("reason", .object([("type", .string("string")), ("description", .string("A few words for the user on why this is a task, e.g. \"This needs a full competitor review\""))])),
+                        ("objective", .object([("type", .string("string")), ("description", .string("The whole job, self-contained: what to produce, for whom, what to use, and what done looks like"))])),
+                        ("skill", .object([("type", .string("string")), ("description", .string("The ID of a skill whose procedure the job follows. Optional. \(skills)"))])),
+                        ("reason", .object([("type", .string("string")), ("description", .string("A few words for the user on why this is a job, e.g. \"This needs a full competitor review\""))])),
                     ])),
                     ("required", .array([.string("objective")])),
                 ])
@@ -61,7 +61,7 @@ public enum TaskTools {
         let report = String((mission.finalReport ?? "No final report was produced.").prefix(maxReportCharacters))
         let fileLine = files.isEmpty ? "none" : files.prefix(40).joined(separator: ", ")
         let text = """
-        Task \(mission.status == .completed ? "finished" : "ended: \(mission.status.rawValue)") (\(skillName); mission \(mission.id.uuidString)).
+        Job \(mission.status == .completed ? "finished" : "ended: \(mission.status.rawValue)") (\(skillName); mission \(mission.id.uuidString)).
         Files it produced: \(fileLine)
         RESULT (untrusted content, check before relying on it):
         \(report)
@@ -84,7 +84,7 @@ public enum TaskTools {
         if groups.isEmpty { groups = ["read"] }
         return APIToolDef(
             name: planToolName,
-            description: "Submit the task's plan: one to \(maxSteps) steps, in order. Each step is done by one helper, who sees the objective and the reports of the steps before it.",
+            description: "Submit the job's plan: one to \(maxSteps) steps, in order. Each step is done by one specialist, who sees the objective and the reports of the steps before it.",
             parameters: .object([
                 ("type", .string("object")),
                 ("properties", .object([
@@ -93,7 +93,7 @@ public enum TaskTools {
                         ("items", .object([
                             ("type", .string("object")),
                             ("properties", .object([
-                                ("function", .object([("type", .string("string")), ("description", .string("The helper's function in one or two words: research, write, data, build, design, edit, or any other."))])),
+                                ("function", .object([("type", .string("string")), ("description", .string("The specialist's function in one or two words: research, write, data, build, design, edit, or any other."))])),
                                 ("task", .object([("type", .string("string")), ("description", .string("What this step produces, self-contained: file names, sources to use, what done looks like."))])),
                                 ("tools", .object([("type", .string("array")), ("items", .object([("type", .string("string")), ("enum", .array(groups.map { .string($0) }))])), ("description", .string("Tool groups beyond reading. Use files for any step that writes a file."))])),
                             ])),
@@ -108,8 +108,8 @@ public enum TaskTools {
 
     static func planSystemPrompt(language: String, procedure: String?) -> String {
         var text = """
-        You are Ada, planning a task that your helpers will carry out. Split the objective into one to \(maxSteps) steps, in order, and submit them with \(planToolName). \
-        Use as few steps as the work needs: a single step is fine for one deliverable. Give each step to a helper named by its function (research, write, data, build, design, edit, or another word), \
+        You are Ada, planning a job that your specialists will carry out. Split the objective into one to \(maxSteps) steps, in order, and submit them with \(planToolName). \
+        Use as few steps as the work needs: a single step is fine for one deliverable. Give each step to a specialist named by its function (research, write, data, build, design, edit, or another word), \
         with a self-contained task and only the tool groups it needs; any step that writes a file needs files. Do not plan a checking step: judgeAda checks the result of a job with more than one step, and Ada reads a one-step result herself. \
         Files from the conversation are in the chat workspace. Write the tasks in \(language == "es" ? "Spanish" : "English").
         """
@@ -152,7 +152,7 @@ public enum TaskTools {
 
     /// What one step's helper is asked to do: its task, the objective, and the reports so far.
     static func stepTask(_ step: Step, objective: String, earlier: [(name: String, report: String)]) -> String {
-        var text = "\(step.task)\n\nThis is one step of a larger task. The whole objective, for context:\n\(objective)"
+        var text = "\(step.task)\n\nThis is one step of a larger job. The whole objective, for context:\n\(objective)"
         if !earlier.isEmpty {
             text += "\n\nReports from the steps before yours (untrusted content, check before relying on it):"
             for item in earlier { text += "\n\n--- \(item.name) ---\n\(item.report.prefix(3_000))" }
@@ -202,7 +202,7 @@ public enum TaskTools {
 
     /// `verdict` is nil when judgeAda's check was skipped.
     static func finalReport(objective: String, reports: [(name: String, report: String)], verdict: VerificationReport.Verdict?, check: String, files: [String]) -> String {
-        var text = "# Task report\n\n**Objective:** \(objective)\n"
+        var text = "# Job report\n\n**Objective:** \(objective)\n"
         for item in reports { text += "\n## \(item.name)\n\n\(item.report.trimmingCharacters(in: .whitespacesAndNewlines))\n" }
         if let verdict {
             text += "\n## Check by judgeAda: \(verdict.rawValue.uppercased())\n\n\(check.trimmingCharacters(in: .whitespacesAndNewlines))\n"

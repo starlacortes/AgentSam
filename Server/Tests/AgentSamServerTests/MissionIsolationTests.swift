@@ -39,7 +39,7 @@ final class MissionIsolationTests: XCTestCase {
     }
 
     private func saveMission(_ ctx: ServerContext, owner: String?, objective: String) async -> Mission {
-        var mission = Mission(teamID: TaskTools.teamID, teamName: "Ada's task", objective: objective, status: .completed, phase: .done)
+        var mission = Mission(teamID: TaskTools.teamID, teamName: "Ada's job", objective: objective, status: .completed, phase: .done)
         mission.ownerID = owner
         try? FileManager.default.createDirectory(at: ctx.store.missionDirectory(mission.id), withIntermediateDirectories: true)
         await ctx.store.saveMission(mission)

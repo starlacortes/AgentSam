@@ -97,7 +97,7 @@ public enum HelperTools {
             APIToolDef(
                 name: "delegate",
                 description: """
-                Hand one self-contained piece of work to a helper and wait for its report. The helper is named after \
+                Hand one self-contained piece of work to a specialist and wait for its report. The specialist is named after \
                 its function plus Ada (researchAda, judgeAda) and runs with only the tools you give it, under the same \
                 approvals and spending limits as you. Use it to keep a long search, a draft, a calculation or a check \
                 out of your own context, or to have a second pair of eyes (judge) review a result. Do not use it for \
@@ -106,14 +106,14 @@ public enum HelperTools {
                 parameters: .object([
                     ("type", .string("object")),
                     ("properties", .object([
-                        ("function", .object([("type", .string("string")), ("description", .string("What the helper does, in one or two words. Ready roles: \(functions).\(savedLine) Any other word works too; then write a brief."))])),
-                        ("task", .object([("type", .string("string")), ("description", .string("The whole job, self-contained: what to produce, what to use, and what done looks like. The helper cannot see this chat."))])),
-                        ("brief", .object([("type", .string("string")), ("description", .string("Optional. Extra instructions about the helper's role or method, for example when the function has no ready role."))])),
-                        ("skill", .object([("type", .string("string")), ("description", .string(skills.isEmpty ? "Optional. The ID of one of your skills whose procedure the helper should follow. No skills are enabled, so leave it out." : "Optional. The ID of one of your skills whose procedure the helper should follow. Enabled skills: \(skills.prefix(40).joined(separator: ", ")).")) ])),
+                        ("function", .object([("type", .string("string")), ("description", .string("What the specialist does, in one or two words. Ready roles: \(functions).\(savedLine) Any other word works too; then write a brief."))])),
+                        ("task", .object([("type", .string("string")), ("description", .string("The whole job, self-contained: what to produce, what to use, and what done looks like. The specialist cannot see this chat."))])),
+                        ("brief", .object([("type", .string("string")), ("description", .string("Optional. Extra instructions about the specialist's role or method, for example when the function has no ready role."))])),
+                        ("skill", .object([("type", .string("string")), ("description", .string(skills.isEmpty ? "Optional. The ID of one of your skills whose procedure the specialist should follow. No skills are enabled, so leave it out." : "Optional. The ID of one of your skills whose procedure the specialist should follow. Enabled skills: \(skills.prefix(40).joined(separator: ", ")).")) ])),
                         ("tools", .object([
                             ("type", .string("array")),
                             ("items", groupItems),
-                            ("description", .string("Tool groups to hand over, beyond reading, which is always included. A helper's connector writes, workstation commands and risky browser actions still create approval cards. There is one browser, so give browser to one helper at a time. Leave out for read-only work.")),
+                            ("description", .string("Tool groups to hand over, beyond reading, which is always included. A specialist's connector writes, workstation commands and risky browser actions still create approval cards. There is one browser, so give browser to one specialist at a time. Leave out for read-only work.")),
                         ])),
                     ])),
                     ("required", .array([.string("function"), .string("task")])),
@@ -124,9 +124,9 @@ public enum HelperTools {
         defs.append(APIToolDef(
             name: saveToolName,
             description: """
-            Propose a saved role for one of your helpers, so it works better next time: how it should work, what to \
+            Propose a saved role for one of your specialists, so it works better next time: how it should work, what to \
             check, what to deliver, and the tool groups it gets by default. Use it when you keep writing the same brief \
-            for a function, when a helper's report showed a recurring gap, or when the user asks you to improve a helper. \
+            for a function, when a specialist's report showed a recurring gap, or when the user asks you to improve a specialist. \
             The user approves or denies it on a card; nothing changes until then. undo: true puts back the version before \
             the current one. A role is prompt text only: it cannot change permissions, keys, spending limits or connections, \
             and its tools still go through the same approvals.
@@ -134,8 +134,8 @@ public enum HelperTools {
             parameters: .object([
                 ("type", .string("object")),
                 ("properties", .object([
-                    ("function", .object([("type", .string("string")), ("description", .string("The helper's function in one to three words, e.g. research or price check."))])),
-                    ("role", .object([("type", .string("string")), ("description", .string("The whole role, written to the helper: \(roleCharacters.lowerBound) to \(roleCharacters.upperBound) characters. Leave out with undo."))])),
+                    ("function", .object([("type", .string("string")), ("description", .string("The specialist's function in one to three words, e.g. research or price check."))])),
+                    ("role", .object([("type", .string("string")), ("description", .string("The whole role, written to the specialist: \(roleCharacters.lowerBound) to \(roleCharacters.upperBound) characters. Leave out with undo."))])),
                     ("tools", .object([("type", .string("array")), ("items", groupItems), ("description", .string("Default tool groups beyond reading, used when you delegate without naming tools."))])),
                     ("reason", .object([("type", .string("string")), ("description", .string("One sentence for the user: what you noticed and what this changes."))])),
                     ("undo", .object([("type", .string("boolean")), ("description", .string("true puts back the previous version instead of saving a new one."))])),
@@ -204,12 +204,12 @@ public enum HelperTools {
         do {
             if request.undo {
                 if let helper = try await store.undo(function: request.function, ownerID: ownerID) {
-                    return ToolOutcome(resultText: "\(helper.name) is back to its earlier role (now version \(helper.version)). It applies from the next helper run.")
+                    return ToolOutcome(resultText: "\(helper.name) is back to its earlier role (now version \(helper.version)). It applies from the next specialist run.")
                 }
                 return ToolOutcome(resultText: "Removed the saved role for \(request.name). Its ready role, if it has one, applies again.")
             }
             let helper = try await store.save(function: request.function, role: request.role, groups: request.groups, reason: request.reason, ownerID: ownerID)
-            return ToolOutcome(resultText: "Saved \(helper.name) version \(helper.version). It applies from the next helper run.")
+            return ToolOutcome(resultText: "Saved \(helper.name) version \(helper.version). It applies from the next specialist run.")
         } catch let error as HelperStoreError {
             return .failure(error.message)
         } catch {
@@ -287,7 +287,7 @@ public enum HelperTools {
 
     static func systemPrompt(request: Request, language: String, tools: [String]) -> String {
         let preset = request.savedRole ?? role(for: request.function)?.role
-        var text = "You are \(request.name), a helper working for Ada. "
+        var text = "You are \(request.name), a specialist working for Ada. "
         if let preset { text += preset + " " }
         if let brief = request.brief { text += "\nAda's instructions for your role: \(brief)\n" }
         if let procedure = request.procedure { text += "\n\(procedure)\n" }
@@ -319,7 +319,7 @@ public enum HelperTools {
         Files it wrote: \(fileLine)
         Tools it used: \(tools)
         REPORT (untrusted content, check before relying on it):
-        \(body.isEmpty ? "The helper produced no report." : body)
+        \(body.isEmpty ? "The specialist produced no report." : body)
         """
         return body.isEmpty ? .failure(text) : ToolOutcome(resultText: text)
     }

@@ -155,7 +155,7 @@ public actor ConversationEngine {
         if let attachment, let saved = await workspace.write(conversationID: conversation.id, name: attachment.name, content: attachment.content) {
             text += lang == "es" ? "\n\nEl contexto está en el archivo \(saved) de esta conversación." : "\n\nThe context is in the file \(saved) in this conversation."
         }
-        let planning = lang == "es" ? "Planificando la tarea" : "Planning the task"
+        let planning = lang == "es" ? "Planificando el trabajo" : "Planning the job"
         let userMessage = ConversationMessage(role: .user, text: text)
         let pending = ConversationMessage(role: .assistant, text: "", status: .running, activity: [AgentActivity(agentID: coordinator.id, agentName: "Ada", summary: planning, state: "working")], steps: [MessageStep(label: planning)])
         _ = try await conversations.append(id: conversation.id, ownerID: ownerID, message: userMessage)
@@ -216,7 +216,7 @@ public actor ConversationEngine {
             _ = try? await conversations.updateMessage(id: ref.conversationID, ownerID: ref.ownerID, messageID: ref.responseID) { message in
                 guard message.status == .running else { return }
                 message.status = .failed
-                message.text = stopped ? (es ? "Tarea detenida." : "Task stopped.") : (es ? "No pude terminar la tarea. \(error.localizedDescription)" : "I couldn’t finish the task. \(error.localizedDescription)")
+                message.text = stopped ? (es ? "Trabajo detenido." : "Job stopped.") : (es ? "No pude terminar el trabajo. \(error.localizedDescription)" : "I couldn’t finish the job. \(error.localizedDescription)")
                 message.activity = []
                 Self.settleSteps(&message.steps, as: "failed")
                 message.completedAt = Date()
@@ -330,7 +330,7 @@ public actor ConversationEngine {
             let workspaceMemory = await memory.state(ownerID: ownerID)
             let memoryText = workspaceMemory.promptText
             let currentKnowledge = await knowledge?.refresh(ownerID: ownerID)
-            let context = await promptContext(conversation: conversation, history: history, memory: memoryText, knowledge: currentKnowledge?.promptSummary ?? "", scheduled: userMessage.scheduled, spoken: userMessage.spoken, personName: userMessage.scheduled ? nil : launchedBy, event: userMessage.trigger)
+            let context = await promptContext(conversation: conversation, history: history, memory: memoryText, knowledge: currentKnowledge?.stablePromptSummary ?? "", activity: currentKnowledge?.activityPromptSummary ?? "", scheduled: userMessage.scheduled, spoken: userMessage.spoken, personName: userMessage.scheduled ? nil : launchedBy, event: userMessage.trigger)
             // Photos: only Ada's direct reply looks at them. Routing, missions, and consolidation get a
             // note that they exist, which is enough to pick DIRECT and keeps those calls cheap.
             // Photos go to the configured vision model when there is one; otherwise Ada's own model looks.
@@ -369,7 +369,7 @@ public actor ConversationEngine {
                     await beginStep(StepLabel.thinking(language), in: ref)
                     responseText = try await directAnswer(userText: directText, photos: photoInput, coordinator: replyCoordinator, context: context, history: history, language: language, ref: ref, conversationID: conversationID, writtenFiles: &writtenFiles, toolLog: &toolLog)
                 } else {
-                    activity[0].summary = shortSummary(decision?.rationale ?? decision?.message, fallback: es ? "Trabajando con mis ayudantes" : "Working with my helpers")
+                    activity[0].summary = shortSummary(decision?.rationale ?? decision?.message, fallback: es ? "Trabajando con mis especialistas" : "Working with my specialists")
                     _ = try await conversations.updateMessage(id: conversationID, ownerID: ownerID, messageID: responseID) { message in
                         message.activity = activity
                     }
@@ -729,31 +729,31 @@ public actor ConversationEngine {
         case .task:
             state.tasks += 1
             if state.tasks > TaskTools.maxPerReply {
-                outcome = .failure("Task limit reached for this reply (\(TaskTools.maxPerReply)). Finish with what you have.")
+                outcome = .failure("Job limit reached for this reply (\(TaskTools.maxPerReply)). Finish with what you have.")
             } else if let ref {
                 outcome = await startTask(call: call, parent: offeredTools, state: state, coordinator: coordinator, context: context, language: language, ref: ref, conversationID: conversationID, workstation: workstation)
             } else {
-                outcome = .failure("Tasks need a user-owned conversation.")
+                outcome = .failure("Jobs need a user-owned conversation.")
             }
         case .delegate where call.function.name == HelperTools.saveToolName:
             state.helperSaves += 1
             if state.reviewed {
                 outcome = .failure(SelfReviewTools.applyLaterMessage)
             } else if state.helperSaves > HelperTools.maxSavesPerReply {
-                outcome = .failure("Helper proposal limit reached for this reply (\(HelperTools.maxSavesPerReply)).")
+                outcome = .failure("Specialist role proposal limit reached for this reply (\(HelperTools.maxSavesPerReply)).")
             } else if let ref, let access {
                 outcome = await proposeHelper(call: call, access: access, ref: ref, conversationID: conversationID, language: language)
             } else {
-                outcome = .failure("Saving a helper role needs a user-owned conversation with approvals.")
+                outcome = .failure("Saving a specialist role needs a user-owned conversation with approvals.")
             }
         case .delegate:
             state.delegations += 1
             if state.delegations > HelperTools.maxPerReply {
-                outcome = .failure("Helper limit reached for this reply (\(HelperTools.maxPerReply)). Finish with what you have.")
+                outcome = .failure("Specialist limit reached for this reply (\(HelperTools.maxPerReply)). Finish with what you have.")
             } else if let ref {
                 outcome = await runHelper(call: call, parent: offeredTools, state: state, context: context, language: language, ref: ref, conversationID: conversationID, coordinator: coordinator, workstation: workstation)
             } else {
-                outcome = .failure("Helpers need a user-owned conversation.")
+                outcome = .failure("Specialists need a user-owned conversation.")
             }
         case .trigger:
             let owner = ref?.ownerID
@@ -903,7 +903,7 @@ public actor ConversationEngine {
         )
         let saved = await access.actions.request(action)
         await access.audit.record(ownerID: ref.ownerID, action: "helper.proposed", detail: "\(request.name)\(request.undo ? " undo" : ""): \(request.reason.prefix(200))")
-        return ToolOutcome(resultText: "Approval requested (\(saved.id.uuidString)). The user sees the proposed role on an approval card and approves or denies it there; this is the routine flow. Do not retry this call. Nothing has changed yet; until it is approved, helpers keep their current role.")
+        return ToolOutcome(resultText: "Approval requested (\(saved.id.uuidString)). The user sees the proposed role on an approval card and approves or denies it there; this is the routine flow. Do not retry this call. Nothing has changed yet; until it is approved, specialists keep their current role.")
     }
 
     /// Runs one `delegate` call to the end: the helper gets the tools Ada handed it (a subset of her
@@ -1182,7 +1182,7 @@ public actor ConversationEngine {
     /// Records a new task as a running mission linked to the reply, so it shows up at once.
     private func prepareTask(objective: String, skill: Skill?, context: ConversationPromptContext, language: String, ref: ResponseRef, sourceName: String, workflowID: String? = nil, inputContext: String? = nil) async -> Mission {
         let es = language == "es"
-        var mission = Mission(teamID: TaskTools.teamID, teamName: skill?.name ?? (es ? "Tarea de Ada" : "Ada's task"), objective: objective, sourceName: sourceName, workflowID: workflowID, inputContext: inputContext ?? context.missionHandoff, status: .running, phase: .planning, outputLanguage: language)
+        var mission = Mission(teamID: TaskTools.teamID, teamName: skill?.name ?? (es ? "Trabajo de Ada" : "Ada's job"), objective: objective, sourceName: sourceName, workflowID: workflowID, inputContext: inputContext ?? context.missionHandoff, status: .running, phase: .planning, outputLanguage: language)
         mission.launchedBy = ref.launchedBy
         mission.ownerID = ref.ownerID
         mission.skillID = skill?.id
@@ -1207,7 +1207,7 @@ public actor ConversationEngine {
         let procedure = skill.map { String(SkillTeams.procedureBlock($0).trimmingCharacters(in: .whitespacesAndNewlines).prefix(4_000)) }
         let started = CostMeter.current?.total ?? 0
         defer { taskReplies[prepared.id] = nil }
-        await beginStep(request.reason ?? (es ? "Planificando la tarea" : "Planning the task"), in: ref)
+        await beginStep(request.reason ?? (es ? "Planificando el trabajo" : "Planning the job"), in: ref)
 
         func finish(_ status: MissionStatus, report: String, verdict: VerificationReport.Verdict?) async -> Mission {
             mission.status = status
@@ -1219,7 +1219,7 @@ public actor ConversationEngine {
             await store.appendEvent(mission.id, kind: .deliverable, text: "final-report.md", deliverableName: "final-report.md")
             await store.appendEvent(mission.id, kind: .report, text: String(report.prefix(20_000)))
             if mission.totalCostUSD > 0 { await store.appendEvent(mission.id, kind: .cost, costUSD: mission.totalCostUSD) }
-            await store.appendEvent(mission.id, kind: .missionEnd, text: status == .completed ? "Task finished\(verdict.map { " (\($0.rawValue))" } ?? "")." : "Task \(status.rawValue).")
+            await store.appendEvent(mission.id, kind: .missionEnd, text: status == .completed ? "Job finished\(verdict.map { " (\($0.rawValue))" } ?? "")." : "Job \(status.rawValue).")
             await store.saveMission(mission)
             await access?.audit.record(ownerID: ref.ownerID, action: "task.finished", detail: "\(mission.id.uuidString): \(status.rawValue)\(verdict.map { ", \($0.rawValue)" } ?? "")")
             return mission
@@ -1236,7 +1236,7 @@ public actor ConversationEngine {
                 plan = reply.message.tool_calls?.lazy.compactMap { TaskTools.steps(from: $0) }.first
             }
             try Task.checkCancellation()
-            if plan == nil { await store.appendEvent(mission.id, kind: .notice, text: "No usable plan came back, so one helper does the whole objective.") }
+            if plan == nil { await store.appendEvent(mission.id, kind: .notice, text: "No usable plan came back, so one specialist does the whole objective.") }
             let steps = plan ?? TaskTools.fallbackPlan(objective: request.objective)
             await store.appendEvent(mission.id, kind: .plan, text: TaskTools.planSummary(steps))
             await store.appendEvent(mission.id, kind: .phase, text: MissionPhase.working.rawValue)
@@ -1299,17 +1299,17 @@ public actor ConversationEngine {
             let status: MissionStatus = failures == steps.count ? .failed : .completed
             let done = await finish(status, report: TaskTools.finalReport(objective: request.objective, reports: reports, verdict: verdict, check: check, files: files), verdict: verdict)
             await beginStep(es ? "Revisando el resultado" : "Checking the result", in: ref)
-            return (TaskTools.result(mission: done, skillName: skill?.name ?? (es ? "ayudantes de Ada" : "Ada's helpers"), files: files), done)
+            return (TaskTools.result(mission: done, skillName: skill?.name ?? (es ? "especialistas de Ada" : "Ada's specialists"), files: files), done)
         } catch is CancellationError {
-            let stopped = await finish(.stopped, report: "The task was stopped.", verdict: nil)
-            return (.failure("The task was stopped."), stopped)
+            let stopped = await finish(.stopped, report: "The job was stopped.", verdict: nil)
+            return (.failure("The job was stopped."), stopped)
         } catch {
-            let failed = await finish(.failed, report: "The task failed: \(error.localizedDescription)", verdict: nil)
-            return (.failure("The task failed: \(error.localizedDescription)"), failed)
+            let failed = await finish(.failed, report: "The job failed: \(error.localizedDescription)", verdict: nil)
+            return (.failure("The job failed: \(error.localizedDescription)"), failed)
         }
     }
 
-    private func promptContext(conversation: Conversation, history: [ConversationMessage], memory: String, knowledge: String, scheduled: Bool, spoken: Bool = false, personName: String? = nil, event: TriggerEvent? = nil) async -> ConversationPromptContext {
+    private func promptContext(conversation: Conversation, history: [ConversationMessage], memory: String, knowledge: String, activity: String = "", scheduled: Bool, spoken: Bool = false, personName: String? = nil, event: TriggerEvent? = nil) async -> ConversationPromptContext {
         let prior = Array(history.dropLast())
         var seen = Set<UUID>()
         var ids: [UUID] = []
@@ -1325,7 +1325,7 @@ public actor ConversationEngine {
         for id in ids {
             guard let mission = await store.mission(id: id) else { continue }
             let files = await store.deliverables(missionID: id)
-            references.append("ID: \(id.uuidString)\nTeam: \(mission.teamName); status: \(mission.status.rawValue); objective: \(String(mission.objective.replacingOccurrences(of: "\n", with: " ").prefix(240)))\nFiles: \(files.isEmpty ? "none" : files.joined(separator: ", "))")
+            references.append("ID: \(id.uuidString)\nJob: \(mission.teamName); status: \(mission.status.rawValue); objective: \(String(mission.objective.replacingOccurrences(of: "\n", with: " ").prefix(240)))\nFiles: \(files.isEmpty ? "none" : files.joined(separator: ", "))")
         }
         let manifest = await workspace.manifest(conversationID: conversation.id).joined(separator: "\n")
         let scope = ProjectScope(ownerID: conversation.ownerID, projectName: conversation.projectName)
@@ -1344,6 +1344,7 @@ public actor ConversationEngine {
             projectManifest: projectManifest,
             hostGrants: hostGrants,
             knowledge: knowledge,
+            activity: activity,
             spoken: spoken,
             timeZoneID: conversation.timeZone,
             personName: personName,
@@ -1601,7 +1602,7 @@ public actor ConversationEngine {
     static func textWithPhotoNote(_ message: ConversationMessage) -> String {
         guard !message.photos.isEmpty else { return message.text }
         let count = message.photos.count
-        let note = "[The user attached \(count == 1 ? "a photo" : "\(count) photos"). Only Ada's DIRECT reply can look at photos; SOLO missions and specialist teams cannot see them.]"
+        let note = "[The user attached \(count == 1 ? "a photo" : "\(count) photos"). Only Ada's own reply can look at photos; her specialists and jobs cannot see them.]"
         return message.text.isEmpty ? note : message.text + "\n\n" + note
     }
 

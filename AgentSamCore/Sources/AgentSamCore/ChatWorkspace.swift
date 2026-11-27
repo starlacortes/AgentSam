@@ -394,12 +394,12 @@ public enum ConversationMissionTools {
         [
             APIToolDef(
                 name: "mission_list_files",
-                description: "List deliverables from a mission linked to this conversation.",
+                description: "List the files of a job linked to this conversation. A job's ID is its mission ID.",
                 parameters: schema([("mission_id", prop("string", "Full mission UUID from the conversation context"))], required: ["mission_id"])
             ),
             APIToolDef(
                 name: "mission_read_file",
-                description: "Read a text deliverable from a mission linked to this conversation. Use start_line to continue a clipped read.",
+                description: "Read a text file of a job linked to this conversation. A job's ID is its mission ID. Use start_line to continue a clipped read.",
                 parameters: schema([
                     ("mission_id", prop("string", "Full mission UUID from the conversation context")),
                     ("path", prop("string", "Relative deliverable path")),
@@ -415,7 +415,7 @@ public enum ConversationMissionTools {
         guard let rawID = args["mission_id"]?.stringValue,
               let missionID = UUID(uuidString: rawID),
               allowedMissionIDs.contains(missionID) else {
-            return .failure("Mission not found in this conversation's linked mission references.")
+            return .failure("Job not found among the jobs linked to this conversation.")
         }
         switch call.function.name {
         case "mission_list_files":
