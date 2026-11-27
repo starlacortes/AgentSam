@@ -394,7 +394,7 @@ export interface ServerInfo {
 
 export const phaseLabel: Record<MissionPhase, string> = {
   planning: 'Planning',
-  working: 'Agents working',
+  working: 'Specialists working',
   verifying: 'Verifying',
   reporting: 'Final report',
   done: 'Done',

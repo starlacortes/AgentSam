@@ -268,7 +268,7 @@ export function SidePanel({ state, missionIDs, onChange, onClose, onResize }: {
 
     {state.tab === 'console' ? <div className="co-canvas-body co-console">
       <div className="co-console-bar">
-        {(['all', 'agents', 'page', 'errors'] as ConsoleFilter[]).map((name) => <button key={name} type="button" aria-pressed={filter === name} onClick={() => setFilter(name)}>{t(name === 'all' ? 'All' : name === 'agents' ? 'Agents' : name === 'page' ? 'Page' : 'Errors')}</button>)}
+        {(['all', 'agents', 'page', 'errors'] as ConsoleFilter[]).map((name) => <button key={name} type="button" aria-pressed={filter === name} onClick={() => setFilter(name)}>{t(name === 'all' ? 'All' : name === 'agents' ? 'Specialists' : name === 'page' ? 'Page' : 'Errors')}</button>)}
         <span className="co-console-live">{detail?.running ? <><i className="co-live-dot" />{t('Live')}</> : null}</span>
         <button type="button" className="co-icon-button" aria-label={t('Clear page output')} title={t('Clear page output')} onClick={() => setPageLogs([])}><Icon name="trash" size={13} /></button>
       </div>

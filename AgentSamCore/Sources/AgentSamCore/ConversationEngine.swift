@@ -85,9 +85,13 @@ public actor ConversationEngine {
         running[conversationID] = Task {
             // Every model call made for this reply adds its estimated cost to one meter.
             let meter = CostMeter()
+            let trace = ReplyTrace(conversationID: conversationID)
             await CostMeter.$current.withValue(meter) {
-                await self.drive(conversationID: conversationID, ownerID: ownerID, userMessage: userMessage, responseID: pending.id, launchedBy: launchedBy, language: lang)
+                await ReplyTrace.$current.withValue(trace) {
+                    await self.drive(conversationID: conversationID, ownerID: ownerID, userMessage: userMessage, responseID: pending.id, launchedBy: launchedBy, language: lang)
+                }
             }
+            EngineLog.write(.info, trace.summaryLine(costUSD: meter.total))
             await self.access?.spend.add(ownerID: ownerID, usd: meter.total)
         }
         return result
@@ -163,9 +167,13 @@ public actor ConversationEngine {
         let conversationID = conversation.id
         running[conversationID] = Task {
             let meter = CostMeter()
+            let trace = ReplyTrace(conversationID: conversationID)
             await CostMeter.$current.withValue(meter) {
-                await self.driveTask(mission, skill: skill, userMessage: userMessage, coordinator: coordinator, context: context, history: history, language: lang, ref: ref)
+                await ReplyTrace.$current.withValue(trace) {
+                    await self.driveTask(mission, skill: skill, userMessage: userMessage, coordinator: coordinator, context: context, history: history, language: lang, ref: ref)
+                }
             }
+            EngineLog.write(.info, trace.summaryLine(costUSD: meter.total))
             await self.access?.spend.add(ownerID: ownerID, usd: meter.total)
         }
         return mission
@@ -342,7 +350,7 @@ public actor ConversationEngine {
             }
             if decision == nil {
                 let retrySystem = ConversationPrompts.routingSystem(coordinator: coordinator, skills: catalog, context: context, store: promptStore, language: language) + "\nYour previous response was not valid. Return exactly one JSON object matching the contract, with a valid action."
-                let retry = try await complete(coordinator: coordinator, system: retrySystem, messages: Self.chatTurns(from: history.dropLast()) + [.user(context.userTurn(userText))], tools: nil)
+                let retry = try await complete(coordinator: coordinator, system: retrySystem, messages: Self.chatTurns(from: history.dropLast()) + [.user(context.userTurn(userText))], tools: nil, purpose: "route")
                 decision = ConversationDecision.parse(retry.message.content ?? "")
             }
 
@@ -495,7 +503,7 @@ public actor ConversationEngine {
         let chosen = viewer.providerID != ada.providerID || viewer.model != ada.model
         guard chosen || VisionSupport.accepts(provider: provider, model: viewer.model) else { return nil }
         return BrowserTools.Viewer(model: viewer.model) { [self] image, prompt in
-            let reply = try await self.complete(coordinator: viewer, system: BrowserTools.visionSystem, messages: [.user(prompt, images: [image])], tools: nil, maxTokens: 1_500)
+            let reply = try await self.complete(coordinator: viewer, system: BrowserTools.visionSystem, messages: [.user(prompt, images: [image])], tools: nil, maxTokens: 1_500, purpose: "vision")
             return reply.message.content ?? ""
         }
     }
@@ -568,7 +576,7 @@ public actor ConversationEngine {
 
     private func route(userText: String, coordinator: AgentProfile, skills catalog: String, context: ConversationPromptContext, history: [ConversationMessage], language: String) async throws -> ConversationDecision? {
         let system = ConversationPrompts.routingSystem(coordinator: coordinator, skills: catalog, context: context, store: promptStore, language: language)
-        let reply = try await complete(coordinator: coordinator, system: system, messages: Self.chatTurns(from: history.dropLast()) + [.user(context.userTurn(userText))], tools: nil)
+        let reply = try await complete(coordinator: coordinator, system: system, messages: Self.chatTurns(from: history.dropLast()) + [.user(context.userTurn(userText))], tools: nil, purpose: "route")
         return ConversationDecision.parse(reply.message.content ?? "")
     }
 
@@ -933,7 +941,7 @@ public actor ConversationEngine {
             var finished = false
             for _ in 0..<maxRounds {
                 try Task.checkCancellation()
-                let reply = try await complete(coordinator: coordinator, system: system, messages: messages, tools: offeredTools.definitions.isEmpty ? nil : offeredTools.definitions)
+                let reply = try await complete(coordinator: coordinator, system: system, messages: messages, tools: offeredTools.definitions.isEmpty ? nil : offeredTools.definitions, purpose: "helper")
                 rounds += 1
                 messages.append(reply.message)
                 let calls = reply.message.tool_calls ?? []
@@ -954,7 +962,7 @@ public actor ConversationEngine {
             if !finished {
                 stopped = true
                 messages.append(.user("No tool steps are left. Report now with what you have, without calling tools, and say what is missing."))
-                report = try await complete(coordinator: coordinator, system: system, messages: messages, tools: nil).message.content ?? ""
+                report = try await complete(coordinator: coordinator, system: system, messages: messages, tools: nil, purpose: "helper").message.content ?? ""
                 rounds += 1
             }
             line.state = report.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "failed" : "done"
@@ -1122,7 +1130,7 @@ public actor ConversationEngine {
                 ? "\n\nEsta respuesta se leerá en voz alta: sigue las reglas de VOICE REPLY del mensaje de sistema por encima del formato anterior."
                 : "\n\nThis reply is read aloud: follow the VOICE REPLY rules in the system prompt over the format above."
         }
-        let reply = try await complete(coordinator: coordinator, system: system, messages: Self.chatTurns(from: history.dropLast()) + [.user(turn)], tools: nil, maxTokens: context.spoken ? Self.voiceMaxTokens : nil)
+        let reply = try await complete(coordinator: coordinator, system: system, messages: Self.chatTurns(from: history.dropLast()) + [.user(turn)], tools: nil, maxTokens: context.spoken ? Self.voiceMaxTokens : nil, purpose: "consolidate")
         if reply.message.content?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false { return reply.message.content ?? "" }
         return missions.compactMap(\.finalReport).joined(separator: "\n\n")
     }
@@ -1213,7 +1221,7 @@ public actor ConversationEngine {
             let planTool = TaskTools.planDefinition(hasWorkstation: workstation != nil, hasMCP: hasMCP, hasBrowser: hasBrowser)
             var plan: [TaskTools.Step]?
             let planMessages: [APIMessage] = [.user("OBJECTIVE:\n\(request.objective)\(context.missionHandoff.isEmpty ? "" : "\n\nCONTEXT FROM THE CONVERSATION:\n\(context.missionHandoff.prefix(6_000))")")]
-            if let reply = try? await complete(coordinator: coordinator, system: TaskTools.planSystemPrompt(language: language, procedure: procedure), messages: planMessages, tools: [planTool]) {
+            if let reply = try? await complete(coordinator: coordinator, system: TaskTools.planSystemPrompt(language: language, procedure: procedure), messages: planMessages, tools: [planTool], purpose: "plan") {
                 plan = reply.message.tool_calls?.lazy.compactMap { TaskTools.steps(from: $0) }.first
             }
             try Task.checkCancellation()
@@ -1326,31 +1334,52 @@ public actor ConversationEngine {
         )
     }
 
-    private func complete(coordinator: AgentProfile, system: String, messages: [APIMessage], tools: [APIToolDef]?, maxTokens: Int? = nil, onDelta: TextDeltaHandler? = nil) async throws -> LLMReply {
+    /// Every model call the engine makes goes through here, so each one is costed and logged.
+    /// `purpose` says in the log what the call was for.
+    private func complete(coordinator: AgentProfile, system: String, messages: [APIMessage], tools: [APIToolDef]?, maxTokens: Int? = nil, purpose: String = "other", onDelta: TextDeltaHandler? = nil) async throws -> LLMReply {
         let registry = ProviderRegistry(providers: await store.loadProviders())
         guard let provider = registry.provider(id: coordinator.providerID) else { throw ConversationError.noProvider }
-        let reply: LLMReply
-        if let completionOverride {
-            reply = try await completionOverride(provider, keyRing.get(provider.keyAccount) ?? "", coordinator, system, messages, tools)
-        } else {
-            reply = try await client.complete(provider: provider, key: keyRing.get(provider.keyAccount) ?? "", model: coordinator.model, system: system, messages: messages, tools: tools, temperature: coordinator.temperature, maxTokens: maxTokens, onDelta: onDelta)
+        let trace = ReplyTrace.current
+        let call = trace?.beginCall(purpose: purpose) ?? 0
+        let started = ModelCallLog.now()
+        let firstWord = ModelCallLog.FirstWord(started: started)
+        var timedDelta: TextDeltaHandler?
+        if let onDelta {
+            timedDelta = { text in
+                firstWord.mark()
+                onDelta(text)
+            }
         }
-        CostMeter.current?.add(reply)
+        let reply: LLMReply
+        do {
+            if let completionOverride {
+                reply = try await completionOverride(provider, keyRing.get(provider.keyAccount) ?? "", coordinator, system, messages, tools)
+            } else {
+                reply = try await client.complete(provider: provider, key: keyRing.get(provider.keyAccount) ?? "", model: coordinator.model, system: system, messages: messages, tools: tools, temperature: coordinator.temperature, maxTokens: maxTokens, onDelta: timedDelta)
+            }
+        } catch {
+            EngineLog.write(.info, ModelCallLog.failureLine(conversation: trace?.conversation ?? "-", call: call, purpose: purpose, provider: provider.id, model: coordinator.model, error: error, totalMilliseconds: ModelCallLog.milliseconds(since: started)))
+            throw error
+        }
+        let cost = Pricing.estimate(model: reply.model, inputTokens: reply.inputTokens, outputTokens: reply.outputTokens, cachedInputTokens: reply.cachedInputTokens, local: provider.isLocal)
+        CostMeter.current?.add(cost)
+        trace?.record(reply)
+        EngineLog.write(.info, ModelCallLog.line(conversation: trace?.conversation ?? "-", call: call, purpose: purpose, provider: provider.id, reply: reply, messages: messages.count, tools: tools?.count ?? 0, firstWordMilliseconds: firstWord.milliseconds, totalMilliseconds: ModelCallLog.milliseconds(since: started), costUSD: cost))
         return reply
     }
 
-    private func completeDirect(coordinator: AgentProfile, system: String, messages: [APIMessage], tools: [APIToolDef]?, maxTokens: Int? = nil, contextAllowance: Int = 0, summaries: ConversationCompactor.SummaryState = .init(), onDelta: TextDeltaHandler? = nil) async throws -> LLMReply {
+    private func completeDirect(coordinator: AgentProfile, system: String, messages: [APIMessage], tools: [APIToolDef]?, maxTokens: Int? = nil, purpose: String = "reply", contextAllowance: Int = 0, summaries: ConversationCompactor.SummaryState = .init(), onDelta: TextDeltaHandler? = nil) async throws -> LLMReply {
         var budget = ModelLimits.conversationBudget(model: coordinator.model) + contextAllowance
         var overflowRetries = 0
         var messages = messages
         while true {
             let compacted = await ConversationCompactor.compact(messages: messages, budgetTokens: budget, summarizer: { previous, transcript in
                 let request = ConversationCompactor.summaryRequest(previous: previous, transcript: transcript)
-                let reply = try? await self.complete(coordinator: coordinator, system: ConversationCompactor.summarySystem, messages: [.user(request)], tools: nil, maxTokens: 900)
+                let reply = try? await self.complete(coordinator: coordinator, system: ConversationCompactor.summarySystem, messages: [.user(request)], tools: nil, maxTokens: 900, purpose: "summary")
                 return reply?.message.content
             }, state: summaries)
             do {
-                return try await complete(coordinator: coordinator, system: system, messages: compacted.messages, tools: tools, maxTokens: maxTokens, onDelta: onDelta)
+                return try await complete(coordinator: coordinator, system: system, messages: compacted.messages, tools: tools, maxTokens: maxTokens, purpose: purpose, onDelta: onDelta)
             } catch let error as LLMError where error.isContextOverflow {
                 overflowRetries += 1
                 guard overflowRetries <= 2 else { throw error }
@@ -1476,7 +1505,7 @@ public actor ConversationEngine {
         let request = String(message.text.prefix(600))
         let line: String? = await withTaskGroup(of: String?.self) { group in
             group.addTask {
-                let reply = try? await self.complete(coordinator: profile, system: system, messages: [.user(request)], tools: nil, maxTokens: 40)
+                let reply = try? await self.complete(coordinator: profile, system: system, messages: [.user(request)], tools: nil, maxTokens: 40, purpose: ModelCallLog.acknowledgement)
                 return reply?.message.content.flatMap(Self.cleanAcknowledgement)
             }
             group.addTask {
@@ -1535,23 +1564,36 @@ public actor ConversationEngine {
     private func remember(conversationID: UUID, ownerID: String, user: ConversationMessage, assistant: ConversationMessage, coordinator: AgentProfile) {
         memoryJobs[assistant.id] = Task(priority: .utility) {
             defer { self.memoryJobs[assistant.id] = nil }
-            do {
-                var job = try await memory.record(conversationID: conversationID, ownerID: ownerID, userMessage: user, assistantMessage: assistant)
-                var attempts = 0
-                while let compaction = job, attempts < 3, !Task.isCancelled {
-                    attempts += 1
-                    do {
-                        let reply = try await complete(coordinator: coordinator, system: ConversationPrompts.memorySystem(store: promptStore), messages: [.user(compaction.prompt)], tools: nil)
-                        _ = try await memory.finishCompaction(compaction, markdown: reply.message.content ?? "")
-                    } catch {
-                        await memory.compactionFailed(ownerID: ownerID)
-                        break
-                    }
-                    job = await memory.nextCompaction(ownerID: ownerID)
+            // Memory upkeep runs on after the reply has been costed and summed up, so it keeps its
+            // own meter and call count, and adds what it spent to the day itself.
+            let meter = CostMeter()
+            let trace = ReplyTrace(conversationID: conversationID)
+            await CostMeter.$current.withValue(meter) {
+                await ReplyTrace.$current.withValue(trace) {
+                    await self.runMemoryUpkeep(conversationID: conversationID, ownerID: ownerID, user: user, assistant: assistant, coordinator: coordinator)
                 }
-            } catch {
-                await memory.compactionFailed(ownerID: ownerID)
             }
+            await self.access?.spend.add(ownerID: ownerID, usd: meter.total)
+        }
+    }
+
+    private func runMemoryUpkeep(conversationID: UUID, ownerID: String, user: ConversationMessage, assistant: ConversationMessage, coordinator: AgentProfile) async {
+        do {
+            var job = try await memory.record(conversationID: conversationID, ownerID: ownerID, userMessage: user, assistantMessage: assistant)
+            var attempts = 0
+            while let compaction = job, attempts < 3, !Task.isCancelled {
+                attempts += 1
+                do {
+                    let reply = try await complete(coordinator: coordinator, system: ConversationPrompts.memorySystem(store: promptStore), messages: [.user(compaction.prompt)], tools: nil, purpose: "memory")
+                    _ = try await memory.finishCompaction(compaction, markdown: reply.message.content ?? "")
+                } catch {
+                    await memory.compactionFailed(ownerID: ownerID)
+                    break
+                }
+                job = await memory.nextCompaction(ownerID: ownerID)
+            }
+        } catch {
+            await memory.compactionFailed(ownerID: ownerID)
         }
     }
 

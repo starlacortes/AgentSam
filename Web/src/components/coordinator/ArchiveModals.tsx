@@ -63,7 +63,7 @@ export function RetentionPrompt({ onChosen, onClose }: { onChosen: (settings: Ar
         <div>
           <span className="co-kicker">{t('Archive')}</span>
           <h2 id="co-retention-title">{t('How long should archived chats be kept?')}</h2>
-          <p>{t('Archived chats leave the sidebar but stay in Archived chats, where you can open or restore them. After this long they are deleted with their chat files and photos. Project files and missions are never touched.')}</p>
+          <p>{t('Archived chats leave the sidebar but stay in Archived chats, where you can open or restore them. After this long they are deleted with their chat files and photos. Project files and jobs are never touched.')}</p>
         </div>
         <button className="co-icon-button" aria-label={t('Close')} onClick={onClose}><Icon name="close" /></button>
       </div>

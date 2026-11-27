@@ -38,7 +38,7 @@ export function AgentStage({ agents, compact = false }: { agents: AgentItem[]; c
 
   if (agents.length === 0) return null
   return (
-    <div className={compact ? 'stage compact' : 'stage'} aria-label={t('Agent stage')}>
+    <div className={compact ? 'stage compact' : 'stage'} aria-label={t('Specialists at work')}>
       {rows.map((row, index) => (
         <div className="stage-row" key={index}>
           {row.map((item) => (

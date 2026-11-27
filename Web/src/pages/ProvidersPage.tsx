@@ -33,7 +33,7 @@ export function ProvidersPage() {
         <div>
           <div className="kicker">{t('Server settings')}</div>
           <h1>{t('Model providers')}</h1>
-          <p className="lede">{t('Keys are stored on the server and shared by every mission. They can be replaced or removed here, but never read back.')}</p>
+          <p className="lede">{t('Keys are stored on the server and used for everyone’s chats and jobs. They can be replaced or removed here, but never read back.')}</p>
         </div>
         <button className="btn ghost" onClick={() => setAdding(true)} disabled={adding}>
           {t('Add provider')}
@@ -228,7 +228,7 @@ export function ProviderCard({
           <button
             className="pill"
             onClick={() => {
-              if (window.confirm(t('Remove the saved {name} key? Agents using it will stop working.', { name: config.name }))) {
+              if (window.confirm(t('Remove the saved {name} key? Ada and her specialists can’t use {name} until you add a new one.', { name: config.name }))) {
                 void run('remove', async () => {
                   await api(`providers/${status.provider.id}/key`, { method: 'DELETE' })
                   onSaved()

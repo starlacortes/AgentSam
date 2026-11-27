@@ -193,7 +193,7 @@ export function useRecorder(onDone: (audio: Blob, durationMs: number, ended: Rec
       const name = err instanceof DOMException ? err.name : ''
       onError(
         name === 'NotAllowedError'
-          ? 'Microphone access was blocked. Allow it in your browser’s site settings to talk to your coordinator.'
+          ? 'Microphone access was blocked. Allow it in your browser’s site settings to talk to Ada.'
           : name === 'NotFoundError'
             ? 'No microphone was found.'
             : 'Couldn’t start the microphone.',

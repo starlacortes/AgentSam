@@ -536,7 +536,7 @@ export function CoordinatorPage() {
   }
 
   const remove = async () => {
-    if (!conversation || !window.confirm(t('Delete this conversation? Its messages will be removed; missions and files stay intact.'))) return
+    if (!conversation || !window.confirm(t('Delete this conversation? Its messages will be removed; jobs and files stay intact.'))) return
     try {
       await api(`conversations/${conversation.id}`, { method: 'DELETE' })
       setConversations((current) => current.filter((item) => item.id !== conversation.id))

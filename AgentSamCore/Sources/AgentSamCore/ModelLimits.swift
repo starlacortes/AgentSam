@@ -15,7 +15,7 @@ public enum ModelLimits {
         let name = model.lowercased()
         let table: [(marker: String, tokens: Int)] = [
             ("claude", 200_000), ("gemini", 1_000_000), ("gpt-5", 400_000), ("gpt-4.1", 1_000_000),
-            ("gpt-4o", 128_000), ("deepseek-v4", 1_000_000), ("deepseek", 128_000), ("kimi", 256_000),
+            ("gpt-4o", 128_000), ("deepseek-v4", 1_000_000), ("deepseek-flash", 1_000_000), ("deepseek", 128_000), ("kimi", 256_000),
             ("glm", 128_000), ("qwen3", 128_000), ("gpt-oss", 128_000),
             ("llama-3", 128_000), ("llama3", 128_000), ("mixtral", 32_000),
         ]
