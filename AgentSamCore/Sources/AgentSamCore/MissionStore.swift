@@ -46,20 +46,42 @@ public actor MissionStore {
 
     // MARK: Providers
 
+    /// The provider list as last read, with the file's date and size at that moment. Every model
+    /// call asks for the list, so it is read and decoded again only when the file has changed.
+    private var providersCache: (modified: Date, size: Int, providers: [ProviderConfig])?
+
+    private nonisolated var providersURL: URL { root.appendingPathComponent("providers.json") }
+
+    private func providersStamp() -> (modified: Date, size: Int)? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: providersURL.path),
+              let modified = attributes[.modificationDate] as? Date,
+              let size = (attributes[.size] as? NSNumber)?.intValue else { return nil }
+        return (modified, size)
+    }
+
     public func loadProviders() -> [ProviderConfig] {
-        let url = root.appendingPathComponent("providers.json")
-        guard let data = try? Data(contentsOf: url),
+        let stamp = providersStamp()
+        if let stamp, let cached = providersCache, cached.modified == stamp.modified, cached.size == stamp.size {
+            return cached.providers
+        }
+        providersCache = nil
+        guard let data = try? Data(contentsOf: providersURL),
               let providers = try? Self.decoder.decode([ProviderConfig].self, from: data),
               !providers.isEmpty else {
             return ProviderConfig.builtin
+        }
+        // Only remember what matches the file as it was before the read; a write in between is
+        // picked up on the next call.
+        if let stamp, let after = providersStamp(), after.modified == stamp.modified, after.size == stamp.size {
+            providersCache = (stamp.modified, stamp.size, providers)
         }
         return providers
     }
 
     public func saveProviders(_ providers: [ProviderConfig]) {
-        let url = root.appendingPathComponent("providers.json")
+        providersCache = nil
         if let data = try? Self.encoder.encode(providers) {
-            try? data.write(to: url, options: .atomic)
+            try? data.write(to: providersURL, options: .atomic)
         }
     }
 

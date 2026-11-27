@@ -182,19 +182,36 @@ public actor WorkspaceKnowledgeStore {
         )
     }
 
+    private func documentsExist(_ ownerID: String) -> Bool {
+        WorkspaceKnowledgeDocumentID.allCases.allSatisfy {
+            FileManager.default.fileExists(atPath: ownerDirectory(ownerID).appendingPathComponent("\($0.rawValue).md").path)
+        }
+    }
+
+    /// When each owner's workspace was last looked at by this store. Kept in memory only, so the
+    /// first message after a restart always looks.
+    private var lastLooked: [String: Date] = [:]
+
+    /// Looks at the workspace again and rewrites the documents when something changed. With
+    /// `freshFor`, a workspace looked at less than that many seconds ago is not looked at again
+    /// and the saved documents are returned: a chat in full flow asks on every message, and
+    /// looking reads every chat.
     @discardableResult
-    public func refresh(ownerID: String, force: Bool = false, now: Date = Date()) async -> WorkspaceKnowledge {
+    public func refresh(ownerID: String, force: Bool = false, now: Date = Date(), freshFor: TimeInterval = 0) async -> WorkspaceKnowledge {
         guard !refreshing.contains(ownerID) else { return state(ownerID: ownerID) }
+        if !force, freshFor > 0, let looked = lastLooked[ownerID], (0..<freshFor).contains(now.timeIntervalSince(looked)),
+           let saved = metadata(ownerID), saved.lastError == nil, saved.updatedAt != nil, documentsExist(ownerID) {
+            return state(ownerID: ownerID)
+        }
         refreshing.insert(ownerID)
         do {
             let drafts = try await discover(ownerID: ownerID)
             let fingerprint = Self.fingerprint(drafts)
             let previous = metadata(ownerID)
-            let documentsExist = WorkspaceKnowledgeDocumentID.allCases.allSatisfy {
-                FileManager.default.fileExists(atPath: ownerDirectory(ownerID).appendingPathComponent("\($0.rawValue).md").path)
-            }
+            let written = documentsExist(ownerID)
+            lastLooked[ownerID] = now
             if !force, previous?.fingerprint == fingerprint, previous?.updatedAt != nil,
-               previous?.nextRefreshAt ?? .distantPast > now, documentsExist {
+               previous?.nextRefreshAt ?? .distantPast > now, written {
                 refreshing.remove(ownerID)
                 return state(ownerID: ownerID)
             }
