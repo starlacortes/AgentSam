@@ -420,7 +420,7 @@ public enum ConversationMissionTools {
         switch call.function.name {
         case "mission_list_files":
             let files = await store.deliverables(missionID: missionID)
-            return ToolOutcome(resultText: files.isEmpty ? "The mission workspace is empty." : files.joined(separator: "\n"))
+            return ToolOutcome(resultText: files.isEmpty ? "This job has no files." : files.joined(separator: "\n"))
         case "mission_read_file":
             guard let path = args["path"]?.stringValue else {
                 return .failure("mission_read_file requires a path.")

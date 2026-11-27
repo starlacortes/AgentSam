@@ -32,7 +32,7 @@ public enum ExtendedWorkspaceTools {
             ]
         }
         definitions += [
-            APIToolDef(name: "project_list_files", description: "List files shared by all of this user's chats and missions in the current project.", parameters: schema([])),
+            APIToolDef(name: "project_list_files", description: "List files shared by all of this user's chats and jobs in the current project.", parameters: schema([])),
             APIToolDef(name: "project_read_file", description: "Read a UTF-8 file from the shared project workspace. Use start_line after a clipped read.", parameters: schema([path, ("start_line", prop("integer", "Optional 1-based starting line"))], required: ["path"])),
             APIToolDef(name: "project_write_file", description: "Create or fully replace a UTF-8 file in the shared project workspace, making it available to other chats and future missions.", parameters: schema([path, content], required: ["path", "content"])),
             APIToolDef(name: "run_terminal", description: "Run a shell command in an OS-sandboxed persistent session rooted at this conversation's private workspace. The working directory and files persist across calls. No host home-folder access or writes outside this workspace. Do not use destructive recursive deletion.", parameters: schema([
