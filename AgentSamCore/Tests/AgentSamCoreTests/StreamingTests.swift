@@ -130,6 +130,31 @@ private final class ChunkedSSEProtocol: URLProtocol, @unchecked Sendable {
     }
 }
 
+/// Fails the first requests with a network error, then serves the canned bytes.
+private final class DroppingSSEProtocol: URLProtocol, @unchecked Sendable {
+    nonisolated(unsafe) static var failuresLeft = 0
+    nonisolated(unsafe) static var failure = URLError(.networkConnectionLost)
+    nonisolated(unsafe) static var requests = 0
+    nonisolated(unsafe) static var chunks: [String] = []
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func stopLoading() {}
+
+    override func startLoading() {
+        Self.requests += 1
+        if Self.failuresLeft > 0 {
+            Self.failuresLeft -= 1
+            client?.urlProtocol(self, didFailWithError: Self.failure)
+            return
+        }
+        let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": "text/event-stream"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        for chunk in Self.chunks { client?.urlProtocol(self, didLoad: Data(chunk.utf8)) }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+}
+
 final class StreamingClientTests: XCTestCase {
     private func client() -> AnthropicClient {
         let config = URLSessionConfiguration.ephemeral
@@ -190,5 +215,102 @@ final class StreamingClientTests: XCTestCase {
         } catch {
             XCTFail("unexpected \(error)")
         }
+    }
+
+    private static let helloChunks = [
+        "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":3}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\"}}\n\n",
+        "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n\n",
+    ]
+
+    private func sharedClient() -> LLMClient {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [ChunkedSSEProtocol.self]
+        return LLMClient(session: URLSession(configuration: config))
+    }
+
+    /// One client keeps one streaming session for all its calls, so the provider connection is reused.
+    func testOneClientStreamsCallAfterCallOnItsSharedSession() async throws {
+        ChunkedSSEProtocol.status = 200
+        ChunkedSSEProtocol.chunks = Self.helloChunks
+        let client = sharedClient()
+        for _ in 0..<3 {
+            let reply = try await client.complete(provider: provider, key: "k", model: "m", system: "s", messages: [.user("hi")], onDelta: { _ in })
+            XCTAssertEqual(reply.message.content, "Hello")
+            XCTAssertEqual(reply.inputTokens, 3)
+        }
+    }
+
+    func testSharedSessionKeepsCallsApartWhenTheyRunTogether() async throws {
+        ChunkedSSEProtocol.status = 200
+        ChunkedSSEProtocol.chunks = Self.helloChunks
+        let client = sharedClient()
+        let provider = self.provider
+        let answers = try await withThrowingTaskGroup(of: String.self) { group in
+            for _ in 0..<6 {
+                group.addTask {
+                    try await client.complete(provider: provider, key: "k", model: "m", system: "s", messages: [.user("hi")], onDelta: { _ in }).message.content ?? ""
+                }
+            }
+            var all: [String] = []
+            for try await answer in group { all.append(answer) }
+            return all
+        }
+        XCTAssertEqual(answers, Array(repeating: "Hello", count: 6))
+    }
+
+    func testSharedSessionSurfacesAnHTTPErrorAndStillWorksAfter() async throws {
+        ChunkedSSEProtocol.status = 400
+        ChunkedSSEProtocol.chunks = ["{\"error\":\"bad request\"}"]
+        let client = sharedClient()
+        do {
+            _ = try await client.complete(provider: provider, key: "k", model: "m", system: "s", messages: [.user("hi")], onDelta: { _ in })
+            XCTFail("a 400 should throw")
+        } catch let error as LLMError {
+            XCTAssertEqual(error.statusCode, 400)
+        }
+        ChunkedSSEProtocol.status = 200
+        ChunkedSSEProtocol.chunks = Self.helloChunks
+        let reply = try await client.complete(provider: provider, key: "k", model: "m", system: "s", messages: [.user("hi")], onDelta: { _ in })
+        XCTAssertEqual(reply.message.content, "Hello")
+    }
+
+    private func droppingClient() -> LLMClient {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [DroppingSSEProtocol.self]
+        return LLMClient(session: URLSession(configuration: config))
+    }
+
+    /// A kept-open connection can be closed by the provider between calls; that must not fail the reply.
+    func testAConnectionDroppedBeforeAnyTextIsTriedAgain() async throws {
+        DroppingSSEProtocol.chunks = Self.helloChunks
+        DroppingSSEProtocol.failure = URLError(.networkConnectionLost)
+        DroppingSSEProtocol.failuresLeft = 1
+        DroppingSSEProtocol.requests = 0
+        let reply = try await droppingClient().complete(provider: provider, key: "k", model: "m", system: "s", messages: [.user("hi")], onDelta: { _ in })
+        XCTAssertEqual(reply.message.content, "Hello")
+        XCTAssertEqual(DroppingSSEProtocol.requests, 2)
+    }
+
+    func testATimeoutIsNotTriedAgain() async throws {
+        DroppingSSEProtocol.chunks = Self.helloChunks
+        DroppingSSEProtocol.failure = URLError(.timedOut)
+        DroppingSSEProtocol.failuresLeft = 1
+        DroppingSSEProtocol.requests = 0
+        do {
+            _ = try await droppingClient().complete(provider: provider, key: "k", model: "m", system: "s", messages: [.user("hi")], onDelta: { _ in })
+            XCTFail("a timeout should throw")
+        } catch let error as LLMError {
+            XCTAssertTrue(error.message.hasPrefix("Network error"), error.message)
+        }
+        XCTAssertEqual(DroppingSSEProtocol.requests, 1)
+        DroppingSSEProtocol.failuresLeft = 0
+    }
+
+    func testNetworkFailureAfterTextIsNotRetryable() {
+        XCTAssertTrue(StreamFailure.network(URLError(.networkConnectionLost), delivered: false).retryable)
+        XCTAssertFalse(StreamFailure.network(URLError(.networkConnectionLost), delivered: true).retryable)
+        XCTAssertFalse(StreamFailure.network(URLError(.timedOut), delivered: false).retryable)
+        XCTAssertFalse(StreamFailure.network(URLError(.cancelled), delivered: false).retryable)
+        XCTAssertFalse(StreamFailure.network(LLMError(message: "other"), delivered: false).retryable)
     }
 }

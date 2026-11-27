@@ -17,6 +17,9 @@ public struct ProviderRegistry: Sendable {
 
 public struct LLMClient: Sendable {
     public let session: URLSession
+    /// Streamed calls share one session for the life of this client, so a provider connection is
+    /// reused from one tool round to the next.
+    let streaming: SSETransport
 
     public init(session: URLSession? = nil) {
         if let session {
@@ -27,6 +30,7 @@ public struct LLMClient: Sendable {
             config.timeoutIntervalForResource = 600
             self.session = URLSession(configuration: config)
         }
+        streaming = SSETransport(configuration: self.session.configuration)
     }
 
     public func complete(
@@ -46,13 +50,13 @@ public struct LLMClient: Sendable {
         var reply: LLMReply
         switch provider.kind {
         case .anthropic:
-            reply = try await AnthropicClient(session: session).complete(
+            reply = try await AnthropicClient(session: session, streaming: streaming).complete(
                 provider: provider, key: key, model: model, system: system,
                 messages: messages, tools: tools, temperature: temperature,
                 maxTokens: maxTokens, onDelta: filtered
             )
         case .openAICompatible:
-            reply = try await OpenAICompatClient(session: session).complete(
+            reply = try await OpenAICompatClient(session: session, streaming: streaming).complete(
                 provider: provider, key: key, model: model, system: system,
                 messages: messages, tools: tools, temperature: temperature,
                 maxTokens: maxTokens, onDelta: filtered
@@ -106,6 +110,8 @@ public struct LLMClient: Sendable {
 
 public struct OpenAICompatClient: Sendable {
     let session: URLSession
+    /// The caller's long-lived streaming session. Without one, each streamed call makes its own.
+    var streaming: SSETransport?
 
     struct ChatRequest: Encodable {
         var model: String
@@ -235,7 +241,7 @@ public struct OpenAICompatClient: Sendable {
                 } catch let failure as StreamFailure {
                     if failure.retryable {
                         lastError = failure.error
-                        let delay = backoff.isEmpty ? 15 : backoff.removeFirst()
+                        let delay: UInt64 = failure.dropped ? 1 : (backoff.isEmpty ? 15 : backoff.removeFirst())
                         try? await Task.sleep(nanoseconds: delay * 1_000_000_000)
                         continue
                     }
@@ -292,7 +298,7 @@ public struct OpenAICompatClient: Sendable {
         var accumulator = OpenAIStreamAccumulator()
         var delivered = false
         do {
-            for try await event in streamEvents(session: session, request: request) {
+            for try await event in (streaming ?? SSETransport(configuration: session.configuration)).events(for: request) {
                 if let text = accumulator.consume(event.data) {
                     delivered = true
                     onDelta(text)
@@ -308,7 +314,7 @@ public struct OpenAICompatClient: Sendable {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            throw StreamFailure(error: LLMError(message: "Network error: \(error.localizedDescription)"), retryable: false)
+            throw StreamFailure.network(error, delivered: delivered)
         }
         return LLMReply(message: accumulator.message(), inputTokens: accumulator.inputTokens, outputTokens: accumulator.outputTokens, model: model, cachedInputTokens: accumulator.cachedInputTokens)
     }

@@ -5,6 +5,8 @@ import FoundationNetworking
 
 public struct AnthropicClient: Sendable {
     let session: URLSession
+    /// The caller's long-lived streaming session. Without one, each streamed call makes its own.
+    var streaming: SSETransport?
 
     struct WireRequest: Encodable {
         var model: String
@@ -165,7 +167,7 @@ public struct AnthropicClient: Sendable {
                 } catch let failure as StreamFailure {
                     if failure.retryable {
                         lastError = failure.error
-                        let delay = backoff.isEmpty ? 15 : backoff.removeFirst()
+                        let delay: UInt64 = failure.dropped ? 1 : (backoff.isEmpty ? 15 : backoff.removeFirst())
                         try? await Task.sleep(nanoseconds: delay * 1_000_000_000)
                         continue
                     }
@@ -236,7 +238,7 @@ public struct AnthropicClient: Sendable {
         var accumulator = AnthropicStreamAccumulator()
         var delivered = false
         do {
-            for try await event in streamEvents(session: session, request: request) {
+            for try await event in (streaming ?? SSETransport(configuration: session.configuration)).events(for: request) {
                 if let text = accumulator.consume(event.data) {
                     delivered = true
                     onDelta(text)
@@ -252,7 +254,7 @@ public struct AnthropicClient: Sendable {
         } catch is CancellationError {
             throw CancellationError()
         } catch {
-            throw StreamFailure(error: LLMError(message: "Network error: \(error.localizedDescription)"), retryable: false)
+            throw StreamFailure.network(error, delivered: delivered)
         }
         return LLMReply(message: accumulator.message(), inputTokens: accumulator.inputTokens, outputTokens: accumulator.outputTokens, model: model, cachedInputTokens: accumulator.cachedInputTokens)
     }
