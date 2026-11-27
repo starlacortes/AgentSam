@@ -1,7 +1,8 @@
 import Foundation
 
 /// Where the engine writes its operational log lines (model calls, pricing warnings). The server
-/// points this at its own logger; with nothing set, lines go to standard error.
+/// points this at its own logger. With nothing set, warnings go to standard error and the
+/// per-call lines are dropped, which keeps tests and command-line use quiet.
 public enum EngineLog {
     public enum Level: String, Sendable {
         case info
@@ -26,7 +27,7 @@ public enum EngineLog {
 
     private static let state = State()
 
-    /// Sends every later line to `sink`. Pass nil to go back to standard error.
+    /// Sends every later line to `sink`. Pass nil to go back to the default.
     public static func setSink(_ sink: Sink?) {
         state.set(sink)
     }
@@ -34,7 +35,7 @@ public enum EngineLog {
     public static func write(_ level: Level, _ line: String) {
         if let sink = state.get() {
             sink(level, line)
-        } else {
+        } else if level == .warning {
             FileHandle.standardError.write(Data("[\(level.rawValue)] \(line)\n".utf8))
         }
     }
