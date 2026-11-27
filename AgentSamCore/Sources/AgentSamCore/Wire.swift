@@ -256,33 +256,3 @@ public struct LLMReply: Sendable {
         self.cachedInputTokens = cachedInputTokens
     }
 }
-
-public enum Pricing {
-    public static let perMillionTokens: [String: (input: Double, output: Double)] = [
-        "claude-opus-4-5": (5, 25),
-        "claude-sonnet-4-5": (3, 15),
-        "claude-haiku-4-5": (0.8, 4),
-        "claude-opus-4-1": (15, 75),
-        "claude-sonnet-4": (3, 15),
-        "claude-3-5-haiku": (0.8, 4),
-        "gpt-5.2": (1.25, 10),
-        "gpt-5.2-mini": (0.25, 2),
-        "gpt-5": (1.25, 10),
-        "gpt-4o": (2.5, 10),
-        "gpt-4o-mini": (0.15, 0.6),
-        "deepseek-chat": (0.27, 1.1),
-        "deepseek-reasoner": (0.55, 2.19),
-        "llama-3.3-70b": (0.59, 0.79),
-    ]
-
-    public static func estimate(model: String, inputTokens: Int, outputTokens: Int) -> Double {
-        let lowered = model.lowercased()
-        for (prefix, price) in perMillionTokens.sorted(by: { $0.key.count > $1.key.count }) {
-            if lowered.contains(prefix) {
-                return Double(inputTokens) / 1_000_000 * price.input
-                    + Double(outputTokens) / 1_000_000 * price.output
-            }
-        }
-        return 0
-    }
-}
