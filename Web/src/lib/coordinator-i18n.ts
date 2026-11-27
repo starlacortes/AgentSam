@@ -1,7 +1,13 @@
 export const coordinatorSpanish: Record<string, string> = {
   // The work bar above the chat: who is working on the reply.
   'Last reply': 'Última respuesta',
-  'Working on your message': 'Trabajando en tu mensaje',
+  'with {names}': 'con {names}',
+  'Other tools': 'Otras herramientas',
+  'Show details': 'Mostrar detalles',
+  'Show what Ada remembers': 'Mostrar lo que Ada recuerda',
+  'Skills & specialists': 'Habilidades y especialistas',
+  'Routines Ada has learned, and the specialists she brings in for part of a job.': 'Rutinas que Ada ha aprendido y los especialistas a los que recurre para parte de un trabajo.',
+  'Got it': 'Entendido',
   'Ada had help from {names}': 'Ada tuvo ayuda de {names}',
   'Who is working on this': 'Quién está trabajando en esto',
   'Send a message to start this project.': 'Envía un mensaje para empezar este proyecto.',
